@@ -14,5 +14,6 @@ knowledge_base/signing/private/
 python/dist/
 python/**/build/
 python/**/.eggs/
+python/**/*.egg-info/
 scripts-dist/*
 !scripts-dist/package.json

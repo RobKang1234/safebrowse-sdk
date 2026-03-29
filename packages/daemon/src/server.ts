@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   brokerArtifact,
@@ -31,7 +33,7 @@ import {
   loadVerifiedRegistryBundle,
   loadPolicyPackFromPaths,
   resolvePolicyLayerFiles
-} from "@safebrowse/kb-tools";
+} from "./loaders.js";
 import type { VerifiedRegistryBundle } from "@safebrowse/core";
 
 export interface SafeBrowseDaemonOptions {
@@ -57,10 +59,31 @@ function writeJson(response: ServerResponse, statusCode: number, payload: unknow
   response.end(JSON.stringify(payload, null, 2));
 }
 
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveDefaultRootDir(): Promise<string> {
+  const moduleDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
+  const packagedRuntimeRoot = resolve(moduleDir, "runtime");
+  const packagedPolicy = resolve(packagedRuntimeRoot, "policies", "base", "research.yaml");
+
+  if (await fileExists(packagedPolicy)) {
+    return packagedRuntimeRoot;
+  }
+
+  return process.cwd();
+}
+
 async function buildRuntimeContext(
   options: SafeBrowseDaemonOptions
 ): Promise<RuntimeContext & { knowledgeBase: KnowledgeBaseContext; verifiedRegistry?: VerifiedRegistryBundle }> {
-  const rootDir = options.rootDir ?? process.cwd();
+  const rootDir = options.rootDir ?? (await resolveDefaultRootDir());
   const policyPack =
     options.policyPack ??
     (await loadPolicyPackFromPaths(resolvePolicyLayerFiles(resolve(rootDir))));

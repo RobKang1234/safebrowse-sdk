@@ -2,6 +2,15 @@
   "name": "safebrowse-sdk",
   "private": true,
   "version": "0.1.0",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RobKang1234/safebrowse-sdk.git"
+  },
+  "homepage": "https://github.com/RobKang1234/safebrowse-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/RobKang1234/safebrowse-sdk/issues"
+  },
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=22.0.0",
@@ -9,6 +18,7 @@
   },
   "scripts": {
     "build": "node scripts/run-pnpm.mjs -r --if-present build && tsc -p tsconfig.scripts.json",
+    "changeset": "changeset",
     "typecheck": "node scripts/run-pnpm.mjs build",
     "test:ts": "vitest run",
     "test:py": "node scripts/run-python-module.mjs -m unittest discover -s python/safebrowse_client/tests -p test_*.py",
@@ -19,9 +29,18 @@
     "kb:verify": "tsx packages/kb-tools/src/cli.ts verify-bundle",
     "demo:compare": "node scripts/run-pnpm.mjs build && node scripts-dist/threat-demo/run-comparison.js",
     "demo:serve-live": "node scripts/run-pnpm.mjs build && node scripts-dist/threat-demo/serve-live.js",
-    "demo:watch-live": "node scripts/run-pnpm.mjs build && node scripts-dist/threat-demo/watch-live.js"
+    "demo:watch-live": "node scripts/run-pnpm.mjs build && node scripts-dist/threat-demo/watch-live.js",
+    "release:sync-version": "node scripts/release/sync-version.mjs",
+    "release:version": "changeset version && node scripts/release/sync-version.mjs",
+    "release:build:python": "node scripts/release/build-python-artifacts.mjs",
+    "release:check:python": "node scripts/release/check-python-artifacts.mjs",
+    "release:audit": "node scripts/release/audit-public-artifacts.mjs",
+    "release:smoke:artifacts": "node scripts/release/smoke-public-artifacts.mjs",
+    "release:smoke:docker": "node scripts/release/docker-smoke.mjs",
+    "release:check": "node scripts/run-pnpm.mjs build && node scripts/run-pnpm.mjs test && node scripts/run-pnpm.mjs release:build:python && node scripts/run-pnpm.mjs release:check:python && node scripts/run-pnpm.mjs release:audit && node scripts/run-pnpm.mjs release:smoke:artifacts && node scripts/run-pnpm.mjs release:smoke:docker"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.29.7",
     "@types/node": "^22.15.30",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",

@@ -13,6 +13,51 @@ This repository currently contains:
 
 The current branch also includes the v2 hardening pass for connector and OAuth abuse observed in the live lab.
 
+## Public Distribution Targets
+
+The v3 launch surface is:
+
+| Surface | Name | Notes |
+| --- | --- | --- |
+| PyPI | `safebrowse-client` | Thin Python client for the daemon |
+| npm | `@safebrowse/core` | Core runtime library |
+| npm | `@safebrowse/daemon` | Installable daemon package with `safebrowse-daemon` bin |
+| npm | `@safebrowse/playwright-adapter` | Reference adapter package |
+| GHCR | `ghcr.io/robkang1234/safebrowse-daemon` | Production daemon image |
+
+`@safebrowse/kb-tools` remains internal-only in v3.
+
+## Quick Install
+
+### npm libraries
+
+```bash
+npm install @safebrowse/core
+npm install @safebrowse/playwright-adapter playwright-core
+```
+
+### Daemon CLI
+
+```bash
+npx @safebrowse/daemon --host 127.0.0.1 --port 8787
+```
+
+### Python client
+
+```bash
+pip install safebrowse-client
+```
+
+### Docker
+
+```bash
+docker run --rm -p 8787:8787 ghcr.io/robkang1234/safebrowse-daemon:latest
+```
+
+### License
+
+SafeBrowse is released under `Apache-2.0`. See [LICENSE](LICENSE).
+
 ## What SafeBrowse Does
 
 SafeBrowse is designed to sit between an agent and risky browser-adjacent surfaces:
@@ -119,10 +164,16 @@ corepack pnpm test
 ### 5. Start the daemon
 
 ```powershell
-node packages/daemon/dist/index.js
+npx @safebrowse/daemon --host 127.0.0.1 --port 8787
 ```
 
 The default daemon address is `http://127.0.0.1:8787`.
+
+For repository-local development, the built entrypoint still works:
+
+```powershell
+node packages/daemon/dist/index.js --host 127.0.0.1 --port 8787
+```
 
 ### 6. Use the Python client
 
@@ -130,6 +181,9 @@ The default daemon address is `http://127.0.0.1:8787`.
 from safebrowse_client import SafeBrowseClient
 
 client = SafeBrowseClient("http://127.0.0.1:8787")
+
+health = client.health()
+print(health["status"])
 
 observe_result = client.observe({
     "text": "Summarize this page",
@@ -161,6 +215,12 @@ Example v2 tool preparation:
 curl -X POST http://127.0.0.1:8787/v2/tool/prepare ^
   -H "Content-Type: application/json" ^
   -d "{\"requestId\":\"tool-1\",\"toolId\":\"citation-sync-safe\",\"registryEntryId\":\"citation-sync-safe\",\"description\":\"Citation sync connector for scholarly cross-reference enrichment.\",\"authType\":\"oauth\",\"requestedRedirectUri\":\"https://safe.example/oauth/callback\",\"callbackUri\":\"https://safe.example/oauth/callback\",\"callbackOrigin\":\"https://safe.example\",\"requestedScopes\":[\"citation:read\"],\"approvalBindingId\":\"approval-1\"}"
+```
+
+Example health check:
+
+```powershell
+curl http://127.0.0.1:8787/health
 ```
 
 ### 8. Run the comparison demo
@@ -331,3 +391,8 @@ For normal development:
 5. Run `corepack pnpm demo:watch-live` for model-backed observation and regression hunting.
 
 SafeBrowse is most useful when it is evaluated against the same agent backend with and without the middleware in front of it. That is the default comparison model used in this repo.
+
+## Security and Release Docs
+
+- Security policy: [SECURITY.md](SECURITY.md)
+- Release checklist and trusted-publisher setup: [RELEASING.md](RELEASING.md)

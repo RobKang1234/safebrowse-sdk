@@ -27,6 +27,18 @@ class _FakeResponse:
 
 class SafeBrowseClientTest(unittest.TestCase):
     @patch("safebrowse_client.client.request.urlopen")
+    def test_health_gets_daemon_status(self, mock_urlopen) -> None:
+        mock_urlopen.return_value = _FakeResponse({"status": "ok"})
+        client = SafeBrowseClient()
+
+        result = client.health()
+
+        self.assertEqual(result["status"], "ok")
+        args, kwargs = mock_urlopen.call_args
+        self.assertIn("/health", args[0].full_url)
+        self.assertEqual(kwargs["timeout"], 10.0)
+
+    @patch("safebrowse_client.client.request.urlopen")
     def test_observe_posts_to_daemon(self, mock_urlopen) -> None:
         mock_urlopen.return_value = _FakeResponse({"decision": "ALLOW"})
         client = SafeBrowseClient()

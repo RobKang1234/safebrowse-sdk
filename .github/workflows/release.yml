@@ -1,36 +1,273 @@
 name: release
 
 on:
-  workflow_dispatch:
   push:
     tags:
       - "v*"
 
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: ghcr.io/robkang1234/safebrowse-daemon
+
 jobs:
-  package:
+  validate:
     runs-on: ubuntu-latest
+    outputs:
+      javascript_version: ${{ steps.release_meta.outputs.javascript_version }}
+      python_version: ${{ steps.release_meta.outputs.python_version }}
+      dist_tag: ${{ steps.release_meta.outputs.dist_tag }}
+      is_prerelease: ${{ steps.release_meta.outputs.is_prerelease }}
+      release_env: ${{ steps.release_meta.outputs.release_env }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - run: corepack enable
+      - run: npm install -g npm@11.6.2
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/run-python-module.mjs -m pip install build twine
+      - id: release_meta
+        shell: bash
+        run: |
+          node scripts/release/sync-version.mjs --tag "${GITHUB_REF_NAME}" > release-version.json
+          JS_VERSION="$(node -e "const fs = require('fs'); const payload = JSON.parse(fs.readFileSync('release-version.json', 'utf8')); process.stdout.write(payload.javascriptVersion);")"
+          PY_VERSION="$(node -e "const fs = require('fs'); const payload = JSON.parse(fs.readFileSync('release-version.json', 'utf8')); process.stdout.write(payload.pythonVersion);")"
+          if [[ "${GITHUB_REF_NAME}" == *"-rc."* ]]; then
+            DIST_TAG="next"
+            IS_PRERELEASE="true"
+            RELEASE_ENV="release-rc"
+          else
+            DIST_TAG="latest"
+            IS_PRERELEASE="false"
+            RELEASE_ENV="release-prod"
+          fi
+          echo "javascript_version=${JS_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "python_version=${PY_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "dist_tag=${DIST_TAG}" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=${IS_PRERELEASE}" >> "$GITHUB_OUTPUT"
+          echo "release_env=${RELEASE_ENV}" >> "$GITHUB_OUTPUT"
+      - run: pnpm build
+      - run: pnpm test
+      - run: pnpm perf:smoke
+      - run: pnpm release:build:python
+      - run: pnpm release:check:python
+      - run: pnpm release:audit
+      - run: pnpm release:smoke:artifacts
+      - run: pnpm release:smoke:docker
+
+  publish_npm:
+    runs-on: ubuntu-latest
+    needs: validate
+    environment: ${{ needs.validate.outputs.release_env }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: npm install -g npm@11.6.2
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/release/sync-version.mjs --version "${{ needs.validate.outputs.javascript_version }}"
+      - run: pnpm build
+      - name: Publish core
+        working-directory: packages/core
+        run: npm publish --access public --provenance --tag "${{ needs.validate.outputs.dist_tag }}"
+      - name: Publish daemon
+        working-directory: packages/daemon
+        run: npm publish --access public --provenance --tag "${{ needs.validate.outputs.dist_tag }}"
+      - name: Publish Playwright adapter
+        working-directory: packages/playwright-adapter
+        run: npm publish --access public --provenance --tag "${{ needs.validate.outputs.dist_tag }}"
+      - name: Verify npm registry signatures
+        shell: bash
+        run: |
+          TMPDIR="$(mktemp -d)"
+          cd "${TMPDIR}"
+          npm init -y
+          for attempt in 1 2 3 4 5; do
+            if npm install \
+              "@safebrowse/core@${{ needs.validate.outputs.javascript_version }}" \
+              "@safebrowse/daemon@${{ needs.validate.outputs.javascript_version }}" \
+              "@safebrowse/playwright-adapter@${{ needs.validate.outputs.javascript_version }}"; then
+              npm audit signatures
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "Unable to verify published npm package signatures" >&2
+          exit 1
+
+  publish_pypi:
+    runs-on: ubuntu-latest
+    needs: validate
+    environment: ${{ needs.validate.outputs.release_env }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.12"
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm test
-      - run: pnpm run kb:bundle -- --generate-dev-key
-      - run: node scripts/run-python-module.mjs -m pip install build
-      - run: node scripts/run-python-module.mjs -m build python/safebrowse_client -o python/dist
-      - uses: actions/upload-artifact@v4
+      - run: node scripts/run-python-module.mjs -m pip install build twine
+      - run: node scripts/release/sync-version.mjs --version "${{ needs.validate.outputs.javascript_version }}"
+      - run: pnpm release:build:python
+      - run: pnpm release:check:python
+      - if: needs.validate.outputs.is_prerelease == 'true'
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
         with:
-          name: safebrowse-artifacts
+          packages-dir: python/dist
+          repository-url: https://test.pypi.org/legacy/
+      - if: needs.validate.outputs.is_prerelease != 'true'
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
+        with:
+          packages-dir: python/dist
+
+  publish_ghcr:
+    runs-on: ubuntu-latest
+    needs: validate
+    environment: ${{ needs.validate.outputs.release_env }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ needs.validate.outputs.javascript_version }}
+            type=raw,value=${{ github.ref_name }}
+            type=raw,value=latest,enable=${{ needs.validate.outputs.is_prerelease != 'true' }}
+            type=raw,value=rc,enable=${{ needs.validate.outputs.is_prerelease == 'true' }}
+      - id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+      - uses: sigstore/cosign-installer@f713795cb21599bc4e5c4b58cbad1da852d7eeb9
+      - run: cosign sign --yes "${IMAGE_NAME}@${{ steps.build.outputs.digest }}"
+      - run: cosign verify --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-identity-regexp "https://github.com/RobKang1234/safebrowse-sdk/.github/workflows/release.yml@refs/tags/.*" "${IMAGE_NAME}@${{ steps.build.outputs.digest }}"
+
+  release_assets:
+    runs-on: ubuntu-latest
+    needs: validate
+    environment: ${{ needs.validate.outputs.release_env }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Load KB signing key
+        shell: bash
+        env:
+          SAFEBROWSE_KB_SIGNING_KEY_B64: ${{ secrets.SAFEBROWSE_KB_SIGNING_KEY_B64 }}
+        run: |
+          if [[ -z "${SAFEBROWSE_KB_SIGNING_KEY_B64}" ]]; then
+            echo "Missing SAFEBROWSE_KB_SIGNING_KEY_B64" >&2
+            exit 1
+          fi
+          printf '%s' "${SAFEBROWSE_KB_SIGNING_KEY_B64}" | base64 -d > /tmp/safebrowse_kb_key.pem
+          {
+            echo "SAFEBROWSE_SIGNING_PRIVATE_KEY_PEM<<EOF"
+            cat /tmp/safebrowse_kb_key.pem
+            echo
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+      - run: pnpm kb:bundle
+      - run: pnpm kb:verify
+      - name: Generate release checksums
+        shell: bash
+        run: |
+          sha256sum \
+            knowledge_base/safebrowse_vf_knowledge_base_index.json \
+            knowledge_base/safebrowse_vf_knowledge_bases.zip \
+            knowledge_base/safebrowse_vf_knowledge_bases.zip.sig \
+            knowledge_base/safebrowse_vf_knowledge_base_index.json.sig \
+            knowledge_base/signing/safebrowse_vf_ed25519_public.pem \
+            > release-checksums.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-assets
           path: |
-            packages/*/dist
-            python/dist
+            knowledge_base/safebrowse_vf_knowledge_base_index.json
             knowledge_base/safebrowse_vf_knowledge_bases.zip
             knowledge_base/safebrowse_vf_knowledge_bases.zip.sig
             knowledge_base/safebrowse_vf_knowledge_base_index.json.sig
             knowledge_base/signing/safebrowse_vf_ed25519_public.pem
+            release-checksums.txt
+
+  github_release:
+    runs-on: ubuntu-latest
+    needs:
+      - validate
+      - publish_npm
+      - publish_pypi
+      - publish_ghcr
+      - release_assets
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-assets
+          path: release-assets
+      - name: Write release notes
+        shell: bash
+        run: |
+          cat > RELEASE_BODY.md <<'EOF'
+          ## SafeBrowse release
+
+          Public surfaces:
+
+          - PyPI: `safebrowse-client==${{ needs.validate.outputs.python_version }}`
+          - npm: `@safebrowse/core@${{ needs.validate.outputs.javascript_version }}`
+          - npm: `@safebrowse/daemon@${{ needs.validate.outputs.javascript_version }}`
+          - npm: `@safebrowse/playwright-adapter@${{ needs.validate.outputs.javascript_version }}`
+          - GHCR: `${{ env.IMAGE_NAME }}@digest`
+
+          Verification:
+
+          - npm packages were published with provenance
+          - the container image includes provenance and SBOM attestations
+          - the container image was signed with Cosign
+          - KB bundle checksums are attached below
+
+          Deploy the container by digest rather than mutable tag.
+          EOF
+      - uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe
+        with:
+          prerelease: ${{ needs.validate.outputs.is_prerelease == 'true' }}
+          body_path: RELEASE_BODY.md
+          files: release-assets/*
