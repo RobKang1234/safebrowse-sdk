@@ -2,6 +2,7 @@ node_modules/
 dist/
 .pnpm-store/
 coverage/
+demo-output/
 .DS_Store
 *.log
 *.pyc
