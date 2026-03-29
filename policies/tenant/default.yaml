@@ -1,0 +1,12 @@
+profile: research
+metadata:
+  layer: tenant
+  version: 2026-03-28
+origins:
+  read_only_allow:
+    - acm.org
+artifacts:
+  quarantine_on_hidden_text_mismatch: true
+tool_protocol:
+  forbid_token_passthrough: true
+

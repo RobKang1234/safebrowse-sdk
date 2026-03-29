@@ -1,0 +1,891 @@
+{
+  "kb_meta": {
+    "name": "SafeBrowse vf artifact surface patterns",
+    "version": "vf-final",
+    "generated_on": "2026-03-28",
+    "entry_count": 40,
+    "purpose": "Patterns for PDFs, viewers, OCR layers, hidden text, and non-standard browsing surfaces."
+  },
+  "entries": [
+    {
+      "pattern_id": "AR-01-01",
+      "family_key": "pdf_hidden_text_layer",
+      "family_name": "PDF and document hidden text layers",
+      "pattern_name": "Invisible OCR text layer",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "The rendered document and extracted text layer diverge, or hidden text is present in a PDF or viewer.",
+      "surface_kind": "pdf",
+      "default_controls": [
+        "render-vs-text diffing",
+        "artifact quarantine",
+        "visibility labeling",
+        "optional human review"
+      ],
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-01-02",
+      "family_key": "pdf_hidden_text_layer",
+      "family_name": "PDF and document hidden text layers",
+      "pattern_name": "White-on-white or zero-size text in PDF",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "The rendered document and extracted text layer diverge, or hidden text is present in a PDF or viewer.",
+      "surface_kind": "pdf",
+      "default_controls": [
+        "render-vs-text diffing",
+        "artifact quarantine",
+        "visibility labeling",
+        "optional human review"
+      ],
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-01-03",
+      "family_key": "pdf_hidden_text_layer",
+      "family_name": "PDF and document hidden text layers",
+      "pattern_name": "Alternate text layer different from visual page",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "The rendered document and extracted text layer diverge, or hidden text is present in a PDF or viewer.",
+      "surface_kind": "pdf",
+      "default_controls": [
+        "render-vs-text diffing",
+        "artifact quarantine",
+        "visibility labeling",
+        "optional human review"
+      ],
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-01-04",
+      "family_key": "pdf_hidden_text_layer",
+      "family_name": "PDF and document hidden text layers",
+      "pattern_name": "Annotations/comments carrying instructions",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "The rendered document and extracted text layer diverge, or hidden text is present in a PDF or viewer.",
+      "surface_kind": "pdf",
+      "default_controls": [
+        "render-vs-text diffing",
+        "artifact quarantine",
+        "visibility labeling",
+        "optional human review"
+      ],
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-02-01",
+      "family_key": "metadata_instruction",
+      "family_name": "Metadata-borne instructions",
+      "pattern_name": "Document title or subject instruction",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Instructions appear in filenames, alt text, title fields, EXIF, document properties, or other metadata channels.",
+      "surface_kind": "metadata",
+      "default_controls": [
+        "metadata trust downgrading",
+        "out-of-band metadata handling",
+        "ignore metadata for planning",
+        "source labeling"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-02-02",
+      "family_key": "metadata_instruction",
+      "family_name": "Metadata-borne instructions",
+      "pattern_name": "Filename used as instruction carrier",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Instructions appear in filenames, alt text, title fields, EXIF, document properties, or other metadata channels.",
+      "surface_kind": "metadata",
+      "default_controls": [
+        "metadata trust downgrading",
+        "out-of-band metadata handling",
+        "ignore metadata for planning",
+        "source labeling"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-02-03",
+      "family_key": "metadata_instruction",
+      "family_name": "Metadata-borne instructions",
+      "pattern_name": "Image EXIF or alt-text instruction",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Instructions appear in filenames, alt text, title fields, EXIF, document properties, or other metadata channels.",
+      "surface_kind": "metadata",
+      "default_controls": [
+        "metadata trust downgrading",
+        "out-of-band metadata handling",
+        "ignore metadata for planning",
+        "source labeling"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-02-04",
+      "family_key": "metadata_instruction",
+      "family_name": "Metadata-borne instructions",
+      "pattern_name": "Embedded file properties or custom fields",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Instructions appear in filenames, alt text, title fields, EXIF, document properties, or other metadata channels.",
+      "surface_kind": "metadata",
+      "default_controls": [
+        "metadata trust downgrading",
+        "out-of-band metadata handling",
+        "ignore metadata for planning",
+        "source labeling"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-03-01",
+      "family_key": "embedded_docs_iframes",
+      "family_name": "Embedded documents and iframes",
+      "pattern_name": "Cross-origin PDF or viewer iframe",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Content is embedded from a distinct origin or viewer surface and should not automatically inherit the parent page trust level.",
+      "surface_kind": "iframe",
+      "default_controls": [
+        "frame-origin labeling",
+        "origin gating",
+        "separate artifact extraction path",
+        "cross-origin default deny"
+      ],
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-03-02",
+      "family_key": "embedded_docs_iframes",
+      "family_name": "Embedded documents and iframes",
+      "pattern_name": "Embedded office document viewer",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Content is embedded from a distinct origin or viewer surface and should not automatically inherit the parent page trust level.",
+      "surface_kind": "iframe",
+      "default_controls": [
+        "frame-origin labeling",
+        "origin gating",
+        "separate artifact extraction path",
+        "cross-origin default deny"
+      ],
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-03-03",
+      "family_key": "embedded_docs_iframes",
+      "family_name": "Embedded documents and iframes",
+      "pattern_name": "Third-party slide or notebook embed",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Content is embedded from a distinct origin or viewer surface and should not automatically inherit the parent page trust level.",
+      "surface_kind": "iframe",
+      "default_controls": [
+        "frame-origin labeling",
+        "origin gating",
+        "separate artifact extraction path",
+        "cross-origin default deny"
+      ],
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-03-04",
+      "family_key": "embedded_docs_iframes",
+      "family_name": "Embedded documents and iframes",
+      "pattern_name": "Sandbox escape attempt via nested embed",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Content is embedded from a distinct origin or viewer surface and should not automatically inherit the parent page trust level.",
+      "surface_kind": "iframe",
+      "default_controls": [
+        "frame-origin labeling",
+        "origin gating",
+        "separate artifact extraction path",
+        "cross-origin default deny"
+      ],
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-04-01",
+      "family_key": "dynamic_scripts_ads",
+      "family_name": "Ads, widgets, and dynamic scripts",
+      "pattern_name": "Ad slot injects instruction text",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Dynamically loaded content introduces instruction-bearing text after the initial page load or from third-party script contexts.",
+      "surface_kind": "script",
+      "default_controls": [
+        "late-load observation gating",
+        "third-party frame suppression",
+        "DOM mutation provenance",
+        "read-only downgrade on suspicious mutation"
+      ],
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-04-02",
+      "family_key": "dynamic_scripts_ads",
+      "family_name": "Ads, widgets, and dynamic scripts",
+      "pattern_name": "Widget or plugin injects hidden DOM",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Dynamically loaded content introduces instruction-bearing text after the initial page load or from third-party script contexts.",
+      "surface_kind": "script",
+      "default_controls": [
+        "late-load observation gating",
+        "third-party frame suppression",
+        "DOM mutation provenance",
+        "read-only downgrade on suspicious mutation"
+      ],
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-04-03",
+      "family_key": "dynamic_scripts_ads",
+      "family_name": "Ads, widgets, and dynamic scripts",
+      "pattern_name": "Late-loading banner or consent wall text",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Dynamically loaded content introduces instruction-bearing text after the initial page load or from third-party script contexts.",
+      "surface_kind": "script",
+      "default_controls": [
+        "late-load observation gating",
+        "third-party frame suppression",
+        "DOM mutation provenance",
+        "read-only downgrade on suspicious mutation"
+      ],
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-04-04",
+      "family_key": "dynamic_scripts_ads",
+      "family_name": "Ads, widgets, and dynamic scripts",
+      "pattern_name": "Third-party script mutates visible content",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Dynamically loaded content introduces instruction-bearing text after the initial page load or from third-party script contexts.",
+      "surface_kind": "script",
+      "default_controls": [
+        "late-load observation gating",
+        "third-party frame suppression",
+        "DOM mutation provenance",
+        "read-only downgrade on suspicious mutation"
+      ],
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-05-01",
+      "family_key": "canvas_blob_shadow_dom",
+      "family_name": "Canvas, blob, and shadow-DOM surfaces",
+      "pattern_name": "Canvas-rendered text",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Critical content is presented in non-standard render paths that ordinary text extraction may miss or misclassify.",
+      "surface_kind": "canvas",
+      "default_controls": [
+        "specialized extractor adapters",
+        "surface tagging",
+        "fallback screenshot review path",
+        "default distrust for opaque renderers"
+      ],
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-05-02",
+      "family_key": "canvas_blob_shadow_dom",
+      "family_name": "Canvas, blob, and shadow-DOM surfaces",
+      "pattern_name": "Blob URL document viewer",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Critical content is presented in non-standard render paths that ordinary text extraction may miss or misclassify.",
+      "surface_kind": "blob",
+      "default_controls": [
+        "specialized extractor adapters",
+        "surface tagging",
+        "fallback screenshot review path",
+        "default distrust for opaque renderers"
+      ],
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-05-03",
+      "family_key": "canvas_blob_shadow_dom",
+      "family_name": "Canvas, blob, and shadow-DOM surfaces",
+      "pattern_name": "Shadow-DOM hidden instruction slot",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Critical content is presented in non-standard render paths that ordinary text extraction may miss or misclassify.",
+      "surface_kind": "shadow_dom",
+      "default_controls": [
+        "specialized extractor adapters",
+        "surface tagging",
+        "fallback screenshot review path",
+        "default distrust for opaque renderers"
+      ],
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-05-04",
+      "family_key": "canvas_blob_shadow_dom",
+      "family_name": "Canvas, blob, and shadow-DOM surfaces",
+      "pattern_name": "Data URL or client-side generated page",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Critical content is presented in non-standard render paths that ordinary text extraction may miss or misclassify.",
+      "surface_kind": "data_url",
+      "default_controls": [
+        "specialized extractor adapters",
+        "surface tagging",
+        "fallback screenshot review path",
+        "default distrust for opaque renderers"
+      ],
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-06-01",
+      "family_key": "ocr_mismatch",
+      "family_name": "OCR and vision-text mismatch",
+      "pattern_name": "Low-confidence OCR on screenshot/document",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Text recovered by OCR or vision differs materially from visible semantics or is low-confidence.",
+      "surface_kind": "ocr",
+      "default_controls": [
+        "confidence thresholds",
+        "dual extractor comparison",
+        "artifact quarantine on mismatch",
+        "do not promote OCR text to trusted instructions"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-06-02",
+      "family_key": "ocr_mismatch",
+      "family_name": "OCR and vision-text mismatch",
+      "pattern_name": "OCR detects hidden watermark text",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Text recovered by OCR or vision differs materially from visible semantics or is low-confidence.",
+      "surface_kind": "ocr",
+      "default_controls": [
+        "confidence thresholds",
+        "dual extractor comparison",
+        "artifact quarantine on mismatch",
+        "do not promote OCR text to trusted instructions"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-06-03",
+      "family_key": "ocr_mismatch",
+      "family_name": "OCR and vision-text mismatch",
+      "pattern_name": "Vision model and DOM text disagree",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Text recovered by OCR or vision differs materially from visible semantics or is low-confidence.",
+      "surface_kind": "ocr",
+      "default_controls": [
+        "confidence thresholds",
+        "dual extractor comparison",
+        "artifact quarantine on mismatch",
+        "do not promote OCR text to trusted instructions"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-06-04",
+      "family_key": "ocr_mismatch",
+      "family_name": "OCR and vision-text mismatch",
+      "pattern_name": "Image text includes instruction overlay",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Text recovered by OCR or vision differs materially from visible semantics or is low-confidence.",
+      "surface_kind": "ocr",
+      "default_controls": [
+        "confidence thresholds",
+        "dual extractor comparison",
+        "artifact quarantine on mismatch",
+        "do not promote OCR text to trusted instructions"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-07-01",
+      "family_key": "scholarly_nonstandard_reader",
+      "family_name": "Scholarly and non-standard reading surfaces",
+      "pattern_name": "Scholar landing page vs publisher PDF",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Research portals and document landing pages mix abstracts, citation widgets, previews, access controls, and downloads across multiple surfaces.",
+      "surface_kind": "scholar",
+      "default_controls": [
+        "artifact-type classification",
+        "separate preview vs full-document handling",
+        "download-safe handoff",
+        "origin-aware provenance"
+      ],
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-07-02",
+      "family_key": "scholarly_nonstandard_reader",
+      "family_name": "Scholarly and non-standard reading surfaces",
+      "pattern_name": "Citation popup or abstract panel",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Research portals and document landing pages mix abstracts, citation widgets, previews, access controls, and downloads across multiple surfaces.",
+      "surface_kind": "scholar",
+      "default_controls": [
+        "artifact-type classification",
+        "separate preview vs full-document handling",
+        "download-safe handoff",
+        "origin-aware provenance"
+      ],
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-07-03",
+      "family_key": "scholarly_nonstandard_reader",
+      "family_name": "Scholarly and non-standard reading surfaces",
+      "pattern_name": "Access-denied or interstitial page treated as content",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Research portals and document landing pages mix abstracts, citation widgets, previews, access controls, and downloads across multiple surfaces.",
+      "surface_kind": "scholar",
+      "default_controls": [
+        "artifact-type classification",
+        "separate preview vs full-document handling",
+        "download-safe handoff",
+        "origin-aware provenance"
+      ],
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-07-04",
+      "family_key": "scholarly_nonstandard_reader",
+      "family_name": "Scholarly and non-standard reading surfaces",
+      "pattern_name": "Download gateway with mixed metadata/content",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Research portals and document landing pages mix abstracts, citation widgets, previews, access controls, and downloads across multiple surfaces.",
+      "surface_kind": "scholar",
+      "default_controls": [
+        "artifact-type classification",
+        "separate preview vs full-document handling",
+        "download-safe handoff",
+        "origin-aware provenance"
+      ],
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-08-01",
+      "family_key": "download_archive_container",
+      "family_name": "Downloads, archives, and containerized artifacts",
+      "pattern_name": "ZIP or TAR archive download",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Downloaded artifacts may contain nested files or instructions and should not be flattened directly into model context.",
+      "surface_kind": "download",
+      "default_controls": [
+        "download quarantine",
+        "content-type allowlisting",
+        "nested-file inventory",
+        "no auto-open or auto-execute"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_HIJACK_EVAL_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-08-02",
+      "family_key": "download_archive_container",
+      "family_name": "Downloads, archives, and containerized artifacts",
+      "pattern_name": "Self-extracting or executable download",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Downloaded artifacts may contain nested files or instructions and should not be flattened directly into model context.",
+      "surface_kind": "download",
+      "default_controls": [
+        "download quarantine",
+        "content-type allowlisting",
+        "nested-file inventory",
+        "no auto-open or auto-execute"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_HIJACK_EVAL_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-08-03",
+      "family_key": "download_archive_container",
+      "family_name": "Downloads, archives, and containerized artifacts",
+      "pattern_name": "Office macro-enabled document",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Downloaded artifacts may contain nested files or instructions and should not be flattened directly into model context.",
+      "surface_kind": "download",
+      "default_controls": [
+        "download quarantine",
+        "content-type allowlisting",
+        "nested-file inventory",
+        "no auto-open or auto-execute"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_HIJACK_EVAL_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-08-04",
+      "family_key": "download_archive_container",
+      "family_name": "Downloads, archives, and containerized artifacts",
+      "pattern_name": "Attachment bundle with mixed trust files",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Downloaded artifacts may contain nested files or instructions and should not be flattened directly into model context.",
+      "surface_kind": "download",
+      "default_controls": [
+        "download quarantine",
+        "content-type allowlisting",
+        "nested-file inventory",
+        "no auto-open or auto-execute"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_HIJACK_EVAL_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-09-01",
+      "family_key": "multimodal_image_layers",
+      "family_name": "Multimodal image and layered visual attacks",
+      "pattern_name": "Steganographic or tiny-font text in image",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Images, figures, or layered visuals carry instructions not obvious from the primary reading path.",
+      "surface_kind": "image",
+      "default_controls": [
+        "vision-only tainting",
+        "hidden-text heuristics",
+        "do not elevate image text without provenance",
+        "optional human review for high-risk flows"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-09-02",
+      "family_key": "multimodal_image_layers",
+      "family_name": "Multimodal image and layered visual attacks",
+      "pattern_name": "Chart annotation used as instruction",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Images, figures, or layered visuals carry instructions not obvious from the primary reading path.",
+      "surface_kind": "image",
+      "default_controls": [
+        "vision-only tainting",
+        "hidden-text heuristics",
+        "do not elevate image text without provenance",
+        "optional human review for high-risk flows"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-09-03",
+      "family_key": "multimodal_image_layers",
+      "family_name": "Multimodal image and layered visual attacks",
+      "pattern_name": "Layered SVG/PNG text mismatch",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Images, figures, or layered visuals carry instructions not obvious from the primary reading path.",
+      "surface_kind": "image",
+      "default_controls": [
+        "vision-only tainting",
+        "hidden-text heuristics",
+        "do not elevate image text without provenance",
+        "optional human review for high-risk flows"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-09-04",
+      "family_key": "multimodal_image_layers",
+      "family_name": "Multimodal image and layered visual attacks",
+      "pattern_name": "White-on-background visual prompt",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Images, figures, or layered visuals carry instructions not obvious from the primary reading path.",
+      "surface_kind": "image",
+      "default_controls": [
+        "vision-only tainting",
+        "hidden-text heuristics",
+        "do not elevate image text without provenance",
+        "optional human review for high-risk flows"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-10-01",
+      "family_key": "comments_notes_annotations",
+      "family_name": "Comments, notes, and collaborative annotations",
+      "pattern_name": "Document comment thread instruction",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Instruction-like text arrives through comments, tracked changes, notes, chat sidebars, or collaborative annotations rather than main body content.",
+      "surface_kind": "annotation",
+      "default_controls": [
+        "annotation channel separation",
+        "low-trust default",
+        "user-shared-only promotion",
+        "main-body vs annotation provenance"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-10-02",
+      "family_key": "comments_notes_annotations",
+      "family_name": "Comments, notes, and collaborative annotations",
+      "pattern_name": "Suggestion/track-change note",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Instruction-like text arrives through comments, tracked changes, notes, chat sidebars, or collaborative annotations rather than main body content.",
+      "surface_kind": "annotation",
+      "default_controls": [
+        "annotation channel separation",
+        "low-trust default",
+        "user-shared-only promotion",
+        "main-body vs annotation provenance"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-10-03",
+      "family_key": "comments_notes_annotations",
+      "family_name": "Comments, notes, and collaborative annotations",
+      "pattern_name": "Chat sidebar or inline note",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Instruction-like text arrives through comments, tracked changes, notes, chat sidebars, or collaborative annotations rather than main body content.",
+      "surface_kind": "annotation",
+      "default_controls": [
+        "annotation channel separation",
+        "low-trust default",
+        "user-shared-only promotion",
+        "main-body vs annotation provenance"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AR-10-04",
+      "family_key": "comments_notes_annotations",
+      "family_name": "Comments, notes, and collaborative annotations",
+      "pattern_name": "Reviewer message embedded in content tool",
+      "entry_kind": "artifact_surface_pattern",
+      "summary": "Instruction-like text arrives through comments, tracked changes, notes, chat sidebars, or collaborative annotations rather than main body content.",
+      "surface_kind": "annotation",
+      "default_controls": [
+        "annotation channel separation",
+        "low-trust default",
+        "user-shared-only promotion",
+        "main-body vs annotation provenance"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    }
+  ]
+}

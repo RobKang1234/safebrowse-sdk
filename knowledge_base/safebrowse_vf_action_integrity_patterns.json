@@ -1,0 +1,1411 @@
+{
+  "kb_meta": {
+    "name": "SafeBrowse vf action integrity patterns",
+    "version": "vf-final",
+    "generated_on": "2026-03-28",
+    "entry_count": 50,
+    "purpose": "Hot-path action anomaly and misalignment patterns used to gate or downgrade proposed actions."
+  },
+  "entries": [
+    {
+      "pattern_id": "AI-01-01",
+      "family_key": "new_origin_expansion",
+      "family_name": "Unapproved origin expansion",
+      "pattern_name": "Navigation to unseen top-level origin",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action proposal adds a new origin, frame, or redirect target not yet allowed by task policy.",
+      "action_verb": "navigate",
+      "risk_signals": [
+        "verb=navigate",
+        "outside current task envelope",
+        "novel sink/origin/capability"
+      ],
+      "default_controls": [
+        "read/write origin gating",
+        "relevance critic",
+        "deterministic public-URL validation",
+        "user confirmation for risky expansion"
+      ],
+      "default_decision": "replan_or_require_approval",
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-01-02",
+      "family_key": "new_origin_expansion",
+      "family_name": "Unapproved origin expansion",
+      "pattern_name": "Iframe-origin exposure request",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action proposal adds a new origin, frame, or redirect target not yet allowed by task policy.",
+      "action_verb": "expose_iframe",
+      "risk_signals": [
+        "verb=expose_iframe",
+        "outside current task envelope",
+        "novel sink/origin/capability"
+      ],
+      "default_controls": [
+        "read/write origin gating",
+        "relevance critic",
+        "deterministic public-URL validation",
+        "user confirmation for risky expansion"
+      ],
+      "default_decision": "replan_or_require_approval",
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-01-03",
+      "family_key": "new_origin_expansion",
+      "family_name": "Unapproved origin expansion",
+      "pattern_name": "Cross-site redirect acceptance",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action proposal adds a new origin, frame, or redirect target not yet allowed by task policy.",
+      "action_verb": "follow_redirect",
+      "risk_signals": [
+        "verb=follow_redirect",
+        "outside current task envelope",
+        "novel sink/origin/capability"
+      ],
+      "default_controls": [
+        "read/write origin gating",
+        "relevance critic",
+        "deterministic public-URL validation",
+        "user confirmation for risky expansion"
+      ],
+      "default_decision": "replan_or_require_approval",
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-01-04",
+      "family_key": "new_origin_expansion",
+      "family_name": "Unapproved origin expansion",
+      "pattern_name": "Popup or new-tab origin expansion",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action proposal adds a new origin, frame, or redirect target not yet allowed by task policy.",
+      "action_verb": "open_new_context",
+      "risk_signals": [
+        "verb=open_new_context",
+        "outside current task envelope",
+        "novel sink/origin/capability"
+      ],
+      "default_controls": [
+        "read/write origin gating",
+        "relevance critic",
+        "deterministic public-URL validation",
+        "user confirmation for risky expansion"
+      ],
+      "default_decision": "replan_or_require_approval",
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-01-05",
+      "family_key": "new_origin_expansion",
+      "family_name": "Unapproved origin expansion",
+      "pattern_name": "Model-generated domain navigation",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action proposal adds a new origin, frame, or redirect target not yet allowed by task policy.",
+      "action_verb": "navigate_generated_url",
+      "risk_signals": [
+        "verb=navigate_generated_url",
+        "outside current task envelope",
+        "novel sink/origin/capability"
+      ],
+      "default_controls": [
+        "read/write origin gating",
+        "relevance critic",
+        "deterministic public-URL validation",
+        "user confirmation for risky expansion"
+      ],
+      "default_decision": "replan_or_require_approval",
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-02-01",
+      "family_key": "read_to_write_escalation",
+      "family_name": "Read-to-write escalation",
+      "pattern_name": "Typing on previously read-only origin",
+      "entry_kind": "action_anomaly_template",
+      "summary": "A session that started as read-only shifts toward actuation, submission, or mutation.",
+      "action_verb": "type",
+      "risk_signals": [
+        "verb=type",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "mode-based policy",
+        "explicit write capability",
+        "approval threshold",
+        "task-envelope verification"
+      ],
+      "default_decision": "user_confirm_or_block",
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-02-02",
+      "family_key": "read_to_write_escalation",
+      "family_name": "Read-to-write escalation",
+      "pattern_name": "Form submission after passive extraction",
+      "entry_kind": "action_anomaly_template",
+      "summary": "A session that started as read-only shifts toward actuation, submission, or mutation.",
+      "action_verb": "submit_form",
+      "risk_signals": [
+        "verb=submit_form",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "mode-based policy",
+        "explicit write capability",
+        "approval threshold",
+        "task-envelope verification"
+      ],
+      "default_decision": "user_confirm_or_block",
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-02-03",
+      "family_key": "read_to_write_escalation",
+      "family_name": "Read-to-write escalation",
+      "pattern_name": "Button click with irreversible effect",
+      "entry_kind": "action_anomaly_template",
+      "summary": "A session that started as read-only shifts toward actuation, submission, or mutation.",
+      "action_verb": "click_mutation",
+      "risk_signals": [
+        "verb=click_mutation",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "mode-based policy",
+        "explicit write capability",
+        "approval threshold",
+        "task-envelope verification"
+      ],
+      "default_decision": "user_confirm_or_block",
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-02-04",
+      "family_key": "read_to_write_escalation",
+      "family_name": "Read-to-write escalation",
+      "pattern_name": "Message send after read-only task",
+      "entry_kind": "action_anomaly_template",
+      "summary": "A session that started as read-only shifts toward actuation, submission, or mutation.",
+      "action_verb": "send_message",
+      "risk_signals": [
+        "verb=send_message",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "mode-based policy",
+        "explicit write capability",
+        "approval threshold",
+        "task-envelope verification"
+      ],
+      "default_decision": "user_confirm_or_block",
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-02-05",
+      "family_key": "read_to_write_escalation",
+      "family_name": "Read-to-write escalation",
+      "pattern_name": "Delete/archive/edit operation",
+      "entry_kind": "action_anomaly_template",
+      "summary": "A session that started as read-only shifts toward actuation, submission, or mutation.",
+      "action_verb": "mutate_state",
+      "risk_signals": [
+        "verb=mutate_state",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "mode-based policy",
+        "explicit write capability",
+        "approval threshold",
+        "task-envelope verification"
+      ],
+      "default_decision": "user_confirm_or_block",
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-03-01",
+      "family_key": "sensitive_sink_transmission",
+      "family_name": "Sensitive data to external sink",
+      "pattern_name": "Paste sensitive text into public form",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Data with taint or sensitivity labels is about to be transmitted to a third-party sink.",
+      "action_verb": "type_sensitive",
+      "risk_signals": [
+        "verb=type_sensitive",
+        "outside current task envelope",
+        "novel sink/origin/capability"
+      ],
+      "default_controls": [
+        "source-sink analysis",
+        "taint tracking",
+        "sensitive sink confirmation",
+        "deny by default for public sinks"
+      ],
+      "default_decision": "block_or_user_confirm",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-03-02",
+      "family_key": "sensitive_sink_transmission",
+      "family_name": "Sensitive data to external sink",
+      "pattern_name": "Send extracted data by email/chat",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Data with taint or sensitivity labels is about to be transmitted to a third-party sink.",
+      "action_verb": "send_external",
+      "risk_signals": [
+        "verb=send_external",
+        "outside current task envelope",
+        "novel sink/origin/capability"
+      ],
+      "default_controls": [
+        "source-sink analysis",
+        "taint tracking",
+        "sensitive sink confirmation",
+        "deny by default for public sinks"
+      ],
+      "default_decision": "block_or_user_confirm",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-03-03",
+      "family_key": "sensitive_sink_transmission",
+      "family_name": "Sensitive data to external sink",
+      "pattern_name": "Upload file to untrusted service",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Data with taint or sensitivity labels is about to be transmitted to a third-party sink.",
+      "action_verb": "upload",
+      "risk_signals": [
+        "verb=upload",
+        "outside current task envelope",
+        "novel sink/origin/capability"
+      ],
+      "default_controls": [
+        "source-sink analysis",
+        "taint tracking",
+        "sensitive sink confirmation",
+        "deny by default for public sinks"
+      ],
+      "default_decision": "block_or_user_confirm",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-03-04",
+      "family_key": "sensitive_sink_transmission",
+      "family_name": "Sensitive data to external sink",
+      "pattern_name": "Call API with tainted payload",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Data with taint or sensitivity labels is about to be transmitted to a third-party sink.",
+      "action_verb": "tool_write",
+      "risk_signals": [
+        "verb=tool_write",
+        "outside current task envelope",
+        "novel sink/origin/capability"
+      ],
+      "default_controls": [
+        "source-sink analysis",
+        "taint tracking",
+        "sensitive sink confirmation",
+        "deny by default for public sinks"
+      ],
+      "default_decision": "block_or_user_confirm",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-03-05",
+      "family_key": "sensitive_sink_transmission",
+      "family_name": "Sensitive data to external sink",
+      "pattern_name": "Copy secrets into URL parameters",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Data with taint or sensitivity labels is about to be transmitted to a third-party sink.",
+      "action_verb": "navigate_with_data",
+      "risk_signals": [
+        "verb=navigate_with_data",
+        "outside current task envelope",
+        "novel sink/origin/capability"
+      ],
+      "default_controls": [
+        "source-sink analysis",
+        "taint tracking",
+        "sensitive sink confirmation",
+        "deny by default for public sinks"
+      ],
+      "default_decision": "block_or_user_confirm",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-04-01",
+      "family_key": "model_generated_url_exfil",
+      "family_name": "Model-generated URL exfiltration risk",
+      "pattern_name": "Query-string data stuffing",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Generated URLs may encode or leak private data, or route through attacker-controlled destinations.",
+      "action_verb": "navigate",
+      "risk_signals": [
+        "verb=navigate",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "public URL allowlist",
+        "URL component inspection",
+        "redirect validation",
+        "strip tainted parameters"
+      ],
+      "default_decision": "block_or_replan_read_only",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-04-02",
+      "family_key": "model_generated_url_exfil",
+      "family_name": "Model-generated URL exfiltration risk",
+      "pattern_name": "Path-segment data stuffing",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Generated URLs may encode or leak private data, or route through attacker-controlled destinations.",
+      "action_verb": "navigate",
+      "risk_signals": [
+        "verb=navigate",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "public URL allowlist",
+        "URL component inspection",
+        "redirect validation",
+        "strip tainted parameters"
+      ],
+      "default_decision": "block_or_replan_read_only",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-04-03",
+      "family_key": "model_generated_url_exfil",
+      "family_name": "Model-generated URL exfiltration risk",
+      "pattern_name": "Open-redirect chain via trusted domain",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Generated URLs may encode or leak private data, or route through attacker-controlled destinations.",
+      "action_verb": "navigate",
+      "risk_signals": [
+        "verb=navigate",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "public URL allowlist",
+        "URL component inspection",
+        "redirect validation",
+        "strip tainted parameters"
+      ],
+      "default_decision": "block_or_replan_read_only",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-04-04",
+      "family_key": "model_generated_url_exfil",
+      "family_name": "Model-generated URL exfiltration risk",
+      "pattern_name": "Shortened or opaque link expansion",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Generated URLs may encode or leak private data, or route through attacker-controlled destinations.",
+      "action_verb": "resolve_url",
+      "risk_signals": [
+        "verb=resolve_url",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "public URL allowlist",
+        "URL component inspection",
+        "redirect validation",
+        "strip tainted parameters"
+      ],
+      "default_decision": "block_or_replan_read_only",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-04-05",
+      "family_key": "model_generated_url_exfil",
+      "family_name": "Model-generated URL exfiltration risk",
+      "pattern_name": "Presigned upload/download URL misuse",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Generated URLs may encode or leak private data, or route through attacker-controlled destinations.",
+      "action_verb": "download_or_upload",
+      "risk_signals": [
+        "verb=download_or_upload",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "public URL allowlist",
+        "URL component inspection",
+        "redirect validation",
+        "strip tainted parameters"
+      ],
+      "default_decision": "block_or_replan_read_only",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-05-01",
+      "family_key": "bulk_exfiltration",
+      "family_name": "Bulk exfiltration behavior",
+      "pattern_name": "Enumerate and export all matching emails",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action sequence attempts broad collection, compression, or transfer of many items rather than narrow task execution.",
+      "action_verb": "bulk_read_send",
+      "risk_signals": [
+        "verb=bulk_read_send",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "bulk-operation quotas",
+        "recipient allowlists",
+        "high-volume anomaly detection",
+        "mandatory confirmation"
+      ],
+      "default_decision": "block_or_escalate",
+      "source_ids": [
+        "SRC_NIST_HIJACK_EVAL_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-05-02",
+      "family_key": "bulk_exfiltration",
+      "family_name": "Bulk exfiltration behavior",
+      "pattern_name": "Attach multiple files from cloud drive",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action sequence attempts broad collection, compression, or transfer of many items rather than narrow task execution.",
+      "action_verb": "bulk_file_send",
+      "risk_signals": [
+        "verb=bulk_file_send",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "bulk-operation quotas",
+        "recipient allowlists",
+        "high-volume anomaly detection",
+        "mandatory confirmation"
+      ],
+      "default_decision": "block_or_escalate",
+      "source_ids": [
+        "SRC_NIST_HIJACK_EVAL_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-05-03",
+      "family_key": "bulk_exfiltration",
+      "family_name": "Bulk exfiltration behavior",
+      "pattern_name": "Mass contact messaging with same payload",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action sequence attempts broad collection, compression, or transfer of many items rather than narrow task execution.",
+      "action_verb": "bulk_message",
+      "risk_signals": [
+        "verb=bulk_message",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "bulk-operation quotas",
+        "recipient allowlists",
+        "high-volume anomaly detection",
+        "mandatory confirmation"
+      ],
+      "default_decision": "block_or_escalate",
+      "source_ids": [
+        "SRC_NIST_HIJACK_EVAL_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-05-04",
+      "family_key": "bulk_exfiltration",
+      "family_name": "Bulk exfiltration behavior",
+      "pattern_name": "Directory listing followed by external transfer",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action sequence attempts broad collection, compression, or transfer of many items rather than narrow task execution.",
+      "action_verb": "bulk_enumerate",
+      "risk_signals": [
+        "verb=bulk_enumerate",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "bulk-operation quotas",
+        "recipient allowlists",
+        "high-volume anomaly detection",
+        "mandatory confirmation"
+      ],
+      "default_decision": "block_or_escalate",
+      "source_ids": [
+        "SRC_NIST_HIJACK_EVAL_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-05-05",
+      "family_key": "bulk_exfiltration",
+      "family_name": "Bulk exfiltration behavior",
+      "pattern_name": "Archive/compress then send",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action sequence attempts broad collection, compression, or transfer of many items rather than narrow task execution.",
+      "action_verb": "bulk_package_send",
+      "risk_signals": [
+        "verb=bulk_package_send",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "bulk-operation quotas",
+        "recipient allowlists",
+        "high-volume anomaly detection",
+        "mandatory confirmation"
+      ],
+      "default_decision": "block_or_escalate",
+      "source_ids": [
+        "SRC_NIST_HIJACK_EVAL_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-06-01",
+      "family_key": "credential_or_auth_use",
+      "family_name": "Credential, consent, or authentication use",
+      "pattern_name": "Login form entry",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action touches login, token exchange, 2FA, OAuth consent, or scope grant flows.",
+      "action_verb": "login",
+      "risk_signals": [
+        "verb=login",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "interactive consent",
+        "scope minimization",
+        "exact redirect validation",
+        "credential broker isolation"
+      ],
+      "default_decision": "require_explicit_user_approval",
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-06-02",
+      "family_key": "credential_or_auth_use",
+      "family_name": "Credential, consent, or authentication use",
+      "pattern_name": "OAuth consent acceptance",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action touches login, token exchange, 2FA, OAuth consent, or scope grant flows.",
+      "action_verb": "oauth_consent",
+      "risk_signals": [
+        "verb=oauth_consent",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "interactive consent",
+        "scope minimization",
+        "exact redirect validation",
+        "credential broker isolation"
+      ],
+      "default_decision": "require_explicit_user_approval",
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-06-03",
+      "family_key": "credential_or_auth_use",
+      "family_name": "Credential, consent, or authentication use",
+      "pattern_name": "2FA or OTP entry",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action touches login, token exchange, 2FA, OAuth consent, or scope grant flows.",
+      "action_verb": "enter_otp",
+      "risk_signals": [
+        "verb=enter_otp",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "interactive consent",
+        "scope minimization",
+        "exact redirect validation",
+        "credential broker isolation"
+      ],
+      "default_decision": "require_explicit_user_approval",
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-06-04",
+      "family_key": "credential_or_auth_use",
+      "family_name": "Credential, consent, or authentication use",
+      "pattern_name": "Token refresh or API authorization step",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action touches login, token exchange, 2FA, OAuth consent, or scope grant flows.",
+      "action_verb": "token_exchange",
+      "risk_signals": [
+        "verb=token_exchange",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "interactive consent",
+        "scope minimization",
+        "exact redirect validation",
+        "credential broker isolation"
+      ],
+      "default_decision": "require_explicit_user_approval",
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-06-05",
+      "family_key": "credential_or_auth_use",
+      "family_name": "Credential, consent, or authentication use",
+      "pattern_name": "Grant-scope escalation",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action touches login, token exchange, 2FA, OAuth consent, or scope grant flows.",
+      "action_verb": "grant_scope",
+      "risk_signals": [
+        "verb=grant_scope",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "interactive consent",
+        "scope minimization",
+        "exact redirect validation",
+        "credential broker isolation"
+      ],
+      "default_decision": "require_explicit_user_approval",
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-07-01",
+      "family_key": "high_impact_transaction",
+      "family_name": "High-impact transaction",
+      "pattern_name": "Purchase or checkout flow",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action proposes financially, legally, operationally, or reputationally consequential change.",
+      "action_verb": "purchase",
+      "risk_signals": [
+        "verb=purchase",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "transaction approval",
+        "dual control",
+        "strong audit logging",
+        "irreversible-action interstitial"
+      ],
+      "default_decision": "user_confirm_or_block",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_CAISI_RFI_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-07-02",
+      "family_key": "high_impact_transaction",
+      "family_name": "High-impact transaction",
+      "pattern_name": "Banking or transfer action",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action proposes financially, legally, operationally, or reputationally consequential change.",
+      "action_verb": "bank_transfer",
+      "risk_signals": [
+        "verb=bank_transfer",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "transaction approval",
+        "dual control",
+        "strong audit logging",
+        "irreversible-action interstitial"
+      ],
+      "default_decision": "user_confirm_or_block",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_CAISI_RFI_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-07-03",
+      "family_key": "high_impact_transaction",
+      "family_name": "High-impact transaction",
+      "pattern_name": "HR/identity/account change",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action proposes financially, legally, operationally, or reputationally consequential change.",
+      "action_verb": "account_change",
+      "risk_signals": [
+        "verb=account_change",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "transaction approval",
+        "dual control",
+        "strong audit logging",
+        "irreversible-action interstitial"
+      ],
+      "default_decision": "user_confirm_or_block",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_CAISI_RFI_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-07-04",
+      "family_key": "high_impact_transaction",
+      "family_name": "High-impact transaction",
+      "pattern_name": "Data deletion or retention change",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action proposes financially, legally, operationally, or reputationally consequential change.",
+      "action_verb": "delete_data",
+      "risk_signals": [
+        "verb=delete_data",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "transaction approval",
+        "dual control",
+        "strong audit logging",
+        "irreversible-action interstitial"
+      ],
+      "default_decision": "user_confirm_or_block",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_CAISI_RFI_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-07-05",
+      "family_key": "high_impact_transaction",
+      "family_name": "High-impact transaction",
+      "pattern_name": "Compliance or legal submission",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action proposes financially, legally, operationally, or reputationally consequential change.",
+      "action_verb": "submit_regulated_form",
+      "risk_signals": [
+        "verb=submit_regulated_form",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "transaction approval",
+        "dual control",
+        "strong audit logging",
+        "irreversible-action interstitial"
+      ],
+      "default_decision": "user_confirm_or_block",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_CAISI_RFI_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-08-01",
+      "family_key": "approval_bypass_loop",
+      "family_name": "Approval bypass or veto grinding",
+      "pattern_name": "Repeated near-identical retries after veto",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Planner repeatedly reformulates or decomposes a blocked action to circumvent approval thresholds.",
+      "action_verb": "retry",
+      "risk_signals": [
+        "verb=retry",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "cooldowns",
+        "decision-memory",
+        "critic feedback limits",
+        "escalate after repeated vetoes"
+      ],
+      "default_decision": "escalate_incident",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_ADAPTIVE_ATTACKS_ACL_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-08-02",
+      "family_key": "approval_bypass_loop",
+      "family_name": "Approval bypass or veto grinding",
+      "pattern_name": "Task decomposition to hide risky step",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Planner repeatedly reformulates or decomposes a blocked action to circumvent approval thresholds.",
+      "action_verb": "decompose",
+      "risk_signals": [
+        "verb=decompose",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "cooldowns",
+        "decision-memory",
+        "critic feedback limits",
+        "escalate after repeated vetoes"
+      ],
+      "default_decision": "escalate_incident",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_ADAPTIVE_ATTACKS_ACL_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-08-03",
+      "family_key": "approval_bypass_loop",
+      "family_name": "Approval bypass or veto grinding",
+      "pattern_name": "Urgency framing to push approval",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Planner repeatedly reformulates or decomposes a blocked action to circumvent approval thresholds.",
+      "action_verb": "request_approval",
+      "risk_signals": [
+        "verb=request_approval",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "cooldowns",
+        "decision-memory",
+        "critic feedback limits",
+        "escalate after repeated vetoes"
+      ],
+      "default_decision": "escalate_incident",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_ADAPTIVE_ATTACKS_ACL_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-08-04",
+      "family_key": "approval_bypass_loop",
+      "family_name": "Approval bypass or veto grinding",
+      "pattern_name": "Social-proof or authority claim in rationale",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Planner repeatedly reformulates or decomposes a blocked action to circumvent approval thresholds.",
+      "action_verb": "request_approval",
+      "risk_signals": [
+        "verb=request_approval",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "cooldowns",
+        "decision-memory",
+        "critic feedback limits",
+        "escalate after repeated vetoes"
+      ],
+      "default_decision": "escalate_incident",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_ADAPTIVE_ATTACKS_ACL_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-08-05",
+      "family_key": "approval_bypass_loop",
+      "family_name": "Approval bypass or veto grinding",
+      "pattern_name": "Switching sinks after repeated blocks",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Planner repeatedly reformulates or decomposes a blocked action to circumvent approval thresholds.",
+      "action_verb": "replan_sink",
+      "risk_signals": [
+        "verb=replan_sink",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "cooldowns",
+        "decision-memory",
+        "critic feedback limits",
+        "escalate after repeated vetoes"
+      ],
+      "default_decision": "escalate_incident",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_ADAPTIVE_ATTACKS_ACL_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-09-01",
+      "family_key": "unexpected_code_execution",
+      "family_name": "Unexpected code or command execution",
+      "pattern_name": "Download-and-run command",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action path moves from content processing into shell execution, local binaries, macros, or scripts.",
+      "action_verb": "execute",
+      "risk_signals": [
+        "verb=execute",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "execution capability off by default",
+        "sandboxing",
+        "command-pattern warnings",
+        "separate approval lane"
+      ],
+      "default_decision": "block_or_require_admin_approval",
+      "source_ids": [
+        "SRC_NIST_HIJACK_EVAL_2025",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-09-02",
+      "family_key": "unexpected_code_execution",
+      "family_name": "Unexpected code or command execution",
+      "pattern_name": "Terminal command with network/file side effects",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action path moves from content processing into shell execution, local binaries, macros, or scripts.",
+      "action_verb": "exec_shell",
+      "risk_signals": [
+        "verb=exec_shell",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "execution capability off by default",
+        "sandboxing",
+        "command-pattern warnings",
+        "separate approval lane"
+      ],
+      "default_decision": "block_or_require_admin_approval",
+      "source_ids": [
+        "SRC_NIST_HIJACK_EVAL_2025",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-09-03",
+      "family_key": "unexpected_code_execution",
+      "family_name": "Unexpected code or command execution",
+      "pattern_name": "Macro or document script enablement",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action path moves from content processing into shell execution, local binaries, macros, or scripts.",
+      "action_verb": "enable_macro",
+      "risk_signals": [
+        "verb=enable_macro",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "execution capability off by default",
+        "sandboxing",
+        "command-pattern warnings",
+        "separate approval lane"
+      ],
+      "default_decision": "block_or_require_admin_approval",
+      "source_ids": [
+        "SRC_NIST_HIJACK_EVAL_2025",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-09-04",
+      "family_key": "unexpected_code_execution",
+      "family_name": "Unexpected code or command execution",
+      "pattern_name": "Install or start local helper/server",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action path moves from content processing into shell execution, local binaries, macros, or scripts.",
+      "action_verb": "install_binary",
+      "risk_signals": [
+        "verb=install_binary",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "execution capability off by default",
+        "sandboxing",
+        "command-pattern warnings",
+        "separate approval lane"
+      ],
+      "default_decision": "block_or_require_admin_approval",
+      "source_ids": [
+        "SRC_NIST_HIJACK_EVAL_2025",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-09-05",
+      "family_key": "unexpected_code_execution",
+      "family_name": "Unexpected code or command execution",
+      "pattern_name": "Run code interpreter on tainted payload",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Action path moves from content processing into shell execution, local binaries, macros, or scripts.",
+      "action_verb": "execute_code",
+      "risk_signals": [
+        "verb=execute_code",
+        "outside current task envelope",
+        "policy or phase mismatch"
+      ],
+      "default_controls": [
+        "execution capability off by default",
+        "sandboxing",
+        "command-pattern warnings",
+        "separate approval lane"
+      ],
+      "default_decision": "block_or_require_admin_approval",
+      "source_ids": [
+        "SRC_NIST_HIJACK_EVAL_2025",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-10-01",
+      "family_key": "cross_origin_copy_paste",
+      "family_name": "Cross-origin copy/paste drift",
+      "pattern_name": "Public web to enterprise app paste",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Extracted content from one origin is inserted into another origin without explicit policy coverage.",
+      "action_verb": "cross_origin_type",
+      "risk_signals": [
+        "verb=cross_origin_type",
+        "outside current task envelope",
+        "novel sink/origin/capability"
+      ],
+      "default_controls": [
+        "origin-pair policies",
+        "taint-preserving clipboard model",
+        "sensitive sink checks",
+        "read/write pair allowlists"
+      ],
+      "default_decision": "replan_or_user_confirm",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-10-02",
+      "family_key": "cross_origin_copy_paste",
+      "family_name": "Cross-origin copy/paste drift",
+      "pattern_name": "Authenticated app to public pastebin",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Extracted content from one origin is inserted into another origin without explicit policy coverage.",
+      "action_verb": "cross_origin_type",
+      "risk_signals": [
+        "verb=cross_origin_type",
+        "outside current task envelope",
+        "novel sink/origin/capability"
+      ],
+      "default_controls": [
+        "origin-pair policies",
+        "taint-preserving clipboard model",
+        "sensitive sink checks",
+        "read/write pair allowlists"
+      ],
+      "default_decision": "replan_or_user_confirm",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-10-03",
+      "family_key": "cross_origin_copy_paste",
+      "family_name": "Cross-origin copy/paste drift",
+      "pattern_name": "Email-to-form copy",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Extracted content from one origin is inserted into another origin without explicit policy coverage.",
+      "action_verb": "cross_origin_type",
+      "risk_signals": [
+        "verb=cross_origin_type",
+        "outside current task envelope",
+        "novel sink/origin/capability"
+      ],
+      "default_controls": [
+        "origin-pair policies",
+        "taint-preserving clipboard model",
+        "sensitive sink checks",
+        "read/write pair allowlists"
+      ],
+      "default_decision": "replan_or_user_confirm",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-10-04",
+      "family_key": "cross_origin_copy_paste",
+      "family_name": "Cross-origin copy/paste drift",
+      "pattern_name": "Document extract to external chat",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Extracted content from one origin is inserted into another origin without explicit policy coverage.",
+      "action_verb": "cross_origin_send",
+      "risk_signals": [
+        "verb=cross_origin_send",
+        "outside current task envelope",
+        "novel sink/origin/capability"
+      ],
+      "default_controls": [
+        "origin-pair policies",
+        "taint-preserving clipboard model",
+        "sensitive sink checks",
+        "read/write pair allowlists"
+      ],
+      "default_decision": "replan_or_user_confirm",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "AI-10-05",
+      "family_key": "cross_origin_copy_paste",
+      "family_name": "Cross-origin copy/paste drift",
+      "pattern_name": "Tool output copied into browser field",
+      "entry_kind": "action_anomaly_template",
+      "summary": "Extracted content from one origin is inserted into another origin without explicit policy coverage.",
+      "action_verb": "cross_channel_type",
+      "risk_signals": [
+        "verb=cross_channel_type",
+        "outside current task envelope",
+        "novel sink/origin/capability"
+      ],
+      "default_controls": [
+        "origin-pair policies",
+        "taint-preserving clipboard model",
+        "sensitive sink checks",
+        "read/write pair allowlists"
+      ],
+      "default_decision": "replan_or_user_confirm",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    }
+  ]
+}

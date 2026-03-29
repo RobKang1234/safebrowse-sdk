@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.pnpm-store/
+coverage/
+.DS_Store
+*.log
+*.pyc
+__pycache__/
+.pytest_cache/
+.venv/
+.env
+knowledge_base/signing/private/
+python/dist/
+python/**/build/
+python/**/.eggs/
+scripts-dist/*
+!scripts-dist/package.json

@@ -1,0 +1,879 @@
+{
+  "kb_meta": {
+    "name": "SafeBrowse vf tool/protocol/supply-chain patterns",
+    "version": "vf-final",
+    "generated_on": "2026-03-28",
+    "entry_count": 40,
+    "purpose": "Patterns for tool manifests, MCP/OAuth flows, SSRF, session hijacking, and adapter trust."
+  },
+  "entries": [
+    {
+      "pattern_id": "TP-01-01",
+      "family_key": "malicious_tool_description",
+      "family_name": "Malicious tool descriptions and schemas",
+      "pattern_name": "Injected tool description for target task",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Tool manifests, descriptions, or schemas contain manipulative text that influences retrieval or selection.",
+      "surface_kind": "tool_manifest",
+      "default_controls": [
+        "tool manifest linting",
+        "separate tool-selection critic",
+        "schema sanitization",
+        "signed allowlisted tool registry"
+      ],
+      "source_ids": [
+        "SRC_TOOLHIJACKER_NDSS_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_LLAMAFIREWALL_DOCS_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-01-02",
+      "family_key": "malicious_tool_description",
+      "family_name": "Malicious tool descriptions and schemas",
+      "pattern_name": "Schema field descriptions steer misuse",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Tool manifests, descriptions, or schemas contain manipulative text that influences retrieval or selection.",
+      "surface_kind": "tool_schema",
+      "default_controls": [
+        "tool manifest linting",
+        "separate tool-selection critic",
+        "schema sanitization",
+        "signed allowlisted tool registry"
+      ],
+      "source_ids": [
+        "SRC_TOOLHIJACKER_NDSS_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_LLAMAFIREWALL_DOCS_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-01-03",
+      "family_key": "malicious_tool_description",
+      "family_name": "Malicious tool descriptions and schemas",
+      "pattern_name": "Example payload smuggles hidden instruction",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Tool manifests, descriptions, or schemas contain manipulative text that influences retrieval or selection.",
+      "surface_kind": "tool_example",
+      "default_controls": [
+        "tool manifest linting",
+        "separate tool-selection critic",
+        "schema sanitization",
+        "signed allowlisted tool registry"
+      ],
+      "source_ids": [
+        "SRC_TOOLHIJACKER_NDSS_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_LLAMAFIREWALL_DOCS_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-01-04",
+      "family_key": "malicious_tool_description",
+      "family_name": "Malicious tool descriptions and schemas",
+      "pattern_name": "Ranking-biased tool metadata",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Tool manifests, descriptions, or schemas contain manipulative text that influences retrieval or selection.",
+      "surface_kind": "tool_metadata",
+      "default_controls": [
+        "tool manifest linting",
+        "separate tool-selection critic",
+        "schema sanitization",
+        "signed allowlisted tool registry"
+      ],
+      "source_ids": [
+        "SRC_TOOLHIJACKER_NDSS_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_LLAMAFIREWALL_DOCS_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-02-01",
+      "family_key": "dynamic_tool_list_change",
+      "family_name": "Dynamic tool-list mutation",
+      "pattern_name": "Unexpected tool appears mid-session",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Available tools change during a session and the agent could consume unreviewed capabilities.",
+      "surface_kind": "tool_list_changed",
+      "default_controls": [
+        "tool inventory snapshots",
+        "delta approval",
+        "signed registry comparison",
+        "capability diff alerts"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-02-02",
+      "family_key": "dynamic_tool_list_change",
+      "family_name": "Dynamic tool-list mutation",
+      "pattern_name": "Capability set expands after reconnect",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Available tools change during a session and the agent could consume unreviewed capabilities.",
+      "surface_kind": "tool_list_changed",
+      "default_controls": [
+        "tool inventory snapshots",
+        "delta approval",
+        "signed registry comparison",
+        "capability diff alerts"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-02-03",
+      "family_key": "dynamic_tool_list_change",
+      "family_name": "Dynamic tool-list mutation",
+      "pattern_name": "Tool alias masks new capability",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Available tools change during a session and the agent could consume unreviewed capabilities.",
+      "surface_kind": "tool_alias",
+      "default_controls": [
+        "tool inventory snapshots",
+        "delta approval",
+        "signed registry comparison",
+        "capability diff alerts"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-02-04",
+      "family_key": "dynamic_tool_list_change",
+      "family_name": "Dynamic tool-list mutation",
+      "pattern_name": "Third-party plugin injects extra tool",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Available tools change during a session and the agent could consume unreviewed capabilities.",
+      "surface_kind": "plugin_tool_add",
+      "default_controls": [
+        "tool inventory snapshots",
+        "delta approval",
+        "signed registry comparison",
+        "capability diff alerts"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-03-01",
+      "family_key": "token_passthrough",
+      "family_name": "Token passthrough and audience confusion",
+      "pattern_name": "Client token forwarded to downstream API",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Tokens intended for one service are forwarded or reused without audience validation.",
+      "surface_kind": "token_forward",
+      "default_controls": [
+        "audience validation",
+        "token exchange at broker",
+        "server-issued credentials only",
+        "per-client audit context"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-03-02",
+      "family_key": "token_passthrough",
+      "family_name": "Token passthrough and audience confusion",
+      "pattern_name": "Opaque upstream token accepted without validation",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Tokens intended for one service are forwarded or reused without audience validation.",
+      "surface_kind": "token_accept",
+      "default_controls": [
+        "audience validation",
+        "token exchange at broker",
+        "server-issued credentials only",
+        "per-client audit context"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-03-03",
+      "family_key": "token_passthrough",
+      "family_name": "Token passthrough and audience confusion",
+      "pattern_name": "Shared token reused across services",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Tokens intended for one service are forwarded or reused without audience validation.",
+      "surface_kind": "token_reuse",
+      "default_controls": [
+        "audience validation",
+        "token exchange at broker",
+        "server-issued credentials only",
+        "per-client audit context"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-03-04",
+      "family_key": "token_passthrough",
+      "family_name": "Token passthrough and audience confusion",
+      "pattern_name": "Audit trail loss from passthrough proxying",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Tokens intended for one service are forwarded or reused without audience validation.",
+      "surface_kind": "audit_gap",
+      "default_controls": [
+        "audience validation",
+        "token exchange at broker",
+        "server-issued credentials only",
+        "per-client audit context"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-04-01",
+      "family_key": "oauth_confused_deputy",
+      "family_name": "OAuth confused deputy via MCP proxying",
+      "pattern_name": "Consent-cookie reuse attack",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Static client IDs, dynamic registration, and weak consent flows enable token theft or unauthorized consent reuse.",
+      "surface_kind": "oauth_proxy",
+      "default_controls": [
+        "per-client consent store",
+        "exact redirect URI matching",
+        "single-use state",
+        "client registry"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-04-02",
+      "family_key": "oauth_confused_deputy",
+      "family_name": "OAuth confused deputy via MCP proxying",
+      "pattern_name": "Malicious dynamic client registration",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Static client IDs, dynamic registration, and weak consent flows enable token theft or unauthorized consent reuse.",
+      "surface_kind": "oauth_proxy",
+      "default_controls": [
+        "per-client consent store",
+        "exact redirect URI matching",
+        "single-use state",
+        "client registry"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-04-03",
+      "family_key": "oauth_confused_deputy",
+      "family_name": "OAuth confused deputy via MCP proxying",
+      "pattern_name": "State/consent mismatch",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Static client IDs, dynamic registration, and weak consent flows enable token theft or unauthorized consent reuse.",
+      "surface_kind": "oauth_state",
+      "default_controls": [
+        "per-client consent store",
+        "exact redirect URI matching",
+        "single-use state",
+        "client registry"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-04-04",
+      "family_key": "oauth_confused_deputy",
+      "family_name": "OAuth confused deputy via MCP proxying",
+      "pattern_name": "Unauthorized client approval reuse",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Static client IDs, dynamic registration, and weak consent flows enable token theft or unauthorized consent reuse.",
+      "surface_kind": "oauth_consent",
+      "default_controls": [
+        "per-client consent store",
+        "exact redirect URI matching",
+        "single-use state",
+        "client registry"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-05-01",
+      "family_key": "redirect_uri_abuse",
+      "family_name": "Redirect URI abuse and callback interception",
+      "pattern_name": "Malicious redirect_uri parameter",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Authorization codes or tokens are redirected to attacker-controlled endpoints through malformed or changed redirect URIs.",
+      "surface_kind": "redirect_uri",
+      "default_controls": [
+        "exact redirect comparison",
+        "registered callback allowlist",
+        "HTTPS-only production",
+        "post-consent validation"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-05-02",
+      "family_key": "redirect_uri_abuse",
+      "family_name": "Redirect URI abuse and callback interception",
+      "pattern_name": "Wildcard redirect matching",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Authorization codes or tokens are redirected to attacker-controlled endpoints through malformed or changed redirect URIs.",
+      "surface_kind": "redirect_uri",
+      "default_controls": [
+        "exact redirect comparison",
+        "registered callback allowlist",
+        "HTTPS-only production",
+        "post-consent validation"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-05-03",
+      "family_key": "redirect_uri_abuse",
+      "family_name": "Redirect URI abuse and callback interception",
+      "pattern_name": "Callback host substitution",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Authorization codes or tokens are redirected to attacker-controlled endpoints through malformed or changed redirect URIs.",
+      "surface_kind": "redirect_uri",
+      "default_controls": [
+        "exact redirect comparison",
+        "registered callback allowlist",
+        "HTTPS-only production",
+        "post-consent validation"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-05-04",
+      "family_key": "redirect_uri_abuse",
+      "family_name": "Redirect URI abuse and callback interception",
+      "pattern_name": "Unvalidated post-auth redirect",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Authorization codes or tokens are redirected to attacker-controlled endpoints through malformed or changed redirect URIs.",
+      "surface_kind": "redirect_uri",
+      "default_controls": [
+        "exact redirect comparison",
+        "registered callback allowlist",
+        "HTTPS-only production",
+        "post-consent validation"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-06-01",
+      "family_key": "ssrf_oauth_discovery",
+      "family_name": "SSRF in OAuth and metadata discovery",
+      "pattern_name": "resource_metadata points to internal IP",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Tool/protocol discovery fetches attacker-controlled URLs that reach internal networks, cloud metadata, or protected services.",
+      "surface_kind": "ssrf",
+      "default_controls": [
+        "egress proxy",
+        "private-range blocking",
+        "redirect validation per hop",
+        "HTTPS enforcement"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-06-02",
+      "family_key": "ssrf_oauth_discovery",
+      "family_name": "SSRF in OAuth and metadata discovery",
+      "pattern_name": "authorization_server metadata to cloud metadata endpoint",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Tool/protocol discovery fetches attacker-controlled URLs that reach internal networks, cloud metadata, or protected services.",
+      "surface_kind": "ssrf",
+      "default_controls": [
+        "egress proxy",
+        "private-range blocking",
+        "redirect validation per hop",
+        "HTTPS enforcement"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-06-03",
+      "family_key": "ssrf_oauth_discovery",
+      "family_name": "SSRF in OAuth and metadata discovery",
+      "pattern_name": "Redirect hop to private range",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Tool/protocol discovery fetches attacker-controlled URLs that reach internal networks, cloud metadata, or protected services.",
+      "surface_kind": "ssrf",
+      "default_controls": [
+        "egress proxy",
+        "private-range blocking",
+        "redirect validation per hop",
+        "HTTPS enforcement"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-06-04",
+      "family_key": "ssrf_oauth_discovery",
+      "family_name": "SSRF in OAuth and metadata discovery",
+      "pattern_name": "DNS rebinding against local or reserved range",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Tool/protocol discovery fetches attacker-controlled URLs that reach internal networks, cloud metadata, or protected services.",
+      "surface_kind": "ssrf",
+      "default_controls": [
+        "egress proxy",
+        "private-range blocking",
+        "redirect validation per hop",
+        "HTTPS enforcement"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-07-01",
+      "family_key": "session_hijack_event_injection",
+      "family_name": "Session hijacking and event injection",
+      "pattern_name": "Stolen session ID reuse",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Attackers obtain or replay session IDs or inject malicious events into resumable/stateful connections.",
+      "surface_kind": "session",
+      "default_controls": [
+        "no sessions for auth",
+        "session binding",
+        "secure random IDs",
+        "event-source authorization"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-07-02",
+      "family_key": "session_hijack_event_injection",
+      "family_name": "Session hijacking and event injection",
+      "pattern_name": "Malicious resumable-stream event",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Attackers obtain or replay session IDs or inject malicious events into resumable/stateful connections.",
+      "surface_kind": "event_stream",
+      "default_controls": [
+        "no sessions for auth",
+        "session binding",
+        "secure random IDs",
+        "event-source authorization"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-07-03",
+      "family_key": "session_hijack_event_injection",
+      "family_name": "Session hijacking and event injection",
+      "pattern_name": "Tool-list change through hijacked session",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Attackers obtain or replay session IDs or inject malicious events into resumable/stateful connections.",
+      "surface_kind": "session_tool_injection",
+      "default_controls": [
+        "no sessions for auth",
+        "session binding",
+        "secure random IDs",
+        "event-source authorization"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-07-04",
+      "family_key": "session_hijack_event_injection",
+      "family_name": "Session hijacking and event injection",
+      "pattern_name": "Weak session binding to user identity",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Attackers obtain or replay session IDs or inject malicious events into resumable/stateful connections.",
+      "surface_kind": "session",
+      "default_controls": [
+        "no sessions for auth",
+        "session binding",
+        "secure random IDs",
+        "event-source authorization"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-08-01",
+      "family_key": "local_server_compromise",
+      "family_name": "Local MCP server compromise",
+      "pattern_name": "One-click startup command abuse",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Locally executed MCP servers or helpers run with dangerous host privileges or are configured through unsafe commands.",
+      "surface_kind": "local_server",
+      "default_controls": [
+        "sandbox local servers",
+        "show exact command",
+        "explicit consent",
+        "filesystem/network least privilege"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-08-02",
+      "family_key": "local_server_compromise",
+      "family_name": "Local MCP server compromise",
+      "pattern_name": "Malicious package in local server install",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Locally executed MCP servers or helpers run with dangerous host privileges or are configured through unsafe commands.",
+      "surface_kind": "local_server",
+      "default_controls": [
+        "sandbox local servers",
+        "show exact command",
+        "explicit consent",
+        "filesystem/network least privilege"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-08-03",
+      "family_key": "local_server_compromise",
+      "family_name": "Local MCP server compromise",
+      "pattern_name": "DNS rebinding to localhost service",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Locally executed MCP servers or helpers run with dangerous host privileges or are configured through unsafe commands.",
+      "surface_kind": "local_server",
+      "default_controls": [
+        "sandbox local servers",
+        "show exact command",
+        "explicit consent",
+        "filesystem/network least privilege"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-08-04",
+      "family_key": "local_server_compromise",
+      "family_name": "Local MCP server compromise",
+      "pattern_name": "Over-privileged local process access",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Locally executed MCP servers or helpers run with dangerous host privileges or are configured through unsafe commands.",
+      "surface_kind": "local_server",
+      "default_controls": [
+        "sandbox local servers",
+        "show exact command",
+        "explicit consent",
+        "filesystem/network least privilege"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-09-01",
+      "family_key": "scope_oversubscription",
+      "family_name": "Excessive scopes and capability oversubscription",
+      "pattern_name": "Broad initial scope request",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Granted scopes exceed the minimum capabilities required for the session or task.",
+      "surface_kind": "scope",
+      "default_controls": [
+        "progressive least-privilege scopes",
+        "scope diff approval",
+        "down-scoping tolerance",
+        "policy-pack scope templates"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-09-02",
+      "family_key": "scope_oversubscription",
+      "family_name": "Excessive scopes and capability oversubscription",
+      "pattern_name": "Write scopes granted for read-only session",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Granted scopes exceed the minimum capabilities required for the session or task.",
+      "surface_kind": "scope",
+      "default_controls": [
+        "progressive least-privilege scopes",
+        "scope diff approval",
+        "down-scoping tolerance",
+        "policy-pack scope templates"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-09-03",
+      "family_key": "scope_oversubscription",
+      "family_name": "Excessive scopes and capability oversubscription",
+      "pattern_name": "Unnecessary admin or destructive scope",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Granted scopes exceed the minimum capabilities required for the session or task.",
+      "surface_kind": "scope",
+      "default_controls": [
+        "progressive least-privilege scopes",
+        "scope diff approval",
+        "down-scoping tolerance",
+        "policy-pack scope templates"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-09-04",
+      "family_key": "scope_oversubscription",
+      "family_name": "Excessive scopes and capability oversubscription",
+      "pattern_name": "Scope creep after reconnect or refresh",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "Granted scopes exceed the minimum capabilities required for the session or task.",
+      "surface_kind": "scope",
+      "default_controls": [
+        "progressive least-privilege scopes",
+        "scope diff approval",
+        "down-scoping tolerance",
+        "policy-pack scope templates"
+      ],
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-10-01",
+      "family_key": "cross_tool_harvest_pollute",
+      "family_name": "Cross-tool harvesting and pollution",
+      "pattern_name": "Tool A harvests secrets for Tool B",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "One tool contaminates data or control flow that is later consumed by another tool or sink.",
+      "surface_kind": "cross_tool_flow",
+      "default_controls": [
+        "tool-to-tool data barriers",
+        "capability labels",
+        "per-tool scratchpads",
+        "flow-policy static analysis"
+      ],
+      "source_ids": [
+        "SRC_ACE_NDSS_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_TOOLHIJACKER_NDSS_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-10-02",
+      "family_key": "cross_tool_harvest_pollute",
+      "family_name": "Cross-tool harvesting and pollution",
+      "pattern_name": "Tool output pollutes planner input for next step",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "One tool contaminates data or control flow that is later consumed by another tool or sink.",
+      "surface_kind": "cross_tool_flow",
+      "default_controls": [
+        "tool-to-tool data barriers",
+        "capability labels",
+        "per-tool scratchpads",
+        "flow-policy static analysis"
+      ],
+      "source_ids": [
+        "SRC_ACE_NDSS_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_TOOLHIJACKER_NDSS_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-10-03",
+      "family_key": "cross_tool_harvest_pollute",
+      "family_name": "Cross-tool harvesting and pollution",
+      "pattern_name": "Shared scratchpad leaks between tools",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "One tool contaminates data or control flow that is later consumed by another tool or sink.",
+      "surface_kind": "cross_tool_flow",
+      "default_controls": [
+        "tool-to-tool data barriers",
+        "capability labels",
+        "per-tool scratchpads",
+        "flow-policy static analysis"
+      ],
+      "source_ids": [
+        "SRC_ACE_NDSS_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_TOOLHIJACKER_NDSS_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "TP-10-04",
+      "family_key": "cross_tool_harvest_pollute",
+      "family_name": "Cross-tool harvesting and pollution",
+      "pattern_name": "Capability bleed across tool chain",
+      "entry_kind": "tool_protocol_threat_pattern",
+      "summary": "One tool contaminates data or control flow that is later consumed by another tool or sink.",
+      "surface_kind": "cross_tool_flow",
+      "default_controls": [
+        "tool-to-tool data barriers",
+        "capability labels",
+        "per-tool scratchpads",
+        "flow-policy static analysis"
+      ],
+      "source_ids": [
+        "SRC_ACE_NDSS_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_TOOLHIJACKER_NDSS_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    }
+  ]
+}

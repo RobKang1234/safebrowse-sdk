@@ -1,0 +1,686 @@
+{
+  "kb_meta": {
+    "name": "SafeBrowse vf policy controls catalog",
+    "version": "vf-final",
+    "generated_on": "2026-03-28",
+    "entry_count": 45,
+    "purpose": "Canonical controls for policy packs, docs, and deployment profiles."
+  },
+  "controls": [
+    {
+      "control_id": "PC-01",
+      "name": "framework_only_boundary",
+      "category": "architecture",
+      "hot_path": true,
+      "description": "Keep SafeBrowse as a safety middleware/SDK that mediates observations and actions, but does not browse by itself.",
+      "applies_to": "core boundary",
+      "source_ids": [
+        "SRC_CAMEL_ARXIV_2025",
+        "SRC_ACE_NDSS_2026",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-02",
+      "name": "typed_action_envelopes",
+      "category": "architecture",
+      "hot_path": true,
+      "description": "Require all proposed actions to use typed JSON envelopes rather than free-form tool text.",
+      "applies_to": "all runtimes",
+      "source_ids": [
+        "SRC_CAMEL_ARXIV_2025",
+        "SRC_ACE_NDSS_2026",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-03",
+      "name": "typed_decision_envelopes",
+      "category": "architecture",
+      "hot_path": true,
+      "description": "Return structured decisions such as allow, block, replan_read_only, user_confirm, quarantine_artifact, or escalate_incident.",
+      "applies_to": "all runtimes",
+      "source_ids": [
+        "SRC_CAMEL_ARXIV_2025",
+        "SRC_ACE_NDSS_2026",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-04",
+      "name": "metadata_only_critic_inputs",
+      "category": "architecture",
+      "hot_path": false,
+      "description": "Any alignment critic should see action metadata, policy state, and provenance—not raw untrusted page text.",
+      "applies_to": "high-risk actions",
+      "source_ids": [
+        "SRC_CAMEL_ARXIV_2025",
+        "SRC_ACE_NDSS_2026",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-05",
+      "name": "policy_pack_compilation",
+      "category": "architecture",
+      "hot_path": true,
+      "description": "Compile user policy packs into efficient deterministic matchers for hot-path execution.",
+      "applies_to": "runtime",
+      "source_ids": [
+        "SRC_CAMEL_ARXIV_2025",
+        "SRC_ACE_NDSS_2026",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-06",
+      "name": "sidecar_optional_deployment",
+      "category": "architecture",
+      "hot_path": true,
+      "description": "Support in-process mode for low overhead and sidecar mode for stronger egress, secret, and quarantine controls.",
+      "applies_to": "deployment",
+      "source_ids": [
+        "SRC_CAMEL_ARXIV_2025",
+        "SRC_ACE_NDSS_2026",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-07",
+      "name": "instruction_data_separation",
+      "category": "prompt_containment",
+      "hot_path": true,
+      "description": "Never concatenate untrusted text into higher-trust prompt channels or policy logic.",
+      "applies_to": "observation path",
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_MICROSOFT_INDIRECT_PI_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-08",
+      "name": "visibility_labeling",
+      "category": "prompt_containment",
+      "hot_path": true,
+      "description": "Label observations as visible, hidden, metadata, annotation, or dynamic before they reach reasoning.",
+      "applies_to": "observation path",
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_MICROSOFT_INDIRECT_PI_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-09",
+      "name": "normalization_pass",
+      "category": "prompt_containment",
+      "hot_path": true,
+      "description": "Normalize unicode, zero-width characters, obvious encodings, and script-mixing cues before detection.",
+      "applies_to": "observation path",
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_MICROSOFT_INDIRECT_PI_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-10",
+      "name": "taint_tracking",
+      "category": "prompt_containment",
+      "hot_path": true,
+      "description": "Carry taint from untrusted observations into summaries, memory, and action payloads.",
+      "applies_to": "all flows",
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_MICROSOFT_INDIRECT_PI_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-11",
+      "name": "heuristic_prompt_pattern_scan",
+      "category": "prompt_containment",
+      "hot_path": true,
+      "description": "Use deterministic pattern families for obvious injection styles such as typoglycemia, hidden DOM, role reassignment, and instruction precedence.",
+      "applies_to": "observation path",
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_MICROSOFT_INDIRECT_PI_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-12",
+      "name": "optional_instruction_detector",
+      "category": "prompt_containment",
+      "hot_path": false,
+      "description": "Allow a specialized detector layer for indirect prompt injection when latency budget permits.",
+      "applies_to": "elevated-risk sessions",
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_MICROSOFT_INDIRECT_PI_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-13",
+      "name": "task_envelope",
+      "category": "action_integrity",
+      "hot_path": true,
+      "description": "Represent allowed verbs, origins, sinks, task phases, and data classes explicitly for every session.",
+      "applies_to": "planner boundary",
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-14",
+      "name": "read_write_origin_sets",
+      "category": "action_integrity",
+      "hot_path": true,
+      "description": "Track separate readable and writable origin sets per session.",
+      "applies_to": "browser adapters",
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-15",
+      "name": "new_origin_gate",
+      "category": "action_integrity",
+      "hot_path": true,
+      "description": "Vet every new origin, frame, or redirect target before it becomes readable or writable.",
+      "applies_to": "browser adapters",
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-16",
+      "name": "sensitive_sink_confirmation",
+      "category": "action_integrity",
+      "hot_path": true,
+      "description": "Require explicit confirmation or blocking for transmissions of tainted/sensitive data to external sinks.",
+      "applies_to": "transmission paths",
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-17",
+      "name": "model_generated_url_validation",
+      "category": "action_integrity",
+      "hot_path": true,
+      "description": "Validate model-generated URLs, parameters, redirects, and publicness before navigation or transmission.",
+      "applies_to": "URL actions",
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-18",
+      "name": "cross_origin_pair_policies",
+      "category": "action_integrity",
+      "hot_path": true,
+      "description": "Control which origin pairs are allowed for read-to-write copy or transmission.",
+      "applies_to": "browser and tool adapters",
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-19",
+      "name": "bulk_operation_quotas",
+      "category": "action_integrity",
+      "hot_path": true,
+      "description": "Apply quotas and anomaly thresholds for enumeration, mass messaging, or large-file transfer patterns.",
+      "applies_to": "high-volume tasks",
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-20",
+      "name": "decision_memory_and_cooldowns",
+      "category": "action_integrity",
+      "hot_path": true,
+      "description": "Remember prior vetoes and apply cooldowns to prevent approval grinding.",
+      "applies_to": "all sessions",
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_LLM02_OUTPUT_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-21",
+      "name": "artifact_classification",
+      "category": "artifact",
+      "hot_path": true,
+      "description": "Classify surfaces such as html, pdf, image, blob, annotation, archive, or tool output before processing.",
+      "applies_to": "artifact gateway",
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-22",
+      "name": "render_vs_text_diff",
+      "category": "artifact",
+      "hot_path": false,
+      "description": "Compare rendered view and extracted text for documents and opaque viewers.",
+      "applies_to": "document handling",
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-23",
+      "name": "annotation_channel_separation",
+      "category": "artifact",
+      "hot_path": true,
+      "description": "Keep comments, notes, and tracked changes separate from main-body content by default.",
+      "applies_to": "document handling",
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-24",
+      "name": "download_quarantine",
+      "category": "artifact",
+      "hot_path": true,
+      "description": "Quarantine downloads and nested containers before any parsing or opening.",
+      "applies_to": "download path",
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-25",
+      "name": "no_auto_execute_downloads",
+      "category": "artifact",
+      "hot_path": true,
+      "description": "Disable automatic opening or execution for downloaded or embedded files.",
+      "applies_to": "download path",
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-26",
+      "name": "ocr_confidence_thresholds",
+      "category": "artifact",
+      "hot_path": false,
+      "description": "Escalate or downgrade low-confidence OCR/vision extractions rather than promoting them silently.",
+      "applies_to": "vision path",
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-27",
+      "name": "tool_manifest_allowlisting",
+      "category": "tool_protocol",
+      "hot_path": true,
+      "description": "Allow only reviewed or signed tool manifests and schemas in production modes.",
+      "applies_to": "tool registry",
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-28",
+      "name": "tool_delta_approval",
+      "category": "tool_protocol",
+      "hot_path": true,
+      "description": "Require review when tool lists or capabilities change mid-session.",
+      "applies_to": "tool registry",
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-29",
+      "name": "token_audience_validation",
+      "category": "tool_protocol",
+      "hot_path": true,
+      "description": "Reject tokens not explicitly issued for the receiving service or broker.",
+      "applies_to": "auth paths",
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-30",
+      "name": "exact_redirect_uri_validation",
+      "category": "tool_protocol",
+      "hot_path": true,
+      "description": "Use exact redirect URI matching and post-consent validation for OAuth-like flows.",
+      "applies_to": "auth paths",
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-31",
+      "name": "ssrf_egress_controls",
+      "category": "tool_protocol",
+      "hot_path": true,
+      "description": "Use HTTPS enforcement, private-range blocking, redirect validation, and preferably egress proxying for metadata discovery.",
+      "applies_to": "network paths",
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-32",
+      "name": "progressive_least_privilege_scopes",
+      "category": "tool_protocol",
+      "hot_path": true,
+      "description": "Start with minimal scopes and elevate only when a task needs more.",
+      "applies_to": "auth paths",
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-33",
+      "name": "local_server_sandboxing",
+      "category": "tool_protocol",
+      "hot_path": true,
+      "description": "Sandbox local MCP/helper processes and require explicit consent with exact command display.",
+      "applies_to": "local integrations",
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-34",
+      "name": "tool_to_tool_data_barriers",
+      "category": "tool_protocol",
+      "hot_path": true,
+      "description": "Enforce capability and data barriers between tools to prevent cross-tool harvesting/pollution.",
+      "applies_to": "tool chains",
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-35",
+      "name": "memory_write_policy",
+      "category": "memory",
+      "hot_path": true,
+      "description": "Apply explicit policy to durable memory writes; untrusted content should not become durable instructions by default.",
+      "applies_to": "memory store",
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-36",
+      "name": "snapshot_before_commit",
+      "category": "memory",
+      "hot_path": true,
+      "description": "Snapshot mutable memory before durable writes to enable rollback.",
+      "applies_to": "memory store",
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-37",
+      "name": "integrity_hash_baselines",
+      "category": "memory",
+      "hot_path": true,
+      "description": "Hash memory objects, summaries, and tool manifests to support integrity checks.",
+      "applies_to": "memory store",
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-38",
+      "name": "approval_non_persistence",
+      "category": "memory",
+      "hot_path": true,
+      "description": "Do not store approvals as free text in memory; bind them to structured IDs with expiry.",
+      "applies_to": "memory + action integrity",
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-39",
+      "name": "retrieval_corroboration",
+      "category": "memory",
+      "hot_path": false,
+      "description": "Require corroboration or trust-tier weighting for high-impact RAG-backed claims.",
+      "applies_to": "RAG or knowledge tools",
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-40",
+      "name": "tenant_partitioned_cache",
+      "category": "memory",
+      "hot_path": true,
+      "description": "Partition caches and vector stores by tenant/session/risk boundary to reduce poisoning blast radius.",
+      "applies_to": "stateful systems",
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-41",
+      "name": "trace_and_replay",
+      "category": "incident_eval",
+      "hot_path": true,
+      "description": "Persist structured decisions, provenance, and replayable artifacts for forensics.",
+      "applies_to": "telemetry",
+      "source_ids": [
+        "SRC_NIST_HIJACK_EVAL_2025",
+        "SRC_AGENTDOJO_BENCHMARK_2026",
+        "SRC_BROWSERGYM_GITHUB_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-42",
+      "name": "adaptive_red_teaming",
+      "category": "incident_eval",
+      "hot_path": false,
+      "description": "Continuously test with adaptive attacks, not only baseline canned prompts.",
+      "applies_to": "evaluation",
+      "source_ids": [
+        "SRC_NIST_HIJACK_EVAL_2025",
+        "SRC_AGENTDOJO_BENCHMARK_2026",
+        "SRC_BROWSERGYM_GITHUB_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-43",
+      "name": "multi_attempt_benchmarking",
+      "category": "incident_eval",
+      "hot_path": false,
+      "description": "Measure security over repeated attempts, not just single-shot success.",
+      "applies_to": "evaluation",
+      "source_ids": [
+        "SRC_NIST_HIJACK_EVAL_2025",
+        "SRC_AGENTDOJO_BENCHMARK_2026",
+        "SRC_BROWSERGYM_GITHUB_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-44",
+      "name": "task_specific_security_metrics",
+      "category": "incident_eval",
+      "hot_path": false,
+      "description": "Track utility and security per task family, sink type, and consequence level.",
+      "applies_to": "evaluation",
+      "source_ids": [
+        "SRC_NIST_HIJACK_EVAL_2025",
+        "SRC_AGENTDOJO_BENCHMARK_2026",
+        "SRC_BROWSERGYM_GITHUB_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "control_id": "PC-45",
+      "name": "degrade_to_read_only",
+      "category": "incident_eval",
+      "hot_path": true,
+      "description": "When confidence drops or attacks persist, downgrade the session to read-only rather than failing open.",
+      "applies_to": "runtime",
+      "source_ids": [
+        "SRC_NIST_HIJACK_EVAL_2025",
+        "SRC_AGENTDOJO_BENCHMARK_2026",
+        "SRC_BROWSERGYM_GITHUB_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    }
+  ]
+}

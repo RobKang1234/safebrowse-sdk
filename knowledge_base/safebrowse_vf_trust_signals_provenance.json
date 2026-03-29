@@ -1,0 +1,480 @@
+{
+  "kb_meta": {
+    "name": "SafeBrowse vf trust signals and provenance catalog",
+    "version": "vf-final",
+    "generated_on": "2026-03-28",
+    "entry_count": 28,
+    "purpose": "Canonical trust/provenance fields shared across all modules."
+  },
+  "signals": [
+    {
+      "signal_id": "TS-01",
+      "name": "source_origin",
+      "category": "origin",
+      "description": "Canonical origin or site that supplied the observation or action target.",
+      "used_by_modules": [
+        "ActionIntegrityFirewall",
+        "ObservationSanitizer"
+      ],
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-02",
+      "name": "frame_origin",
+      "category": "origin",
+      "description": "Origin of the specific frame, iframe, or embed where content appeared.",
+      "used_by_modules": [
+        "ActionIntegrityFirewall",
+        "ArtifactSurfaceGuard"
+      ],
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-03",
+      "name": "same_origin_relation",
+      "category": "origin",
+      "description": "Whether content/action stays same-origin, same-site, cross-site, or cross-channel.",
+      "used_by_modules": [
+        "ActionIntegrityFirewall"
+      ],
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-04",
+      "name": "user_shared_flag",
+      "category": "trust",
+      "description": "Whether the user explicitly shared or selected this source in the current session.",
+      "used_by_modules": [
+        "ObservationSanitizer",
+        "PolicyEngine"
+      ],
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-05",
+      "name": "session_discovered_flag",
+      "category": "trust",
+      "description": "Whether the agent discovered the source autonomously during browsing.",
+      "used_by_modules": [
+        "PolicyEngine",
+        "Telemetry"
+      ],
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-06",
+      "name": "artifact_kind",
+      "category": "surface",
+      "description": "Surface kind such as html, pdf, image, blob-viewer, annotation, tool-output, or download.",
+      "used_by_modules": [
+        "ArtifactSurfaceGuard"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-07",
+      "name": "extraction_method",
+      "category": "surface",
+      "description": "How the content was obtained: DOM text, OCR, vision, metadata, file parser, tool return, or screenshot.",
+      "used_by_modules": [
+        "ArtifactSurfaceGuard",
+        "PromptInjectionGuard"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-08",
+      "name": "visibility_class",
+      "category": "surface",
+      "description": "Visible, hidden, metadata-only, annotation-only, or rendered-late content class.",
+      "used_by_modules": [
+        "PromptInjectionGuard",
+        "ArtifactSurfaceGuard"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-09",
+      "name": "render_time_phase",
+      "category": "surface",
+      "description": "Whether content existed at initial page load, after mutation, or after user/tool action.",
+      "used_by_modules": [
+        "ArtifactSurfaceGuard",
+        "Telemetry"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-10",
+      "name": "script_generated_flag",
+      "category": "surface",
+      "description": "Marks content generated or mutated by scripts or third-party widgets.",
+      "used_by_modules": [
+        "ArtifactSurfaceGuard"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-11",
+      "name": "ocr_confidence",
+      "category": "quality",
+      "description": "Confidence score for OCR/vision extraction.",
+      "used_by_modules": [
+        "ArtifactSurfaceGuard"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-12",
+      "name": "text_render_mismatch",
+      "category": "quality",
+      "description": "Difference measure between rendered view and extracted text layer.",
+      "used_by_modules": [
+        "ArtifactSurfaceGuard",
+        "PromptInjectionGuard"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-13",
+      "name": "metadata_channel",
+      "category": "surface",
+      "description": "Specific metadata field carrying content, such as title, alt text, EXIF, or file properties.",
+      "used_by_modules": [
+        "ArtifactSurfaceGuard"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-14",
+      "name": "auth_required_flag",
+      "category": "trust",
+      "description": "Whether access required authentication, which changes trust and sink rules.",
+      "used_by_modules": [
+        "PolicyEngine",
+        "CredentialBroker"
+      ],
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-15",
+      "name": "credential_scope",
+      "category": "trust",
+      "description": "Scope and audience of credentials attached to the current tool or origin.",
+      "used_by_modules": [
+        "ToolProtocolGuard",
+        "CredentialBroker"
+      ],
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-16",
+      "name": "taint_class",
+      "category": "risk",
+      "description": "Untrusted, user-provided, tool-derived, policy-derived, or secret-bearing taint label.",
+      "used_by_modules": [
+        "ActionIntegrityFirewall",
+        "MemoryGuard"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-17",
+      "name": "sensitivity_class",
+      "category": "risk",
+      "description": "Public, internal, confidential, regulated, credential, or destructive-operation class.",
+      "used_by_modules": [
+        "ActionIntegrityFirewall",
+        "PolicyEngine"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-18",
+      "name": "approval_binding_id",
+      "category": "control",
+      "description": "Structured ID linking actions to explicit approvals rather than natural-language memory.",
+      "used_by_modules": [
+        "PolicyEngine",
+        "ActionIntegrityFirewall"
+      ],
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-19",
+      "name": "task_phase",
+      "category": "control",
+      "description": "Current phase such as discover, extract, compare, draft, or act.",
+      "used_by_modules": [
+        "ActionIntegrityFirewall",
+        "PolicyEngine"
+      ],
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-20",
+      "name": "policy_pack",
+      "category": "control",
+      "description": "Policy pack currently active for the session or origin pair.",
+      "used_by_modules": [
+        "PolicyEngine",
+        "Telemetry"
+      ],
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-21",
+      "name": "lineage_chain",
+      "category": "provenance",
+      "description": "Chain of transformations from source to summary to memory to action input.",
+      "used_by_modules": [
+        "ObservationSanitizer",
+        "MemoryGuard"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-22",
+      "name": "citation_or_source_ref",
+      "category": "provenance",
+      "description": "Reference back to the artifact or source object used to produce an observation.",
+      "used_by_modules": [
+        "ObservationSanitizer",
+        "Replay"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-23",
+      "name": "integrity_hash",
+      "category": "provenance",
+      "description": "Hash of artifact, memory object, or tool manifest used for rollback and comparison.",
+      "used_by_modules": [
+        "MemoryGuard",
+        "Replay"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-24",
+      "name": "freshness_timestamp",
+      "category": "provenance",
+      "description": "Timestamp indicating when the content or policy assertion was last fetched/validated.",
+      "used_by_modules": [
+        "PolicyEngine",
+        "Replay"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-25",
+      "name": "confidence_class",
+      "category": "quality",
+      "description": "High/medium/low confidence used to determine escalation or human review.",
+      "used_by_modules": [
+        "PolicyEngine",
+        "PromptInjectionGuard"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-26",
+      "name": "risk_score",
+      "category": "risk",
+      "description": "Composite risk score synthesized from deterministic rules and optional critics.",
+      "used_by_modules": [
+        "PolicyEngine",
+        "IncidentResponse"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-27",
+      "name": "sink_type",
+      "category": "risk",
+      "description": "Type of external effect: navigate, transmit, upload, send, mutate, execute, consent.",
+      "used_by_modules": [
+        "ActionIntegrityFirewall"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_ANTHROPIC_BROWSER_USE_2025",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "signal_id": "TS-28",
+      "name": "origin_pair",
+      "category": "origin",
+      "description": "Normalized source-target origin pair for cross-origin controls.",
+      "used_by_modules": [
+        "ActionIntegrityFirewall"
+      ],
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025",
+        "SRC_OPENAI_PROMPT_INJECTION_2026",
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    }
+  ]
+}

@@ -1,0 +1,209 @@
+{
+  "kb_meta": {
+    "name": "SafeBrowse vf incident response playbooks",
+    "version": "vf-final",
+    "generated_on": "2026-03-28",
+    "entry_count": 18,
+    "purpose": "Default response playbooks for containment, rollback, quarantine, and evidence capture."
+  },
+  "playbooks": [
+    {
+      "playbook_id": "IR-01",
+      "name": "block_and_replan_read_only",
+      "goal": "Contain suspected manipulation while allowing limited progress.",
+      "default_steps": "Set decision=REPLAN_READ_ONLY; preserve task envelope; do not allow new writable origins or sensitive sinks.",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "playbook_id": "IR-02",
+      "name": "block_and_user_confirm",
+      "goal": "Require explicit user approval for a high-impact but possibly legitimate action.",
+      "default_steps": "Show structured action summary, source/target origins, and taint summary; execute only on explicit approval.",
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "playbook_id": "IR-03",
+      "name": "quarantine_artifact",
+      "goal": "Isolate a suspicious document, viewer, or download for separate analysis.",
+      "default_steps": "Detach artifact from main planner context; preserve hashes, provenance, and screenshots/text extracts for review.",
+      "source_ids": [
+        "SRC_ANTHROPIC_BROWSER_USE_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "playbook_id": "IR-04",
+      "name": "revoke_or_rotate_token",
+      "goal": "Revoke potentially misused credentials or down-scope active tokens.",
+      "default_steps": "Invalidate cached handles; trigger credential broker rotation; mark session for re-auth if needed.",
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "playbook_id": "IR-05",
+      "name": "freeze_tool_inventory",
+      "goal": "Freeze tool list and block dynamic capability expansion after suspicious changes.",
+      "default_steps": "Disallow new tools/manifests until review; keep only previously approved tool set.",
+      "source_ids": [
+        "SRC_OWASP_SECURE_MCP_GUIDE_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "playbook_id": "IR-06",
+      "name": "memory_snapshot_and_rollback",
+      "goal": "Restore durable memory to last known-good state after poisoning suspicion.",
+      "default_steps": "Take forensic snapshot, verify hash chain, roll back, and mark tainted interval as excluded from future retrieval.",
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "playbook_id": "IR-07",
+      "name": "downgrade_session_mode",
+      "goal": "Move from normal or write-capable mode to read-only or extract-only mode.",
+      "default_steps": "Retain navigation/extraction, disable sends/uploads/mutations/exec and require approvals for re-escalation.",
+      "source_ids": [
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "playbook_id": "IR-08",
+      "name": "origin_pair_lockdown",
+      "goal": "Lock the session to currently approved origin pairs after anomaly detection.",
+      "default_steps": "No new source or sink origins; no cross-origin copy/paste outside explicit allowlist.",
+      "source_ids": [
+        "SRC_GOOGLE_CHROME_AGENTIC_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "playbook_id": "IR-09",
+      "name": "sandbox_escalation",
+      "goal": "Move suspicious local helper/tool execution into a stricter sandbox profile.",
+      "default_steps": "Increase isolation, reduce filesystem/network access, and require additional approvals.",
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "playbook_id": "IR-10",
+      "name": "ssrf_network_cutoff",
+      "goal": "Temporarily cut off metadata discovery or outbound fetches when SSRF indicators appear.",
+      "default_steps": "Deny discovery URLs, redirects, and private-range destinations until investigation completes.",
+      "source_ids": [
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "playbook_id": "IR-11",
+      "name": "veto_retry_threshold",
+      "goal": "Escalate after repeated vetoes to avoid approval grinding.",
+      "default_steps": "After N blocked or near-identical retries, stop replanning and surface incident state to host/user.",
+      "source_ids": [
+        "SRC_NIST_HIJACK_EVAL_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "playbook_id": "IR-12",
+      "name": "forensic_export_bundle",
+      "goal": "Export replayable evidence bundle for debugging or incident response.",
+      "default_steps": "Package decision log, hashes, provenance, traces, sanitized observations, and policy versions.",
+      "source_ids": [
+        "SRC_BROWSERGYM_GITHUB_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "playbook_id": "IR-13",
+      "name": "tool_chain_isolation",
+      "goal": "Break cross-tool data flows after suspected poisoning in one tool output.",
+      "default_steps": "Stop automatic chaining; require explicit allowlist or user confirmation to pass outputs onward.",
+      "source_ids": [
+        "SRC_ACE_NDSS_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "playbook_id": "IR-14",
+      "name": "cache_flush_and_partition",
+      "goal": "Flush or partition suspicious caches/vector stores after poisoning indicators.",
+      "default_steps": "Invalidate affected entries; separate tenants; reindex from trusted sources if needed.",
+      "source_ids": [
+        "SRC_REVPRAG_EMNLP_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "playbook_id": "IR-15",
+      "name": "human_triage_required",
+      "goal": "Require operator review for regulated, destructive, or ambiguous cases.",
+      "default_steps": "Pause execution and surface structured context with recommended next safe step.",
+      "source_ids": [
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "playbook_id": "IR-16",
+      "name": "policy_pack_fail_safe",
+      "goal": "Fall back to stricter default policy pack when pack integrity or confidence is uncertain.",
+      "default_steps": "Activate restrictive baseline pack with read-only defaults and disabled local execution.",
+      "source_ids": [
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "playbook_id": "IR-17",
+      "name": "artifact_reprocess_with_dual_extractors",
+      "goal": "Reprocess suspicious artifact using independent extraction pipelines.",
+      "default_steps": "Compare render/text/OCR outputs; keep planner on hold until mismatch resolved.",
+      "source_ids": [
+        "SRC_IPI_DETECT_REMOVE_ACL_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "playbook_id": "IR-18",
+      "name": "adaptive_red_team_capture",
+      "goal": "Save attack artifact into evaluation corpus for future regression and adaptive testing.",
+      "default_steps": "Tag with family/source/sink context; add to benchmark scenario queue.",
+      "source_ids": [
+        "SRC_NIST_HIJACK_EVAL_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    }
+  ]
+}

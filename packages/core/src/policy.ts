@@ -1,0 +1,103 @@
+import type { CompiledPolicy, PolicyLayer, PolicyPack } from "./types.js";
+import { normalizeOrigin } from "./utils.js";
+
+function mergeArrays(...groups: Array<string[] | undefined>): ReadonlySet<string> {
+  const merged = new Set<string>();
+  for (const group of groups) {
+    for (const item of group ?? []) {
+      merged.add(item.toLowerCase());
+    }
+  }
+  return merged;
+}
+
+function mergeBooleans(
+  layers: PolicyLayer[],
+  selector: (layer: PolicyLayer) => boolean | undefined,
+  fallback: boolean
+): boolean {
+  let current = fallback;
+  for (const layer of layers) {
+    const value = selector(layer);
+    if (typeof value === "boolean") {
+      current = value;
+    }
+  }
+  return current;
+}
+
+export function compilePolicy(policyPack: PolicyPack): CompiledPolicy {
+  const layers = [...policyPack.layers];
+
+  const readOnlyOrigins = new Set(
+    [...mergeArrays(...layers.map((layer) => layer.origins?.readOnlyAllow))].map((origin) =>
+      normalizeOrigin(origin)
+    )
+  );
+  const writableOrigins = new Set(
+    [...mergeArrays(...layers.map((layer) => layer.origins?.writableAllow))].map((origin) =>
+      normalizeOrigin(origin)
+    )
+  );
+
+  let memoryDurableWrites: "allow" | "deny" | "approval" = "deny";
+  for (const layer of layers) {
+    if (layer.memory?.durableWrites) {
+      memoryDurableWrites = layer.memory.durableWrites;
+    }
+  }
+
+  let telemetrySampling: "full" | "adaptive" | "off" = "adaptive";
+  for (const layer of layers) {
+    if (layer.telemetry?.sampling) {
+      telemetrySampling = layer.telemetry.sampling;
+    }
+  }
+
+  return {
+    packId: policyPack.packId,
+    profile: policyPack.profile,
+    version: policyPack.version,
+    layerOrder: layers.map((layer) => layer.name),
+    readOnlyOrigins,
+    writableOrigins,
+    allowedActions: mergeArrays(...layers.map((layer) => layer.actions?.allow)),
+    approvalActions: mergeArrays(...layers.map((layer) => layer.actions?.requireApproval)),
+    deniedActions: mergeArrays(...layers.map((layer) => layer.actions?.deny)),
+    allowedMimeTypes: mergeArrays(...layers.map((layer) => layer.artifacts?.allowMimeTypes)),
+    protectedMemoryKeys: mergeArrays(...layers.map((layer) => layer.memory?.protectedKeys)),
+    memoryDurableWrites,
+    forbidTokenPassthrough: mergeBooleans(
+      layers,
+      (layer) => layer.toolProtocol?.forbidTokenPassthrough,
+      true
+    ),
+    enforceExactRedirectUri: mergeBooleans(
+      layers,
+      (layer) => layer.toolProtocol?.enforceExactRedirectUri,
+      true
+    ),
+    allowedRegistrySigners: mergeArrays(
+      ...layers.map((layer) => layer.toolProtocol?.allowedRegistrySigners)
+    ),
+    enableDocumentHandoff: mergeBooleans(
+      layers,
+      (layer) => layer.artifacts?.enableDocumentHandoff,
+      true
+    ),
+    quarantineOnHiddenTextMismatch: mergeBooleans(
+      layers,
+      (layer) => layer.artifacts?.quarantineOnHiddenTextMismatch,
+      true
+    ),
+    replayBundle: mergeBooleans(layers, (layer) => layer.telemetry?.replayBundle, true),
+    redactSensitiveValues: mergeBooleans(
+      layers,
+      (layer) => layer.telemetry?.redactSensitiveValues,
+      true
+    ),
+    telemetrySampling,
+    compiledAt: new Date().toISOString()
+  };
+}
+
