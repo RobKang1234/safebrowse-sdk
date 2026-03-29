@@ -1,0 +1,14 @@
+profile: research
+metadata:
+  layer: emergency
+  version: 2026-03-28
+actions:
+  require_approval:
+    - download
+    - login
+    - upload
+    - submit
+    - message
+tool_protocol:
+  forbid_token_passthrough: true
+

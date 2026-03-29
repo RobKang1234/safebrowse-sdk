@@ -1,0 +1,803 @@
+{
+  "kb_meta": {
+    "name": "SafeBrowse vf memory/context poisoning patterns",
+    "version": "vf-final",
+    "generated_on": "2026-03-28",
+    "entry_count": 36,
+    "purpose": "Patterns for persistent memory poisoning, summary drift, vector/cache poisoning, and delayed triggers."
+  },
+  "entries": [
+    {
+      "pattern_id": "MC-01-01",
+      "family_key": "memory_write_override",
+      "family_name": "Malicious memory writes",
+      "pattern_name": "Store attacker-defined rule as user preference",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Untrusted content attempts to store attacker-authored instructions, goals, or preferences into persistent memory.",
+      "surface_kind": "memory_write",
+      "default_controls": [
+        "memory write policy",
+        "signed trusted writes",
+        "taint-aware persistence",
+        "human approval for durable memory"
+      ],
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-01-02",
+      "family_key": "memory_write_override",
+      "family_name": "Malicious memory writes",
+      "pattern_name": "Persist external instruction as future objective",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Untrusted content attempts to store attacker-authored instructions, goals, or preferences into persistent memory.",
+      "surface_kind": "memory_write",
+      "default_controls": [
+        "memory write policy",
+        "signed trusted writes",
+        "taint-aware persistence",
+        "human approval for durable memory"
+      ],
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-01-03",
+      "family_key": "memory_write_override",
+      "family_name": "Malicious memory writes",
+      "pattern_name": "Write poisoned reminder or note",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Untrusted content attempts to store attacker-authored instructions, goals, or preferences into persistent memory.",
+      "surface_kind": "memory_write",
+      "default_controls": [
+        "memory write policy",
+        "signed trusted writes",
+        "taint-aware persistence",
+        "human approval for durable memory"
+      ],
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-01-04",
+      "family_key": "memory_write_override",
+      "family_name": "Malicious memory writes",
+      "pattern_name": "Update long-term memory with attacker summary",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Untrusted content attempts to store attacker-authored instructions, goals, or preferences into persistent memory.",
+      "surface_kind": "memory_write",
+      "default_controls": [
+        "memory write policy",
+        "signed trusted writes",
+        "taint-aware persistence",
+        "human approval for durable memory"
+      ],
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_AGENTIC_EMERGING_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-02-01",
+      "family_key": "delayed_trigger",
+      "family_name": "Delayed-trigger persistence",
+      "pattern_name": "Time-based trigger phrase",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "An attack seeds content that appears benign now but activates in later turns, tasks, or sessions.",
+      "surface_kind": "memory_read",
+      "default_controls": [
+        "memory taint retention",
+        "trigger-pattern scans",
+        "expiry and revalidation",
+        "cross-session anomaly checks"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_ADAPTIVE_ATTACKS_ACL_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-02-02",
+      "family_key": "delayed_trigger",
+      "family_name": "Delayed-trigger persistence",
+      "pattern_name": "Conditional trigger after topic match",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "An attack seeds content that appears benign now but activates in later turns, tasks, or sessions.",
+      "surface_kind": "memory_read",
+      "default_controls": [
+        "memory taint retention",
+        "trigger-pattern scans",
+        "expiry and revalidation",
+        "cross-session anomaly checks"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_ADAPTIVE_ATTACKS_ACL_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-02-03",
+      "family_key": "delayed_trigger",
+      "family_name": "Delayed-trigger persistence",
+      "pattern_name": "Future-session instruction activation",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "An attack seeds content that appears benign now but activates in later turns, tasks, or sessions.",
+      "surface_kind": "memory_read",
+      "default_controls": [
+        "memory taint retention",
+        "trigger-pattern scans",
+        "expiry and revalidation",
+        "cross-session anomaly checks"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_ADAPTIVE_ATTACKS_ACL_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-02-04",
+      "family_key": "delayed_trigger",
+      "family_name": "Delayed-trigger persistence",
+      "pattern_name": "Codeword established early then reused",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "An attack seeds content that appears benign now but activates in later turns, tasks, or sessions.",
+      "surface_kind": "memory_read",
+      "default_controls": [
+        "memory taint retention",
+        "trigger-pattern scans",
+        "expiry and revalidation",
+        "cross-session anomaly checks"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_ADAPTIVE_ATTACKS_ACL_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-03-01",
+      "family_key": "summary_corruption",
+      "family_name": "Context summary corruption",
+      "pattern_name": "Conversation summary drops safety caveat",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Summaries, distilled notes, or state reductions omit or invert critical constraints and preserve attacker influence.",
+      "surface_kind": "summary",
+      "default_controls": [
+        "summary provenance",
+        "trusted-summary regeneration",
+        "constraint-preserving summarizers",
+        "summary diff checks"
+      ],
+      "source_ids": [
+        "SRC_NIST_AGENTIC_EMERGING_2026",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-03-02",
+      "family_key": "summary_corruption",
+      "family_name": "Context summary corruption",
+      "pattern_name": "Document summary injects unauthorized task",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Summaries, distilled notes, or state reductions omit or invert critical constraints and preserve attacker influence.",
+      "surface_kind": "summary",
+      "default_controls": [
+        "summary provenance",
+        "trusted-summary regeneration",
+        "constraint-preserving summarizers",
+        "summary diff checks"
+      ],
+      "source_ids": [
+        "SRC_NIST_AGENTIC_EMERGING_2026",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-03-03",
+      "family_key": "summary_corruption",
+      "family_name": "Context summary corruption",
+      "pattern_name": "Planner state summary flips user intent",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Summaries, distilled notes, or state reductions omit or invert critical constraints and preserve attacker influence.",
+      "surface_kind": "summary",
+      "default_controls": [
+        "summary provenance",
+        "trusted-summary regeneration",
+        "constraint-preserving summarizers",
+        "summary diff checks"
+      ],
+      "source_ids": [
+        "SRC_NIST_AGENTIC_EMERGING_2026",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-03-04",
+      "family_key": "summary_corruption",
+      "family_name": "Context summary corruption",
+      "pattern_name": "Cross-turn recap preserves attacker framing",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Summaries, distilled notes, or state reductions omit or invert critical constraints and preserve attacker influence.",
+      "surface_kind": "summary",
+      "default_controls": [
+        "summary provenance",
+        "trusted-summary regeneration",
+        "constraint-preserving summarizers",
+        "summary diff checks"
+      ],
+      "source_ids": [
+        "SRC_NIST_AGENTIC_EMERGING_2026",
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_OPENAI_PROMPT_INJECTION_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-04-01",
+      "family_key": "permission_state_drift",
+      "family_name": "Permission and scope state drift",
+      "pattern_name": "Memory says write access was approved",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Stored memory misstates current permissions, approvals, or capability grants, causing unsafe action later.",
+      "surface_kind": "permission_state",
+      "default_controls": [
+        "non-persistent approvals",
+        "capability freshness checks",
+        "scope revalidation",
+        "task-bound approval IDs"
+      ],
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-04-02",
+      "family_key": "permission_state_drift",
+      "family_name": "Permission and scope state drift",
+      "pattern_name": "Scope cache claims elevated token still valid",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Stored memory misstates current permissions, approvals, or capability grants, causing unsafe action later.",
+      "surface_kind": "permission_state",
+      "default_controls": [
+        "non-persistent approvals",
+        "capability freshness checks",
+        "scope revalidation",
+        "task-bound approval IDs"
+      ],
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-04-03",
+      "family_key": "permission_state_drift",
+      "family_name": "Permission and scope state drift",
+      "pattern_name": "Stored approval reused for different sink",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Stored memory misstates current permissions, approvals, or capability grants, causing unsafe action later.",
+      "surface_kind": "permission_state",
+      "default_controls": [
+        "non-persistent approvals",
+        "capability freshness checks",
+        "scope revalidation",
+        "task-bound approval IDs"
+      ],
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-04-04",
+      "family_key": "permission_state_drift",
+      "family_name": "Permission and scope state drift",
+      "pattern_name": "Session remembers destructive permission from prior task",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Stored memory misstates current permissions, approvals, or capability grants, causing unsafe action later.",
+      "surface_kind": "permission_state",
+      "default_controls": [
+        "non-persistent approvals",
+        "capability freshness checks",
+        "scope revalidation",
+        "task-bound approval IDs"
+      ],
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-05-01",
+      "family_key": "identity_context_hijack",
+      "family_name": "Identity and persona context hijack",
+      "pattern_name": "Stored admin identity claim",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Persistent state changes who the agent believes it serves or what role it currently holds.",
+      "surface_kind": "identity_state",
+      "default_controls": [
+        "identity assertions from trusted sources only",
+        "fresh delegation checks",
+        "recipient re-resolution",
+        "memory integrity baselines"
+      ],
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_CAISI_RFI_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-05-02",
+      "family_key": "identity_context_hijack",
+      "family_name": "Identity and persona context hijack",
+      "pattern_name": "Memory says attacker is trusted owner",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Persistent state changes who the agent believes it serves or what role it currently holds.",
+      "surface_kind": "identity_state",
+      "default_controls": [
+        "identity assertions from trusted sources only",
+        "fresh delegation checks",
+        "recipient re-resolution",
+        "memory integrity baselines"
+      ],
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_CAISI_RFI_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-05-03",
+      "family_key": "identity_context_hijack",
+      "family_name": "Identity and persona context hijack",
+      "pattern_name": "Persistent delegation without fresh consent",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Persistent state changes who the agent believes it serves or what role it currently holds.",
+      "surface_kind": "identity_state",
+      "default_controls": [
+        "identity assertions from trusted sources only",
+        "fresh delegation checks",
+        "recipient re-resolution",
+        "memory integrity baselines"
+      ],
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_CAISI_RFI_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-05-04",
+      "family_key": "identity_context_hijack",
+      "family_name": "Identity and persona context hijack",
+      "pattern_name": "Contact/recipient identity poisoned in memory",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Persistent state changes who the agent believes it serves or what role it currently holds.",
+      "surface_kind": "identity_state",
+      "default_controls": [
+        "identity assertions from trusted sources only",
+        "fresh delegation checks",
+        "recipient re-resolution",
+        "memory integrity baselines"
+      ],
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_CAISI_RFI_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-06-01",
+      "family_key": "rag_single_doc_poisoning",
+      "family_name": "Single-document RAG poisoning",
+      "pattern_name": "One poisoned document outranks benign corpus",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "A small number of poisoned documents dominate retrieval and future reasoning.",
+      "surface_kind": "rag",
+      "default_controls": [
+        "retrieval provenance",
+        "cross-document corroboration",
+        "poison-response detector",
+        "document trust tiers"
+      ],
+      "source_ids": [
+        "SRC_ONE_SHOT_DOMINANCE_EMNLP_2025",
+        "SRC_REVPRAG_EMNLP_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-06-02",
+      "family_key": "rag_single_doc_poisoning",
+      "family_name": "Single-document RAG poisoning",
+      "pattern_name": "Poisoned document used in multi-hop answer",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "A small number of poisoned documents dominate retrieval and future reasoning.",
+      "surface_kind": "rag",
+      "default_controls": [
+        "retrieval provenance",
+        "cross-document corroboration",
+        "poison-response detector",
+        "document trust tiers"
+      ],
+      "source_ids": [
+        "SRC_ONE_SHOT_DOMINANCE_EMNLP_2025",
+        "SRC_REVPRAG_EMNLP_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-06-03",
+      "family_key": "rag_single_doc_poisoning",
+      "family_name": "Single-document RAG poisoning",
+      "pattern_name": "Citation-snippet poisoning",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "A small number of poisoned documents dominate retrieval and future reasoning.",
+      "surface_kind": "rag",
+      "default_controls": [
+        "retrieval provenance",
+        "cross-document corroboration",
+        "poison-response detector",
+        "document trust tiers"
+      ],
+      "source_ids": [
+        "SRC_ONE_SHOT_DOMINANCE_EMNLP_2025",
+        "SRC_REVPRAG_EMNLP_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-06-04",
+      "family_key": "rag_single_doc_poisoning",
+      "family_name": "Single-document RAG poisoning",
+      "pattern_name": "Document crafted to survive retrieval filters",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "A small number of poisoned documents dominate retrieval and future reasoning.",
+      "surface_kind": "rag",
+      "default_controls": [
+        "retrieval provenance",
+        "cross-document corroboration",
+        "poison-response detector",
+        "document trust tiers"
+      ],
+      "source_ids": [
+        "SRC_ONE_SHOT_DOMINANCE_EMNLP_2025",
+        "SRC_REVPRAG_EMNLP_2025",
+        "SRC_OWASP_PI_CHEATSHEET_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-07-01",
+      "family_key": "vector_or_cache_poisoning",
+      "family_name": "Vector store and semantic cache poisoning",
+      "pattern_name": "Vector index poisoned by external ingestion",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Stored retrieval index or cache entries serve attacker-crafted content to later users or tasks.",
+      "surface_kind": "vector_store",
+      "default_controls": [
+        "cache partitioning",
+        "tenant isolation",
+        "signed ingestion pipeline",
+        "cache poisoning detectors"
+      ],
+      "source_ids": [
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_CAISI_RFI_2026",
+        "SRC_REVPRAG_EMNLP_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-07-02",
+      "family_key": "vector_or_cache_poisoning",
+      "family_name": "Vector store and semantic cache poisoning",
+      "pattern_name": "Semantic cache entry reused across users",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Stored retrieval index or cache entries serve attacker-crafted content to later users or tasks.",
+      "surface_kind": "semantic_cache",
+      "default_controls": [
+        "cache partitioning",
+        "tenant isolation",
+        "signed ingestion pipeline",
+        "cache poisoning detectors"
+      ],
+      "source_ids": [
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_CAISI_RFI_2026",
+        "SRC_REVPRAG_EMNLP_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-07-03",
+      "family_key": "vector_or_cache_poisoning",
+      "family_name": "Vector store and semantic cache poisoning",
+      "pattern_name": "Cache returns attacker-authored response",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Stored retrieval index or cache entries serve attacker-crafted content to later users or tasks.",
+      "surface_kind": "semantic_cache",
+      "default_controls": [
+        "cache partitioning",
+        "tenant isolation",
+        "signed ingestion pipeline",
+        "cache poisoning detectors"
+      ],
+      "source_ids": [
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_CAISI_RFI_2026",
+        "SRC_REVPRAG_EMNLP_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-07-04",
+      "family_key": "vector_or_cache_poisoning",
+      "family_name": "Vector store and semantic cache poisoning",
+      "pattern_name": "Embedding collision or prompt-like entry",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Stored retrieval index or cache entries serve attacker-crafted content to later users or tasks.",
+      "surface_kind": "vector_store",
+      "default_controls": [
+        "cache partitioning",
+        "tenant isolation",
+        "signed ingestion pipeline",
+        "cache poisoning detectors"
+      ],
+      "source_ids": [
+        "SRC_OWASP_AGENTIC_TOP10_2026",
+        "SRC_NIST_CAISI_RFI_2026",
+        "SRC_REVPRAG_EMNLP_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-08-01",
+      "family_key": "session_seeded_codewords",
+      "family_name": "Session-seeded coded language",
+      "pattern_name": "Safe-sounding codeword maps to secret action",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Attackers establish innocuous shorthand or codewords that later unlock unsafe behaviors.",
+      "surface_kind": "memory_read",
+      "default_controls": [
+        "approval tokens out-of-band",
+        "memory heuristics for coded approvals",
+        "veto suspicious shorthand",
+        "bind approvals to structured IDs"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_NIST_HIJACK_EVAL_2025",
+        "SRC_TOPICATTACK_EMNLP_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-08-02",
+      "family_key": "session_seeded_codewords",
+      "family_name": "Session-seeded coded language",
+      "pattern_name": "Project alias used to bypass policy",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Attackers establish innocuous shorthand or codewords that later unlock unsafe behaviors.",
+      "surface_kind": "memory_read",
+      "default_controls": [
+        "approval tokens out-of-band",
+        "memory heuristics for coded approvals",
+        "veto suspicious shorthand",
+        "bind approvals to structured IDs"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_NIST_HIJACK_EVAL_2025",
+        "SRC_TOPICATTACK_EMNLP_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-08-03",
+      "family_key": "session_seeded_codewords",
+      "family_name": "Session-seeded coded language",
+      "pattern_name": "Phrase later interpreted as approval token",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Attackers establish innocuous shorthand or codewords that later unlock unsafe behaviors.",
+      "surface_kind": "memory_read",
+      "default_controls": [
+        "approval tokens out-of-band",
+        "memory heuristics for coded approvals",
+        "veto suspicious shorthand",
+        "bind approvals to structured IDs"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_NIST_HIJACK_EVAL_2025",
+        "SRC_TOPICATTACK_EMNLP_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-08-04",
+      "family_key": "session_seeded_codewords",
+      "family_name": "Session-seeded coded language",
+      "pattern_name": "Encoded shorthand for recipient or sink",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Attackers establish innocuous shorthand or codewords that later unlock unsafe behaviors.",
+      "surface_kind": "memory_read",
+      "default_controls": [
+        "approval tokens out-of-band",
+        "memory heuristics for coded approvals",
+        "veto suspicious shorthand",
+        "bind approvals to structured IDs"
+      ],
+      "source_ids": [
+        "SRC_OWASP_PI_CHEATSHEET_2026",
+        "SRC_NIST_HIJACK_EVAL_2025",
+        "SRC_TOPICATTACK_EMNLP_2025"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-09-01",
+      "family_key": "memory_rollback_evasion",
+      "family_name": "Rollback evasion and forensic loss",
+      "pattern_name": "Write without snapshot",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Persistent state changes evade rollback, snapshotting, or attribution, making incident recovery difficult.",
+      "surface_kind": "memory_write",
+      "default_controls": [
+        "append-only memory journal",
+        "hash baselines",
+        "snapshot before commit",
+        "forensic export hooks"
+      ],
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_NCSC_PROMPT_INJECTION_2025",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-09-02",
+      "family_key": "memory_rollback_evasion",
+      "family_name": "Rollback evasion and forensic loss",
+      "pattern_name": "Tamper with baseline hash or snapshot chain",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Persistent state changes evade rollback, snapshotting, or attribution, making incident recovery difficult.",
+      "surface_kind": "memory_write",
+      "default_controls": [
+        "append-only memory journal",
+        "hash baselines",
+        "snapshot before commit",
+        "forensic export hooks"
+      ],
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_NCSC_PROMPT_INJECTION_2025",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-09-03",
+      "family_key": "memory_rollback_evasion",
+      "family_name": "Rollback evasion and forensic loss",
+      "pattern_name": "Rapid rewrite after detection",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Persistent state changes evade rollback, snapshotting, or attribution, making incident recovery difficult.",
+      "surface_kind": "memory_write",
+      "default_controls": [
+        "append-only memory journal",
+        "hash baselines",
+        "snapshot before commit",
+        "forensic export hooks"
+      ],
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_NCSC_PROMPT_INJECTION_2025",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    },
+    {
+      "pattern_id": "MC-09-04",
+      "family_key": "memory_rollback_evasion",
+      "family_name": "Rollback evasion and forensic loss",
+      "pattern_name": "Cross-store inconsistency after rollback",
+      "entry_kind": "memory_context_threat_pattern",
+      "summary": "Persistent state changes evade rollback, snapshotting, or attribution, making incident recovery difficult.",
+      "surface_kind": "memory_recovery",
+      "default_controls": [
+        "append-only memory journal",
+        "hash baselines",
+        "snapshot before commit",
+        "forensic export hooks"
+      ],
+      "source_ids": [
+        "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+        "SRC_NCSC_PROMPT_INJECTION_2025",
+        "SRC_OWASP_AGENTIC_TOP10_2026"
+      ],
+      "credibility": "high",
+      "last_verified": "2026-03-28"
+    }
+  ]
+}

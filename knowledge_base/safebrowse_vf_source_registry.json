@@ -1,0 +1,345 @@
+{
+  "kb_meta": {
+    "name": "SafeBrowse vf source registry",
+    "version": "vf-final",
+    "generated_on": "2026-03-28",
+    "entry_count": 30,
+    "quality_scale": {
+      "high": "Official documentation/guidance, government guidance, or peer-reviewed/benchmark source with direct relevance.",
+      "medium": "Credible technical documentation or preprint used with caution and corroborated by other sources.",
+      "low": "Not used in this bundle."
+    }
+  },
+  "sources": [
+    {
+      "source_id": "SRC_OPENAI_PROMPT_INJECTION_2026",
+      "title": "Designing AI agents to resist prompt injection",
+      "publisher": "OpenAI",
+      "url": "https://openai.com/index/designing-agents-to-resist-prompt-injection/",
+      "published_date": "2026-03-11",
+      "evidence_type": "official_engineering_guidance",
+      "credibility": "high",
+      "why_it_matters": "Current operational guidance on prompt injection as social engineering, source-sink analysis, and action confirmation/blocking patterns.",
+      "web_ref": "turn325573view0"
+    },
+    {
+      "source_id": "SRC_NCSC_PROMPT_INJECTION_2025",
+      "title": "Prompt injection is not SQL injection (it may be worse)",
+      "publisher": "UK National Cyber Security Centre",
+      "url": "https://www.ncsc.gov.uk/blog-post/prompt-injection-is-not-sql-injection",
+      "published_date": "2025-12-17",
+      "evidence_type": "government_security_guidance",
+      "credibility": "high",
+      "why_it_matters": "Strong framing that LLMs do not enforce a security boundary between instructions and data; logging and threat-modeling guidance.",
+      "web_ref": "turn325573view1"
+    },
+    {
+      "source_id": "SRC_GOOGLE_CHROME_AGENTIC_2025",
+      "title": "Architecting Security for Agentic Capabilities in Chrome",
+      "publisher": "Google Online Security Blog",
+      "url": "https://security.googleblog.com/2025/12/architecting-security-for-agentic.html",
+      "published_date": "2025-12-08",
+      "evidence_type": "official_engineering_guidance",
+      "credibility": "high",
+      "why_it_matters": "Documents User Alignment Critic, read-only/read-write origin sets, and deterministic URL/origin checks for agentic browsing.",
+      "web_ref": "turn325573view2"
+    },
+    {
+      "source_id": "SRC_ANTHROPIC_BROWSER_USE_2025",
+      "title": "Mitigating the risk of prompt injections in browser use",
+      "publisher": "Anthropic",
+      "url": "https://www.anthropic.com/research/prompt-injection-defenses",
+      "published_date": "2025-11-24",
+      "evidence_type": "official_research_or_engineering",
+      "credibility": "high",
+      "why_it_matters": "Directly addresses browser-agent threat surfaces including webpages, embedded documents, ads, and dynamic scripts.",
+      "web_ref": "turn325573view3"
+    },
+    {
+      "source_id": "SRC_MICROSOFT_INDIRECT_PI_2025",
+      "title": "How Microsoft defends against indirect prompt injection attacks",
+      "publisher": "Microsoft Security Response Center",
+      "url": "https://www.microsoft.com/en-us/msrc/blog/2025/07/how-microsoft-defends-against-indirect-prompt-injection-attacks/",
+      "published_date": "2025-07-03",
+      "evidence_type": "official_engineering_guidance",
+      "credibility": "high",
+      "why_it_matters": "Production defense guidance including Spotlighting and layered mitigations for indirect prompt injection.",
+      "web_ref": "turn325573view4"
+    },
+    {
+      "source_id": "SRC_OWASP_PI_CHEATSHEET_2026",
+      "title": "LLM Prompt Injection Prevention Cheat Sheet",
+      "publisher": "OWASP Cheat Sheet Series",
+      "url": "https://cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html",
+      "published_date": "2026-01-01",
+      "evidence_type": "community_best_practice",
+      "credibility": "high",
+      "why_it_matters": "Comprehensive taxonomy of prompt injection patterns and baseline mitigations.",
+      "web_ref": "turn325573view5"
+    },
+    {
+      "source_id": "SRC_NIST_HIJACK_EVAL_2025",
+      "title": "Technical Blog: Strengthening AI Agent Hijacking Evaluations",
+      "publisher": "NIST",
+      "url": "https://www.nist.gov/news-events/news/2025/01/technical-blog-strengthening-ai-agent-hijacking-evaluations",
+      "published_date": "2025-01-17",
+      "evidence_type": "government_research_guidance",
+      "credibility": "high",
+      "why_it_matters": "Evaluation guidance: adaptive attacks, task-specific analysis, and multi-attempt testing are necessary for realistic risk estimates.",
+      "web_ref": "turn325573view6"
+    },
+    {
+      "source_id": "SRC_NIST_CAISI_RFI_2026",
+      "title": "CAISI Issues Request for Information About Securing AI Agent Systems",
+      "publisher": "NIST",
+      "url": "https://www.nist.gov/news-events/news/2026/01/caisi-issues-request-information-about-securing-ai-agent-systems",
+      "published_date": "2026-01-12",
+      "evidence_type": "government_security_guidance",
+      "credibility": "high",
+      "why_it_matters": "Distinguishes key agent risks including indirect prompt injection, data/model poisoning, and harmful actions absent adversarial input.",
+      "web_ref": "turn325573view7"
+    },
+    {
+      "source_id": "SRC_MCP_SECURITY_BEST_PRACTICES_2025",
+      "title": "Security Best Practices",
+      "publisher": "Model Context Protocol",
+      "url": "https://modelcontextprotocol.io/docs/tutorials/security/security_best_practices",
+      "published_date": "2025-06-18",
+      "evidence_type": "official_specification_guidance",
+      "credibility": "high",
+      "why_it_matters": "Official MCP security guidance covering token passthrough, SSRF, session hijacking, local server compromise, and scope minimization.",
+      "web_ref": "turn325573view8"
+    },
+    {
+      "source_id": "SRC_OWASP_SECURE_MCP_GUIDE_2026",
+      "title": "A Practical Guide for Secure MCP Server Development",
+      "publisher": "OWASP Gen AI Security Project",
+      "url": "https://genai.owasp.org/resource/a-practical-guide-for-secure-mcp-server-development/",
+      "published_date": "2026-02-16",
+      "evidence_type": "community_best_practice",
+      "credibility": "high",
+      "why_it_matters": "Operational guidance for MCP server architecture, authentication, authorization, validation, session isolation, and hardened deployment.",
+      "web_ref": "turn325573view10"
+    },
+    {
+      "source_id": "SRC_OWASP_AGENTIC_TOP10_2026",
+      "title": "OWASP Top 10 for Agentic Applications for 2026",
+      "publisher": "OWASP Gen AI Security Project",
+      "url": "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/",
+      "published_date": "2025-12-09",
+      "evidence_type": "community_consensus_framework",
+      "credibility": "high",
+      "why_it_matters": "Peer-reviewed, community-driven taxonomy covering goal hijack, tool misuse, supply chain, code execution, and memory/context poisoning.",
+      "web_ref": "turn325573view11"
+    },
+    {
+      "source_id": "SRC_OWASP_AGENT_MEMORY_GUARD_2026",
+      "title": "OWASP Agent Memory Guard",
+      "publisher": "OWASP Foundation",
+      "url": "https://owasp.org/www-project-agent-memory-guard/",
+      "published_date": "2026-01-01",
+      "evidence_type": "open_source_project_guidance",
+      "credibility": "medium_high",
+      "why_it_matters": "Concrete open-source design for defending memory poisoning with integrity checks, policy enforcement, snapshots, and rollback.",
+      "web_ref": "turn325573view22"
+    },
+    {
+      "source_id": "SRC_NEMO_GUARDRAILS_DOCS_2026",
+      "title": "NVIDIA NeMo Guardrails Library Developer Guide",
+      "publisher": "NVIDIA",
+      "url": "https://docs.nvidia.com/nemo/guardrails/latest/",
+      "published_date": "2026-01-01",
+      "evidence_type": "official_product_documentation",
+      "credibility": "high",
+      "why_it_matters": "Documents programmable guardrails, including input, retrieval, dialog, execution, and output rails.",
+      "web_ref": "turn325573view12"
+    },
+    {
+      "source_id": "SRC_GUARDRAILS_AI_VALIDATORS_2026",
+      "title": "Validators",
+      "publisher": "Guardrails AI",
+      "url": "https://guardrailsai.com/guardrails/docs/concepts/validators",
+      "published_date": "2026-01-01",
+      "evidence_type": "official_product_documentation",
+      "credibility": "medium_high",
+      "why_it_matters": "Shows an output/input validation model focused on validators and metadata-driven checks.",
+      "web_ref": "turn573368view0"
+    },
+    {
+      "source_id": "SRC_LLAMAFIREWALL_DOCS_2026",
+      "title": "About LlamaFirewall",
+      "publisher": "Meta / LlamaFirewall",
+      "url": "https://meta-llama.github.io/PurpleLlama/LlamaFirewall/docs/documentation/about-llamafirewall",
+      "published_date": "2026-01-01",
+      "evidence_type": "official_project_documentation",
+      "credibility": "medium_high",
+      "why_it_matters": "Documents scanner-based, layered defenses across user input, agent reasoning, and generated code.",
+      "web_ref": "turn325573view13"
+    },
+    {
+      "source_id": "SRC_OPENGUARDRAILS_DOCS_2026",
+      "title": "OpenGuardrails Documentation",
+      "publisher": "OpenGuardrails",
+      "url": "https://openguardrails.com/docs",
+      "published_date": "2026-01-01",
+      "evidence_type": "vendor_product_documentation",
+      "credibility": "medium",
+      "why_it_matters": "Shows gateway/API-mode security posture, data leak prevention, and knowledge-base response patterns.",
+      "web_ref": "turn325573view14"
+    },
+    {
+      "source_id": "SRC_BROWSERGYM_GITHUB_2026",
+      "title": "BrowserGym",
+      "publisher": "ServiceNow / GitHub",
+      "url": "https://github.com/ServiceNow/BrowserGym",
+      "published_date": "2026-01-20",
+      "evidence_type": "official_open_source_repository",
+      "credibility": "medium_high",
+      "why_it_matters": "A maintained benchmark ecosystem for web task automation that is useful for regression and adversarial evaluation.",
+      "web_ref": "turn325573view15"
+    },
+    {
+      "source_id": "SRC_AGENTDOJO_BENCHMARK_2026",
+      "title": "AgentDojo Benchmark",
+      "publisher": "AgentDojo",
+      "url": "https://agentdojo.spylab.ai/api/benchmark/",
+      "published_date": "2026-01-01",
+      "evidence_type": "official_open_source_documentation",
+      "credibility": "medium_high",
+      "why_it_matters": "Provides benchmark APIs with utility and security results for injection-aware agent evaluation.",
+      "web_ref": "turn325573view16"
+    },
+    {
+      "source_id": "SRC_CAMEL_ARXIV_2025",
+      "title": "Defeating Prompt Injections by Design",
+      "publisher": "arXiv",
+      "url": "https://arxiv.org/abs/2503.18813",
+      "published_date": "2025-03-24",
+      "evidence_type": "preprint_research",
+      "credibility": "medium_high",
+      "why_it_matters": "Introduces CaMeL: explicit control/data-flow separation and capability enforcement for prompt-injection-resistant agents.",
+      "web_ref": "turn303329view0"
+    },
+    {
+      "source_id": "SRC_ACE_NDSS_2026",
+      "title": "ACE: A Security Architecture for LLM-Integrated App Systems",
+      "publisher": "NDSS Symposium",
+      "url": "https://www.ndss-symposium.org/ndss-paper/ace-a-security-architecture-for-llm-integrated-app-systems/",
+      "published_date": "2026-02-01",
+      "evidence_type": "peer_reviewed_conference",
+      "credibility": "high",
+      "why_it_matters": "System-security architecture with abstract planning on trusted info, static analysis, and data/capability barriers.",
+      "web_ref": "turn325573view17"
+    },
+    {
+      "source_id": "SRC_TOOLHIJACKER_NDSS_2026",
+      "title": "Prompt Injection Attack to Tool Selection in LLM Agents",
+      "publisher": "NDSS Symposium",
+      "url": "https://www.ndss-symposium.org/ndss-paper/prompt-injection-attack-to-tool-selection-in-llm-agents/",
+      "published_date": "2026-02-01",
+      "evidence_type": "peer_reviewed_conference",
+      "credibility": "high",
+      "why_it_matters": "Shows malicious tool documents can subvert tool selection and that common defenses can be insufficient.",
+      "web_ref": "turn325573view18"
+    },
+    {
+      "source_id": "SRC_OBLIINJECTION_NDSS_2026",
+      "title": "ObliInjection: Order-Oblivious Prompt Injection Attack to LLM Agents with Multi-source Data",
+      "publisher": "NDSS Symposium",
+      "url": "https://www.ndss-symposium.org/ndss-paper/obliinjection-order-oblivious-prompt-injection-attack-to-llm-agents-with-multi-source-data/",
+      "published_date": "2026-02-01",
+      "evidence_type": "peer_reviewed_conference",
+      "credibility": "high",
+      "why_it_matters": "Demonstrates successful multi-source injection when only a small portion of segments are attacker-controlled.",
+      "web_ref": "turn325573view19"
+    },
+    {
+      "source_id": "SRC_TOPICATTACK_EMNLP_2025",
+      "title": "TopicAttack: An Indirect Prompt Injection Attack via Topic Transition",
+      "publisher": "ACL Anthology / EMNLP 2025",
+      "url": "https://aclanthology.org/2025.emnlp-main.372/",
+      "published_date": "2025-11-01",
+      "evidence_type": "peer_reviewed_conference",
+      "credibility": "high",
+      "why_it_matters": "Documents a social-engineering-style topic-transition attack that maintains plausibility while increasing success.",
+      "web_ref": "turn281925search0"
+    },
+    {
+      "source_id": "SRC_IPI_DETECT_REMOVE_ACL_2025",
+      "title": "Can Indirect Prompt Injection Attacks Be Detected and Removed?",
+      "publisher": "ACL Anthology / ACL 2025",
+      "url": "https://aclanthology.org/2025.acl-long.890/",
+      "published_date": "2025-07-01",
+      "evidence_type": "peer_reviewed_conference",
+      "credibility": "high",
+      "why_it_matters": "Shows detection and removal are possible but should be treated as one layer, not a complete guarantee.",
+      "web_ref": "turn129181search5"
+    },
+    {
+      "source_id": "SRC_INSTRUCTDETECTOR_EMNLP_2025",
+      "title": "Defending against Indirect Prompt Injection by Instruction Detection",
+      "publisher": "ACL Anthology / EMNLP 2025 Findings",
+      "url": "https://aclanthology.org/2025.findings-emnlp.1060/",
+      "published_date": "2025-11-01",
+      "evidence_type": "peer_reviewed_conference",
+      "credibility": "high",
+      "why_it_matters": "Intermediate-state instruction detection offers a promising detector layer for indirect prompt injection.",
+      "web_ref": "turn129181search6"
+    },
+    {
+      "source_id": "SRC_ONE_SHOT_DOMINANCE_EMNLP_2025",
+      "title": "One Shot Dominance: Knowledge Poisoning Attack on Retrieval-Augmented Generation Systems",
+      "publisher": "ACL Anthology / EMNLP 2025 Findings",
+      "url": "https://aclanthology.org/2025.findings-emnlp.1023/",
+      "published_date": "2025-11-01",
+      "evidence_type": "peer_reviewed_conference",
+      "credibility": "high",
+      "why_it_matters": "Shows single-document knowledge poisoning can be effective in RAG systems.",
+      "web_ref": "turn325573view20"
+    },
+    {
+      "source_id": "SRC_REVPRAG_EMNLP_2025",
+      "title": "RevPRAG: Revealing Poisoning Attacks in Retrieval-Augmented Generation through LLM Activation Analysis",
+      "publisher": "ACL Anthology / EMNLP 2025 Findings",
+      "url": "https://aclanthology.org/2025.findings-emnlp.698/",
+      "published_date": "2025-11-01",
+      "evidence_type": "peer_reviewed_conference",
+      "credibility": "high",
+      "why_it_matters": "Demonstrates a promising activation-based detector for poisoned RAG responses.",
+      "web_ref": "turn325573view21"
+    },
+    {
+      "source_id": "SRC_ADAPTIVE_ATTACKS_ACL_2025",
+      "title": "Adaptive Attacks Break Defenses Against Indirect Prompt Injection Attacks on LLM Agents",
+      "publisher": "ACL Anthology / Findings of NAACL 2025",
+      "url": "https://aclanthology.org/2025.findings-naacl.395/",
+      "published_date": "2025-04-01",
+      "evidence_type": "peer_reviewed_conference",
+      "credibility": "high",
+      "why_it_matters": "Supports the need for adaptive testing because fixed defenses can break under tailored attacks.",
+      "web_ref": "turn129181search4"
+    },
+    {
+      "source_id": "SRC_OWASP_LLM02_OUTPUT_2026",
+      "title": "LLM02: Insecure Output Handling",
+      "publisher": "OWASP Gen AI Security Project",
+      "url": "https://genai.owasp.org/llmrisk2023-24/llm02-insecure-output-handling/",
+      "published_date": "2026-01-01",
+      "evidence_type": "community_best_practice",
+      "credibility": "high",
+      "why_it_matters": "Grounds output validation, downstream sink controls, and zero-trust handling of model outputs.",
+      "web_ref": "turn647671search1"
+    },
+    {
+      "source_id": "SRC_NIST_AGENTIC_EMERGING_2026",
+      "title": "Agentic AI: Emerging Threats, Mitigations, and Challenges",
+      "publisher": "NIST CSRC Presentation",
+      "url": "https://csrc.nist.gov/Presentations/2026/agentic-ai-emerging-threats-mitigations-and-cha",
+      "published_date": "2026-01-21",
+      "evidence_type": "government_presentation",
+      "credibility": "medium_high",
+      "why_it_matters": "Useful supporting taxonomy for memory and context poisoning in agentic systems.",
+      "web_ref": "turn491225search4"
+    }
+  ]
+}

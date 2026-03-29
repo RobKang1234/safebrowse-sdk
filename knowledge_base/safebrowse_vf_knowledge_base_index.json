@@ -1,0 +1,143 @@
+{
+  "kb_meta": {
+    "suite_name": "SafeBrowse SDK vf knowledge bundle",
+    "suite_version": "vf-final",
+    "generated_on": "2026-03-28",
+    "generated_by": "OpenAI ChatGPT",
+    "design_intent": "Separate hot-path and warm-path safety knowledge so consuming projects can adopt lightweight enforcement without loading a single monolithic threat base.",
+    "notes": [
+      "The bundle is designed for a framework-only SDK that mediates browsing observations and actions but does not browse by itself.",
+      "Each pack can be versioned independently and loaded lazily according to enabled modules."
+    ]
+  },
+  "knowledge_bases": [
+    {
+      "kb_id": "KB_PROMPT_INJECTION",
+      "name": "Prompt injection patterns",
+      "file_name": "safebrowse_vf_prompt_injection_patterns.json",
+      "purpose": "Content-level and social-engineering prompt injection patterns for observation sanitization and prompt attack triage.",
+      "hot_path": true,
+      "consumer_modules": [
+        "PromptInjectionGuard",
+        "ObservationSanitizer",
+        "ActionIntegrityFirewall"
+      ],
+      "entry_count": 174
+    },
+    {
+      "kb_id": "KB_ACTION_INTEGRITY",
+      "name": "Action integrity patterns",
+      "file_name": "safebrowse_vf_action_integrity_patterns.json",
+      "purpose": "Action drift and misalignment patterns for deterministic gating and metadata-only critics.",
+      "hot_path": true,
+      "consumer_modules": [
+        "ActionIntegrityFirewall"
+      ],
+      "entry_count": 50
+    },
+    {
+      "kb_id": "KB_ARTIFACT_SURFACE",
+      "name": "Artifact and non-standard surface patterns",
+      "file_name": "safebrowse_vf_artifact_surface_patterns.json",
+      "purpose": "Document viewers, PDFs, OCR, hidden layers, and other web artifact patterns for safe handoff.",
+      "hot_path": true,
+      "consumer_modules": [
+        "ArtifactSurfaceGuard",
+        "ObservationSanitizer",
+        "ArtifactHandoffBroker"
+      ],
+      "entry_count": 40
+    },
+    {
+      "kb_id": "KB_TOOL_PROTOCOL",
+      "name": "Tool, protocol, and supply-chain patterns",
+      "file_name": "safebrowse_vf_tool_protocol_supply_chain_patterns.json",
+      "purpose": "Tool manifest, MCP/OAuth, SSRF, and supply-chain threat patterns.",
+      "hot_path": true,
+      "consumer_modules": [
+        "ToolProtocolGuard",
+        "PolicyEngine",
+        "AdapterRegistry"
+      ],
+      "entry_count": 40
+    },
+    {
+      "kb_id": "KB_MEMORY_CONTEXT",
+      "name": "Memory and context poisoning patterns",
+      "file_name": "safebrowse_vf_memory_context_poisoning_patterns.json",
+      "purpose": "Persistent memory poisoning, summary corruption, and retrieval contamination patterns.",
+      "hot_path": false,
+      "consumer_modules": [
+        "MemoryContextGuard",
+        "RetrievalCorroborator",
+        "SessionManager"
+      ],
+      "entry_count": 36
+    },
+    {
+      "kb_id": "KB_TRUST_SIGNALS",
+      "name": "Trust signals and provenance catalog",
+      "file_name": "safebrowse_vf_trust_signals_provenance.json",
+      "purpose": "Normalized provenance and trust fields that every observation, artifact, and action should carry.",
+      "hot_path": true,
+      "consumer_modules": [
+        "All policy modules",
+        "Telemetry",
+        "Replay"
+      ],
+      "entry_count": 28
+    },
+    {
+      "kb_id": "KB_POLICY_CONTROLS",
+      "name": "Policy controls catalog",
+      "file_name": "safebrowse_vf_policy_controls_catalog.json",
+      "purpose": "Canonical control definitions and deployment recommendations.",
+      "hot_path": false,
+      "consumer_modules": [
+        "PolicyEngine",
+        "PolicyCompiler",
+        "Docs/CLI generators"
+      ],
+      "entry_count": 45
+    },
+    {
+      "kb_id": "KB_INCIDENT_RESPONSE",
+      "name": "Incident response playbooks",
+      "file_name": "safebrowse_vf_incident_response_playbooks.json",
+      "purpose": "Default containment, rollback, quarantine, and forensic response actions.",
+      "hot_path": false,
+      "consumer_modules": [
+        "IncidentResponder",
+        "SOC integration",
+        "Replay"
+      ],
+      "entry_count": 18
+    },
+    {
+      "kb_id": "KB_EVALUATION",
+      "name": "Evaluation and red-team scenarios",
+      "file_name": "safebrowse_vf_evaluation_scenarios.json",
+      "purpose": "Benchmark-aligned scenarios, metrics, and harness recommendations.",
+      "hot_path": false,
+      "consumer_modules": [
+        "QA",
+        "Benchmark harness",
+        "Red-team pipelines"
+      ],
+      "entry_count": 10
+    },
+    {
+      "kb_id": "KB_SOURCE_REGISTRY",
+      "name": "Source registry",
+      "file_name": "safebrowse_vf_source_registry.json",
+      "purpose": "Traceable research sources and credibility metadata for the KB packs.",
+      "hot_path": false,
+      "consumer_modules": [
+        "KB management",
+        "Governance",
+        "Docs"
+      ],
+      "entry_count": 30
+    }
+  ]
+}

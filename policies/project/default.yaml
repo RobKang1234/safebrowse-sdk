@@ -1,0 +1,13 @@
+profile: research
+metadata:
+  layer: project
+  version: 2026-03-28
+origins:
+  read_only_allow:
+    - github.com
+actions:
+  allow:
+    - download
+  require_approval:
+    - submit
+

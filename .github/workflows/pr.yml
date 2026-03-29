@@ -1,0 +1,25 @@
+name: pr
+
+on:
+  pull_request:
+  push:
+    branches:
+      - v1
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test
+      - run: pnpm perf:smoke
+      - run: pnpm run kb:bundle -- --generate-dev-key

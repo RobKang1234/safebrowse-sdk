@@ -1,0 +1,51 @@
+profile: research
+metadata:
+  layer: base
+  version: 2026-03-28
+origins:
+  read_only_allow:
+    - scholar.google.com
+    - arxiv.org
+    - dl.acm.org
+    - openreview.net
+  writable_allow: []
+actions:
+  allow:
+    - navigate
+    - open
+    - scroll
+    - extract
+    - screenshot
+  require_approval:
+    - download
+    - login
+    - upload
+    - submit
+    - message
+  deny:
+    - exfiltrate
+artifacts:
+  enable_document_handoff: true
+  quarantine_on_hidden_text_mismatch: true
+  allow_mime_types:
+    - application/pdf
+    - text/html
+    - text/plain
+    - image/png
+    - image/jpeg
+memory:
+  durable_writes: deny
+  protected_keys:
+    - user_identity
+    - credential_scope
+    - payment_context
+tool_protocol:
+  forbid_token_passthrough: true
+  enforce_exact_redirect_uri: true
+  allowed_registry_signers:
+    - safebrowse-dev
+telemetry:
+  replay_bundle: true
+  redact_sensitive_values: true
+  sampling: full
+
