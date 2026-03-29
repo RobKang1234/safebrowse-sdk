@@ -50,6 +50,14 @@ pip install safebrowse-client
 
 For PyPI-first release operations, the repo now includes a dedicated GitHub Actions workflow named `publish-pypi` that can publish only the Python client before the npm and GHCR surfaces are live.
 
+The Python package also ships a starter helper for a model-connected browser agent template:
+
+```python
+from safebrowse_client import write_model_connected_browser_agent_template
+
+write_model_connected_browser_agent_template("model_connected_browser_agent.py")
+```
+
 ### Docker
 
 ```bash
@@ -58,7 +66,9 @@ docker run --rm -p 8787:8787 ghcr.io/robkang1234/safebrowse-daemon:latest
 
 ### License
 
-SafeBrowse is released under `Apache-2.0`. See [LICENSE](LICENSE).
+SafeBrowse is released under the `SafeBrowse Non-Commercial License 1.0`. Copyright is retained by the author, and all rights not expressly granted are reserved. See [LICENSE](LICENSE).
+
+Important note: the already-published PyPI release `safebrowse-client 0.1.0` was uploaded before this licensing change and remains under the terms shipped with that release. This repository change applies to future releases.
 
 ## What SafeBrowse Does
 

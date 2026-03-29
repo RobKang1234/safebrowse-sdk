@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "safebrowse-client"
-version = "0.1.0"
+version = "0.1.1"
 description = "Thin Python client for the SafeBrowse localhost daemon"
 readme = "README.md"
-license = "Apache-2.0"
+license = "LicenseRef-SafeBrowse-NC-1.0"
 requires-python = ">=3.12"
 authors = [{ name = "RobKang1234" }]
 maintainers = [{ name = "RobKang1234" }]
@@ -32,6 +32,7 @@ Issues = "https://github.com/RobKang1234/safebrowse-sdk/issues"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+license-files = ["LICENSE"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -1,8 +1,8 @@
 {
   "name": "@safebrowse/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Core SafeBrowse policy runtime for browser-use agents",
-  "license": "Apache-2.0",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -15,7 +15,13 @@
   "bugs": {
     "url": "https://github.com/RobKang1234/safebrowse-sdk/issues"
   },
-  "keywords": ["agent-security", "browser-agents", "middleware", "policy-engine", "safebrowse"],
+  "keywords": [
+    "agent-security",
+    "browser-agents",
+    "middleware",
+    "policy-engine",
+    "safebrowse"
+  ],
   "publishConfig": {
     "access": "public",
     "provenance": true
@@ -29,11 +35,13 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "sideEffects": false
 }
-

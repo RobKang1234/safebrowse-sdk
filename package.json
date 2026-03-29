@@ -1,8 +1,8 @@
 {
   "name": "safebrowse-sdk",
   "private": true,
-  "version": "0.1.0",
-  "license": "Apache-2.0",
+  "version": "0.1.1",
+  "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/RobKang1234/safebrowse-sdk.git"

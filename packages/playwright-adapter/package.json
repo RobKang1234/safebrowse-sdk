@@ -1,8 +1,8 @@
 {
   "name": "@safebrowse/playwright-adapter",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Playwright reference adapter for the SafeBrowse runtime",
-  "license": "Apache-2.0",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -15,7 +15,13 @@
   "bugs": {
     "url": "https://github.com/RobKang1234/safebrowse-sdk/issues"
   },
-  "keywords": ["agent-security", "browser-agents", "playwright", "reference-adapter", "safebrowse"],
+  "keywords": [
+    "agent-security",
+    "browser-agents",
+    "playwright",
+    "reference-adapter",
+    "safebrowse"
+  ],
   "publishConfig": {
     "access": "public",
     "provenance": true
@@ -29,13 +35,16 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@safebrowse/core": "workspace:*"
+    "@safebrowse/core": "0.1.1"
   },
   "peerDependencies": {
     "playwright-core": ">=1.49.0"
@@ -47,4 +56,3 @@
   },
   "sideEffects": false
 }
-

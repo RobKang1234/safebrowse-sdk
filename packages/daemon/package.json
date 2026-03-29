@@ -1,8 +1,8 @@
 {
   "name": "@safebrowse/daemon",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Localhost SafeBrowse daemon for browser-use agent enforcement",
-  "license": "Apache-2.0",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -18,7 +18,13 @@
   "bugs": {
     "url": "https://github.com/RobKang1234/safebrowse-sdk/issues"
   },
-  "keywords": ["agent-security", "daemon", "middleware", "oauth", "safebrowse"],
+  "keywords": [
+    "agent-security",
+    "daemon",
+    "middleware",
+    "oauth",
+    "safebrowse"
+  ],
   "publishConfig": {
     "access": "public",
     "provenance": true
@@ -32,14 +38,16 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-runtime-assets.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@safebrowse/core": "workspace:*",
+    "@safebrowse/core": "0.1.1",
     "yaml": "^2.8.1"
   }
 }
-

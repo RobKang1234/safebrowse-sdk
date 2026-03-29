@@ -2,6 +2,10 @@
 
 This repo is set up for coordinated public release across npm, PyPI, and GHCR.
 
+The repository is no longer Apache-licensed. Future releases should carry the
+`SafeBrowse Non-Commercial License 1.0` terms and preserve the package-level
+`LICENSE` files included in each public distribution surface.
+
 ## One-Time Setup
 
 Before the first public release:
@@ -92,6 +96,10 @@ Recommended setup for the current repo:
 2. Optionally add `TEST_PYPI_API_TOKEN` in the `release-rc` environment for TestPyPI prereleases.
 3. Keep any local token file outside git. This repo ignores `pypi_token.txt` to reduce accidental commits.
 4. Run the `publish-pypi` workflow from the GitHub Actions UI when you are ready.
+
+Important: `safebrowse-client 0.1.0` was already published to PyPI before this
+license change. If you want PyPI to reflect the non-commercial terms, publish a
+new version rather than trying to retroactively change the old release.
 
 ## Operational Notes
 
