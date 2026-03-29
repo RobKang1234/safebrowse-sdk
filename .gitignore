@@ -10,6 +10,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 .env
+pypi_token.txt
 knowledge_base/signing/private/
 python/dist/
 python/**/build/

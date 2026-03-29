@@ -127,12 +127,29 @@ jobs:
       - run: node scripts/release/sync-version.mjs --version "${{ needs.validate.outputs.javascript_version }}"
       - run: pnpm release:build:python
       - run: pnpm release:check:python
-      - if: needs.validate.outputs.is_prerelease == 'true'
+      - name: Publish prerelease to TestPyPI using token
+        if: needs.validate.outputs.is_prerelease == 'true' && secrets.TEST_PYPI_API_TOKEN != ''
         uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
         with:
           packages-dir: python/dist
           repository-url: https://test.pypi.org/legacy/
-      - if: needs.validate.outputs.is_prerelease != 'true'
+          password: ${{ secrets.TEST_PYPI_API_TOKEN }}
+          attestations: false
+      - name: Publish prerelease to TestPyPI using trusted publishing
+        if: needs.validate.outputs.is_prerelease == 'true' && secrets.TEST_PYPI_API_TOKEN == ''
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
+        with:
+          packages-dir: python/dist
+          repository-url: https://test.pypi.org/legacy/
+      - name: Publish release to PyPI using token
+        if: needs.validate.outputs.is_prerelease != 'true' && secrets.PYPI_API_TOKEN != ''
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
+        with:
+          packages-dir: python/dist
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          attestations: false
+      - name: Publish release to PyPI using trusted publishing
+        if: needs.validate.outputs.is_prerelease != 'true' && secrets.PYPI_API_TOKEN == ''
         uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
         with:
           packages-dir: python/dist

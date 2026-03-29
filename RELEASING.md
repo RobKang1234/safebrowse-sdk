@@ -7,9 +7,10 @@ This repo is set up for coordinated public release across npm, PyPI, and GHCR.
 Before the first public release:
 
 1. Confirm ownership of the npm scope `@safebrowse`.
-2. Configure PyPI Trusted Publishing for:
+2. Configure PyPI publishing for:
    - TestPyPI
    - PyPI
+   - Prefer Trusted Publishing, but this repo also supports GitHub Actions secrets named `TEST_PYPI_API_TOKEN` and `PYPI_API_TOKEN` for token-backed uploads.
 3. Configure npm Trusted Publishing for this GitHub repository.
 4. Create protected GitHub environments:
    - `release-rc`
@@ -69,10 +70,28 @@ The release workflow will:
 - validate build, tests, packaging, and Docker smoke checks
 - build KB artifacts with the protected signing key instead of a dev key
 - publish npm packages with provenance
-- publish `safebrowse-client` through Trusted Publishing
+- publish `safebrowse-client` through Trusted Publishing when configured, or through `PYPI_API_TOKEN` / `TEST_PYPI_API_TOKEN` when those secrets are present
 - publish the daemon image to GHCR with provenance and SBOM
 - sign the GHCR image with Cosign
 - attach release notes and artifacts to the GitHub Release
+
+## PyPI-First Publishing
+
+If you want to ship the Python client before npm and GHCR are live, use the dedicated Actions workflow:
+
+- Workflow: `publish-pypi`
+- Inputs:
+  - `ref`
+  - `version`
+  - `repository` (`pypi` or `testpypi`)
+  - `skip_existing`
+
+Recommended setup for the current repo:
+
+1. Add `PYPI_API_TOKEN` as a GitHub Actions secret in the `release-prod` environment.
+2. Optionally add `TEST_PYPI_API_TOKEN` in the `release-rc` environment for TestPyPI prereleases.
+3. Keep any local token file outside git. This repo ignores `pypi_token.txt` to reduce accidental commits.
+4. Run the `publish-pypi` workflow from the GitHub Actions UI when you are ready.
 
 ## Operational Notes
 

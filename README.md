@@ -48,6 +48,8 @@ npx @safebrowse/daemon --host 127.0.0.1 --port 8787
 pip install safebrowse-client
 ```
 
+For PyPI-first release operations, the repo now includes a dedicated GitHub Actions workflow named `publish-pypi` that can publish only the Python client before the npm and GHCR surfaces are live.
+
 ### Docker
 
 ```bash
