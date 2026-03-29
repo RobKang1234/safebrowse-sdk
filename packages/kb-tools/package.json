@@ -20,7 +20,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@safebrowse/core": "0.1.1",
+    "@safebrowse/core": "workspace:*",
     "fflate": "^0.8.2",
     "yaml": "^2.8.1"
   }

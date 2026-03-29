@@ -44,7 +44,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@safebrowse/core": "0.1.1"
+    "@safebrowse/core": "workspace:*"
   },
   "peerDependencies": {
     "playwright-core": ">=1.49.0"

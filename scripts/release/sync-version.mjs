@@ -40,6 +40,7 @@ async function writeJson(path, value) {
 
 async function main() {
   const args = process.argv.slice(2);
+  const exactInternalDeps = args.includes("--exact-internal-deps");
   const requested =
     readFlag(args, "--version") ??
     readFlag(args, "--tag") ??
@@ -59,7 +60,7 @@ async function main() {
     if (manifest.dependencies) {
       for (const [dependency, specifier] of Object.entries(manifest.dependencies)) {
         if (internalDependencyNames.has(dependency) && typeof specifier === "string") {
-          manifest.dependencies[dependency] = canonicalVersion;
+          manifest.dependencies[dependency] = exactInternalDeps ? canonicalVersion : "workspace:*";
         }
       }
     }
