@@ -50,6 +50,28 @@ class SafeBrowseClientTest(unittest.TestCase):
         body = json.loads(args[0].data.decode("utf-8"))
         self.assertEqual(body, {"events": [{"eventId": "evt-1"}]})
 
+    @patch("safebrowse_client.client.request.urlopen")
+    def test_tool_prepare_posts_to_v2_route(self, mock_urlopen) -> None:
+        mock_urlopen.return_value = _FakeResponse({"verdict": {"decision": "BLOCK"}})
+        client = SafeBrowseClient()
+
+        result = client.tool_prepare({"toolId": "citation-sync-safe"})
+
+        self.assertEqual(result["verdict"]["decision"], "BLOCK")
+        args, _kwargs = mock_urlopen.call_args
+        self.assertIn("/v2/tool/prepare", args[0].full_url)
+
+    @patch("safebrowse_client.client.request.urlopen")
+    def test_artifact_v2_posts_to_v2_route(self, mock_urlopen) -> None:
+        mock_urlopen.return_value = _FakeResponse({"verdict": {"decision": "ALLOW"}})
+        client = SafeBrowseClient()
+
+        result = client.artifact_v2({"mimeType": "application/pdf"})
+
+        self.assertEqual(result["verdict"]["decision"], "ALLOW")
+        args, _kwargs = mock_urlopen.call_args
+        self.assertIn("/v2/artifact", args[0].full_url)
+
 
 if __name__ == "__main__":
     unittest.main()

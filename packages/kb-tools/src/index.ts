@@ -5,3 +5,4 @@ export {
   verifyKnowledgeBundle
 } from "./bundle.js";
 export { loadKnowledgeBaseContext, loadPolicyPackFromPaths, resolvePolicyLayerFiles } from "./loaders.js";
+export { buildRegistryDefaults, loadVerifiedRegistryBundle } from "./registry.js";

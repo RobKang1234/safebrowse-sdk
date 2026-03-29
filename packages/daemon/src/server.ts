@@ -1,28 +1,38 @@
+import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { resolve } from "node:path";
 
 import {
   brokerArtifact,
+  brokerArtifactV2,
   buildReplayBundle,
   compilePolicy,
   evaluateAction,
   evaluateMemoryWrite,
   evaluateToolRequest,
+  prepareToolOnboarding,
   sanitizeObservation,
+  verifyToolCallback,
   type ActionProposal,
   type ArtifactInput,
+  type ArtifactV2Input,
   type KnowledgeBaseContext,
   type MemoryWriteRequest,
   type PolicyPack,
   type ReplayEvent,
   type RuntimeContext,
+  type ToolCallbackVerificationRequest,
+  type ToolOnboardingSession,
   type ToolRequest
 } from "@safebrowse/core";
 import {
+  buildRegistryDefaults,
   loadKnowledgeBaseContext,
+  loadVerifiedRegistryBundle,
   loadPolicyPackFromPaths,
   resolvePolicyLayerFiles
 } from "@safebrowse/kb-tools";
+import type { VerifiedRegistryBundle } from "@safebrowse/core";
 
 export interface SafeBrowseDaemonOptions {
   host?: string;
@@ -30,6 +40,7 @@ export interface SafeBrowseDaemonOptions {
   rootDir?: string;
   policyPack?: PolicyPack;
   knowledgeBase?: KnowledgeBaseContext;
+  verifiedRegistry?: VerifiedRegistryBundle;
 }
 
 async function readJson<T>(request: IncomingMessage): Promise<T> {
@@ -48,17 +59,60 @@ function writeJson(response: ServerResponse, statusCode: number, payload: unknow
 
 async function buildRuntimeContext(
   options: SafeBrowseDaemonOptions
-): Promise<RuntimeContext & { knowledgeBase: KnowledgeBaseContext }> {
+): Promise<RuntimeContext & { knowledgeBase: KnowledgeBaseContext; verifiedRegistry?: VerifiedRegistryBundle }> {
   const rootDir = options.rootDir ?? process.cwd();
   const policyPack =
     options.policyPack ??
     (await loadPolicyPackFromPaths(resolvePolicyLayerFiles(resolve(rootDir))));
   const knowledgeBase =
     options.knowledgeBase ?? (await loadKnowledgeBaseContext(resolve(rootDir, "knowledge_base")));
+  const verifiedRegistry =
+    options.verifiedRegistry ??
+    (await loadVerifiedRegistryBundle(buildRegistryDefaults(resolve(rootDir))).catch(() => undefined));
 
   return {
     policy: compilePolicy(policyPack),
-    knowledgeBase
+    knowledgeBase,
+    verifiedRegistry
+  };
+}
+
+function plusMinutes(value: string, minutes: number): string {
+  return new Date(new Date(value).getTime() + minutes * 60_000).toISOString();
+}
+
+function createOnboardingSession(
+  request: ToolRequest,
+  runtime: RuntimeContext & { verifiedRegistry?: VerifiedRegistryBundle },
+  workflowBindingId?: string
+): ToolOnboardingSession | undefined {
+  const callbackUri =
+    request.oauthContext?.callbackUri ??
+    request.callbackUri ??
+    request.oauthContext?.redirectUri ??
+    request.requestedRedirectUri;
+
+  if (!callbackUri) {
+    return undefined;
+  }
+
+  const createdAt = (runtime.now?.() ?? new Date()).toISOString();
+  return {
+    sessionId: randomUUID(),
+    approvalBindingId: request.approvalBindingId ?? randomUUID(),
+    workflowBindingId,
+    toolId: request.toolId,
+    registryEntryId: request.registryEntryId ?? request.toolId,
+    registryBundleId:
+      request.registryBundleId ?? runtime.verifiedRegistry?.bundleId ?? "unverified-registry",
+    callbackUri,
+    callbackOrigin: new URL(callbackUri).origin,
+    requestedScopes: request.requestedScopes ?? request.oauthContext?.requestedScopes ?? [],
+    state: randomUUID(),
+    pkceMethod: "S256",
+    createdAt,
+    expiresAt: plusMinutes(createdAt, 5),
+    status: "prepared"
   };
 }
 
@@ -66,6 +120,7 @@ export async function createSafeBrowseServer(
   options: SafeBrowseDaemonOptions = {}
 ): Promise<Server> {
   const runtime = await buildRuntimeContext(options);
+  const onboardingSessions = new Map<string, ToolOnboardingSession>();
 
   return createServer(async (request, response) => {
     if (!request.url) {
@@ -78,7 +133,16 @@ export async function createSafeBrowseServer(
         writeJson(response, 200, {
           status: "ok",
           profile: runtime.policy.profile,
-          version: runtime.policy.version
+          version: runtime.policy.version,
+          policyLayers: runtime.policy.layerProvenance,
+          verifiedRegistry: runtime.verifiedRegistry
+            ? {
+                bundleId: runtime.verifiedRegistry.bundleId,
+                version: runtime.verifiedRegistry.version,
+                signatureVerified: runtime.verifiedRegistry.signatureVerified,
+                entryCount: runtime.verifiedRegistry.entries.length
+              }
+            : undefined
         });
         return;
       }
@@ -121,6 +185,47 @@ export async function createSafeBrowseServer(
       if (request.url === "/v1/replay") {
         const payload = await readJson<{ events: ReplayEvent[] }>(request);
         writeJson(response, 200, buildReplayBundle(payload.events, runtime));
+        return;
+      }
+
+      if (request.url === "/v2/tool/prepare") {
+        const payload = await readJson<ToolRequest>(request);
+        const prepared = prepareToolOnboarding(payload, runtime);
+        const onboardingSession =
+          prepared.verdict.decision === "ALLOW" && payload.authType === "oauth"
+            ? createOnboardingSession(payload, runtime, prepared.workflowBinding?.bindingId)
+            : undefined;
+
+        if (onboardingSession) {
+          onboardingSessions.set(onboardingSession.sessionId, onboardingSession);
+        }
+
+        writeJson(response, 200, {
+          verdict: prepared.verdict,
+          verifiedRegistryEntry: prepared.verifiedRegistryEntry,
+          workflowBinding: prepared.workflowBinding,
+          onboardingSession
+        });
+        return;
+      }
+
+      if (request.url === "/v2/tool/callback/verify") {
+        const payload = await readJson<ToolCallbackVerificationRequest>(request);
+        const session = onboardingSessions.get(payload.sessionId);
+        const result = verifyToolCallback(payload, session, runtime);
+        if (session) {
+          onboardingSessions.set(payload.sessionId, {
+            ...session,
+            status: result.verdict.decision === "ALLOW" ? "used" : session.status
+          });
+        }
+        writeJson(response, 200, result);
+        return;
+      }
+
+      if (request.url === "/v2/artifact") {
+        const payload = await readJson<ArtifactV2Input>(request);
+        writeJson(response, 200, brokerArtifactV2(payload, runtime));
         return;
       }
 

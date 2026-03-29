@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import type { KnowledgeBaseContext, PolicyLayer, PolicyPack } from "@safebrowse/core";
+import type { JsonValue, KnowledgeBaseContext, PolicyLayer, PolicyPack } from "@safebrowse/core";
 import YAML from "yaml";
 
 const KB_FILE_MAP = {
@@ -70,14 +70,24 @@ function toPolicyLayer(name: string, input: Record<string, unknown>): PolicyLaye
       forbidTokenPassthrough: Boolean(toolProtocol.forbid_token_passthrough ?? true),
       enforceExactRedirectUri: Boolean(toolProtocol.enforce_exact_redirect_uri ?? true),
       allowedRegistrySigners:
-        (toolProtocol.allowed_registry_signers as string[] | undefined) ?? []
+        (toolProtocol.allowed_registry_signers as string[] | undefined) ?? [],
+      requireVerifiedRegistry: Boolean(toolProtocol.require_verified_registry ?? true),
+      requireApprovalBinding: Boolean(toolProtocol.require_approval_binding ?? true),
+      requireOauthStateBinding: Boolean(toolProtocol.require_oauth_state_binding ?? true),
+      taintedConnectorFlowDecision:
+        (toolProtocol.tainted_connector_flow_decision as "block" | "user_confirm" | undefined) ??
+        "block",
+      allowLoopbackCallbacksInDev: Boolean(
+        toolProtocol.allow_loopback_callbacks_in_dev ?? false
+      )
     },
     telemetry: {
       replayBundle: Boolean(telemetry.replay_bundle ?? true),
       redactSensitiveValues: Boolean(telemetry.redact_sensitive_values ?? true),
       sampling:
         (telemetry.sampling as "full" | "adaptive" | "off" | undefined) ?? "adaptive"
-    }
+    },
+    raw: input as unknown as Record<string, JsonValue>
   };
 }
 

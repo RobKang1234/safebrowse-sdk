@@ -34,6 +34,7 @@ export function buildReplayBundle(
     createdAt: new Date().toISOString(),
     policyVersion: context.policy.version,
     profile: context.policy.profile,
+    policyLayers: context.policy.layerProvenance,
     eventDigests: events.map((event) => sha256Hex(stableStringify(event))),
     events: events.map((event) => ({
       ...event,

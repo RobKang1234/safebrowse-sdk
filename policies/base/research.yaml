@@ -44,6 +44,11 @@ tool_protocol:
   enforce_exact_redirect_uri: true
   allowed_registry_signers:
     - safebrowse-dev
+  require_verified_registry: true
+  require_approval_binding: true
+  require_oauth_state_binding: true
+  tainted_connector_flow_decision: block
+  allow_loopback_callbacks_in_dev: false
 telemetry:
   replay_bundle: true
   redact_sensitive_values: true
