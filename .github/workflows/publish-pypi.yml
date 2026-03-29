@@ -1,0 +1,88 @@
+name: publish-pypi
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to publish from
+        required: false
+        default: v3
+      version:
+        description: Optional package version override, for example 0.1.0 or 0.2.0rc1
+        required: false
+        default: ""
+      repository:
+        description: Target Python package index
+        type: choice
+        required: true
+        default: pypi
+        options:
+          - pypi
+          - testpypi
+      skip_existing:
+        description: Skip upload errors when the exact files already exist
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.repository == 'testpypi' && 'release-rc' || 'release-prod' }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/run-python-module.mjs -m pip install build twine
+      - if: inputs.version != ''
+        run: node scripts/release/sync-version.mjs --version "${{ inputs.version }}"
+      - run: pnpm build
+      - run: pnpm test
+      - run: pnpm release:build:python
+      - run: pnpm release:check:python
+      - run: pnpm release:audit
+      - run: pnpm release:smoke:artifacts
+      - name: Publish to TestPyPI using token
+        if: inputs.repository == 'testpypi' && secrets.TEST_PYPI_API_TOKEN != ''
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
+        with:
+          packages-dir: python/dist
+          repository-url: https://test.pypi.org/legacy/
+          password: ${{ secrets.TEST_PYPI_API_TOKEN }}
+          skip-existing: ${{ inputs.skip_existing }}
+          attestations: false
+      - name: Publish to TestPyPI using trusted publishing
+        if: inputs.repository == 'testpypi' && secrets.TEST_PYPI_API_TOKEN == ''
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
+        with:
+          packages-dir: python/dist
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: ${{ inputs.skip_existing }}
+      - name: Publish to PyPI using token
+        if: inputs.repository == 'pypi' && secrets.PYPI_API_TOKEN != ''
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
+        with:
+          packages-dir: python/dist
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          skip-existing: ${{ inputs.skip_existing }}
+          attestations: false
+      - name: Publish to PyPI using trusted publishing
+        if: inputs.repository == 'pypi' && secrets.PYPI_API_TOKEN == ''
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
+        with:
+          packages-dir: python/dist
+          skip-existing: ${{ inputs.skip_existing }}

@@ -1,6 +1,8 @@
 {
   "name": "@safebrowse/kb-tools",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -10,7 +12,9 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -21,4 +25,3 @@
     "yaml": "^2.8.1"
   }
 }
-

@@ -10,6 +10,11 @@ class SafeBrowseClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 
+    def _get(self, path: str) -> dict[str, Any]:
+        req = request.Request(f"{self.base_url}{path}", method="GET")
+        with request.urlopen(req, timeout=self.timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+
     def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         body = json.dumps(payload).encode("utf-8")
         req = request.Request(
@@ -20,6 +25,9 @@ class SafeBrowseClient:
         )
         with request.urlopen(req, timeout=self.timeout) as response:
             return json.loads(response.read().decode("utf-8"))
+
+    def health(self) -> dict[str, Any]:
+        return self._get("/health")
 
     def observe(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v1/observe", payload)

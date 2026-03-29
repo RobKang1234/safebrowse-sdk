@@ -1,0 +1,82 @@
+SafeBrowse Non-Commercial License 1.0
+
+Copyright (c) 2026 RobKang1234. All rights reserved.
+
+This license grants limited permission to use, copy, modify, and redistribute
+the Software for non-commercial purposes only. All rights not expressly granted
+under this license are reserved by the copyright holder.
+
+1. Definitions
+
+"Software" means the SafeBrowse SDK repository, including its source code,
+documentation, configuration, examples, and distributed packages.
+
+"Non-Commercial Purpose" means use that is not primarily intended for,
+directed toward, or conducted in connection with commercial advantage,
+monetary compensation, paid services, internal commercial operations,
+or a commercial product or service.
+
+2. Grant of License
+
+Subject to the terms of this license, you are granted a limited,
+non-exclusive, non-transferable, revocable license to:
+
+- use the Software for personal, educational, academic, research, evaluation,
+  hobbyist, and other non-commercial purposes;
+- copy and modify the Software for non-commercial purposes; and
+- redistribute unmodified or modified copies of the Software for
+  non-commercial purposes only, provided that you preserve this license and
+  all copyright notices.
+
+3. Commercial Use Prohibited
+
+You may not, without prior written permission from the copyright holder:
+
+- sell, sublicense, lease, host, or commercially distribute the Software;
+- use the Software in or for a paid product, paid service, or other
+  revenue-generating offering;
+- use the Software to support internal business operations for commercial
+  advantage;
+- offer consulting, managed services, hosting, or support services built on
+  or around the Software for compensation; or
+- remove, alter, or obscure copyright, attribution, or license notices.
+
+4. Ownership
+
+The Software is licensed, not sold. The copyright holder retains all right,
+title, and interest in and to the Software, including all copyrights and
+other intellectual property rights.
+
+5. Contributions
+
+Unless the copyright holder separately agrees in writing, no contribution,
+pull request, patch, or suggestion grants you any ownership interest in the
+Software or changes the licensing terms of the Software.
+
+6. No Trademark Rights
+
+This license does not grant any right to use the names, trademarks, service
+marks, or logos of the copyright holder, except for reasonable attribution.
+
+7. Termination
+
+This license terminates automatically if you breach any term of this license.
+Upon termination, you must stop using and redistributing the Software.
+
+8. Disclaimer of Warranty
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT.
+
+9. Limitation of Liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE COPYRIGHT HOLDER SHALL NOT BE
+LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN CONTRACT, TORT,
+OR OTHERWISE, ARISING FROM OR IN CONNECTION WITH THE SOFTWARE OR THE USE OF
+OR OTHER DEALINGS IN THE SOFTWARE.
+
+10. Commercial Licensing
+
+For commercial licensing or other permissions beyond this license, obtain
+separate written permission from the copyright holder.

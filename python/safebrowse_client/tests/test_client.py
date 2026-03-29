@@ -8,7 +8,11 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from safebrowse_client import SafeBrowseClient
+from safebrowse_client import (
+    SafeBrowseClient,
+    get_model_connected_browser_agent_template,
+    write_model_connected_browser_agent_template,
+)
 
 
 class _FakeResponse:
@@ -26,6 +30,38 @@ class _FakeResponse:
 
 
 class SafeBrowseClientTest(unittest.TestCase):
+    def test_template_contains_external_site_example(self) -> None:
+        template = get_model_connected_browser_agent_template()
+
+        self.assertIn("https://arxiv.org/abs/1706.03762", template)
+        self.assertIn("https://docs.python.org/3/tutorial/", template)
+        self.assertIn("SafeBrowseClient", template)
+
+    def test_template_writer_creates_python_file(self) -> None:
+        output_path = Path(__file__).resolve().parent / "_tmp_agent_template.py"
+        try:
+            result = write_model_connected_browser_agent_template(output_path)
+
+            self.assertEqual(result, output_path)
+            self.assertTrue(output_path.exists())
+            contents = output_path.read_text(encoding="utf-8")
+            self.assertIn("def run_agent()", contents)
+            self.assertIn("call_model", contents)
+        finally:
+            output_path.unlink(missing_ok=True)
+
+    @patch("safebrowse_client.client.request.urlopen")
+    def test_health_gets_daemon_status(self, mock_urlopen) -> None:
+        mock_urlopen.return_value = _FakeResponse({"status": "ok"})
+        client = SafeBrowseClient()
+
+        result = client.health()
+
+        self.assertEqual(result["status"], "ok")
+        args, kwargs = mock_urlopen.call_args
+        self.assertIn("/health", args[0].full_url)
+        self.assertEqual(kwargs["timeout"], 10.0)
+
     @patch("safebrowse_client.client.request.urlopen")
     def test_observe_posts_to_daemon(self, mock_urlopen) -> None:
         mock_urlopen.return_value = _FakeResponse({"decision": "ALLOW"})

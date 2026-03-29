@@ -10,9 +10,11 @@ __pycache__/
 .pytest_cache/
 .venv/
 .env
+pypi_token.txt
 knowledge_base/signing/private/
 python/dist/
 python/**/build/
 python/**/.eggs/
+python/**/*.egg-info/
 scripts-dist/*
 !scripts-dist/package.json

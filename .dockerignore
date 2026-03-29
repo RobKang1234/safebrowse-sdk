@@ -1,0 +1,14 @@
+.git
+.github
+.venv
+.pytest_cache
+.pnpm-store
+node_modules
+coverage
+demo-output
+dist
+packages/*/dist
+python/dist
+scripts-dist
+*.log
+knowledge_base/signing/private
