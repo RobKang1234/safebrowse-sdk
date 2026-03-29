@@ -81,6 +81,10 @@ export function brokerArtifact(
   let decision: ArtifactBrokerResult["verdict"]["decision"] = "ALLOW";
   const reasonCodes: string[] = [];
   let riskScore = 0.2;
+  const derivedTaintClass =
+    mismatchSignals.length > 0 || metadataSignals.length > 0
+      ? "tainted"
+      : trustSignals.taintClass;
 
   if (
     context.policy.allowedMimeTypes.size &&
@@ -124,6 +128,14 @@ export function brokerArtifact(
       metadataSignals: uniq(metadataSignals),
       trustSignals,
       lineageChain: trustSignals.lineageChain,
+      derivedTaintClass,
+      toolActivationPolicy:
+        derivedTaintClass === "tainted"
+          ? "block"
+          : trustSignals.taintClass === "trusted"
+            ? "allow"
+            : "user_confirm",
+      approvalRequiredForFollowOn: derivedTaintClass !== "trusted",
       createdAt: (context.now?.() ?? new Date()).toISOString()
     },
     verdict: {

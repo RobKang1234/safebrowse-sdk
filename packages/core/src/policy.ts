@@ -59,6 +59,11 @@ export function compilePolicy(policyPack: PolicyPack): CompiledPolicy {
     profile: policyPack.profile,
     version: policyPack.version,
     layerOrder: layers.map((layer) => layer.name),
+    layerProvenance: layers.map((layer) => ({
+      name: layer.name,
+      version: layer.version,
+      profile: layer.profile
+    })),
     readOnlyOrigins,
     writableOrigins,
     allowedActions: mergeArrays(...layers.map((layer) => layer.actions?.allow)),
@@ -79,6 +84,31 @@ export function compilePolicy(policyPack: PolicyPack): CompiledPolicy {
     ),
     allowedRegistrySigners: mergeArrays(
       ...layers.map((layer) => layer.toolProtocol?.allowedRegistrySigners)
+    ),
+    requireVerifiedRegistry: mergeBooleans(
+      layers,
+      (layer) => layer.toolProtocol?.requireVerifiedRegistry,
+      true
+    ),
+    requireApprovalBinding: mergeBooleans(
+      layers,
+      (layer) => layer.toolProtocol?.requireApprovalBinding,
+      true
+    ),
+    requireOauthStateBinding: mergeBooleans(
+      layers,
+      (layer) => layer.toolProtocol?.requireOauthStateBinding,
+      true
+    ),
+    taintedConnectorFlowDecision:
+      [...layers]
+        .reverse()
+        .find((layer) => layer.toolProtocol?.taintedConnectorFlowDecision)
+        ?.toolProtocol?.taintedConnectorFlowDecision ?? "block",
+    allowLoopbackCallbacksInDev: mergeBooleans(
+      layers,
+      (layer) => layer.toolProtocol?.allowLoopbackCallbacksInDev,
+      false
     ),
     enableDocumentHandoff: mergeBooleans(
       layers,

@@ -33,8 +33,17 @@ class SafeBrowseClient:
     def tool(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v1/tool", payload)
 
+    def tool_prepare(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post("/v2/tool/prepare", payload)
+
+    def tool_callback_verify(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post("/v2/tool/callback/verify", payload)
+
     def memory(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v1/memory", payload)
+
+    def artifact_v2(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post("/v2/artifact", payload)
 
     def replay(self, events: list[dict[str, Any]]) -> dict[str, Any]:
         return self._post("/v1/replay", {"events": events})

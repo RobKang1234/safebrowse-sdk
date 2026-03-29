@@ -1,16 +1,65 @@
 {
-  "registryVersion": 1,
-  "generatedAt": "2026-03-28T00:00:00.000Z",
+  "bundleId": "safebrowse-local-registry",
+  "registryVersion": 2,
+  "generatedAt": "2026-03-29T00:00:00.000Z",
+  "expiresAt": "2027-03-29T00:00:00.000Z",
   "signer": "safebrowse-dev",
+  "publicKeyId": "safebrowse_vf_ed25519_public.pem",
   "adapters": [
     {
+      "registryEntryId": "playwright-reference",
       "adapterId": "playwright-reference",
       "package": "@safebrowse/playwright-adapter",
       "mode": "in-process",
-      "capabilities": ["observe", "navigate", "artifact_handoff", "replay"],
-      "allowedTransports": ["http", "https", "file"],
-      "signed": true
+      "authType": "none",
+      "capabilities": [
+        "observe",
+        "navigate",
+        "artifact_handoff",
+        "replay"
+      ],
+      "allowedTransports": [
+        "http",
+        "https",
+        "file"
+      ],
+      "allowedRedirectUris": [],
+      "allowedCallbackOrigins": [],
+      "allowedScopes": [],
+      "manifestHash": "188241d5a85d8f4f1d6478838f0e4cb0a4495c74e66ca367dd662bd8cc850535",
+      "schemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "signed": true,
+      "signer": "safebrowse-dev",
+      "allowPrivateEgress": false,
+      "allowLoopbackCallbacks": false
+    },
+    {
+      "registryEntryId": "citation-sync-safe",
+      "adapterId": "citation-sync-safe",
+      "package": "@safebrowse/example-citation-sync",
+      "mode": "oauth",
+      "authType": "oauth",
+      "capabilities": [
+        "citation_sync"
+      ],
+      "allowedTransports": [
+        "https"
+      ],
+      "allowedRedirectUris": [
+        "https://safe.example/oauth/callback"
+      ],
+      "allowedCallbackOrigins": [
+        "https://safe.example"
+      ],
+      "allowedScopes": [
+        "citation:read"
+      ],
+      "manifestHash": "137004b51afadba79bc1945ce03bdb63885c5af7ead0e40e1c5a80f901a45bcd",
+      "schemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "signed": true,
+      "signer": "safebrowse-dev",
+      "allowPrivateEgress": false,
+      "allowLoopbackCallbacks": false
     }
   ]
 }
-

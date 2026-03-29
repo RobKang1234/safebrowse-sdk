@@ -5,8 +5,10 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  buildRegistryDefaults,
   buildKnowledgeBundle,
   loadKnowledgeBaseContext,
+  loadVerifiedRegistryBundle,
   loadPolicyPackFromPaths,
   verifyKnowledgeBundle
 } from "@safebrowse/kb-tools";
@@ -54,5 +56,12 @@ describe("kb tools", () => {
     });
 
     expect(verified).toBe(true);
+  });
+
+  it("loads and verifies the signed adapter registry bundle", async () => {
+    const registry = await loadVerifiedRegistryBundle(buildRegistryDefaults(process.cwd()));
+
+    expect(registry.signatureVerified).toBe(true);
+    expect(registry.entries.map((entry) => entry.registryEntryId)).toContain("citation-sync-safe");
   });
 });

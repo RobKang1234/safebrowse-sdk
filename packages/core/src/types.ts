@@ -59,6 +59,14 @@ export interface TrustSignalSet {
   sessionDiscoveredFlag: boolean;
 }
 
+export type OriginatingSurface =
+  | "page"
+  | "artifact"
+  | "tool_description"
+  | "tool_schema"
+  | "memory"
+  | "api";
+
 export interface ObservationFragment {
   fragmentId: string;
   text: string;
@@ -164,6 +172,10 @@ export interface ArtifactEnvelope {
   metadataSignals: string[];
   trustSignals: TrustSignalSet;
   lineageChain: string[];
+  derivedTaintClass?: TaintClass;
+  toolActivationPolicy?: "allow" | "user_confirm" | "block";
+  approvalRequiredForFollowOn?: boolean;
+  sourceObservationId?: string;
   createdAt: string;
 }
 
@@ -185,7 +197,118 @@ export interface ToolRequest {
   registrySigned?: boolean;
   registrySigner?: string;
   allowLocalhostEgress?: boolean;
+  registryEntryId?: string;
+  registryBundleId?: string;
+  manifestHash?: string;
+  schemaHash?: string;
+  requestedScopes?: string[];
+  callbackUri?: string;
+  callbackOrigin?: string;
+  sourceObservationId?: string;
+  sourceArtifactId?: string;
+  originatingSurface?: OriginatingSurface;
+  approvalBindingId?: string;
+  oauthContext?: OAuthContext;
   trustSignals?: Partial<TrustSignalSet>;
+}
+
+export interface OAuthContext {
+  authorizationServer?: string;
+  redirectUri?: string;
+  callbackUri?: string;
+  callbackOrigin?: string;
+  requiresPkce?: boolean;
+  pkceMethod?: "S256" | "plain";
+  requestedScopes?: string[];
+}
+
+export interface VerifiedRegistryEntry {
+  registryEntryId: string;
+  adapterId: string;
+  bundleId: string;
+  bundleVersion: string;
+  signer: string;
+  authType: "none" | "oauth" | "api_key";
+  package?: string;
+  mode?: string;
+  capabilities: string[];
+  allowedTransports: string[];
+  allowedRedirectUris: string[];
+  allowedCallbackOrigins: string[];
+  allowedScopes: string[];
+  manifestHash?: string;
+  schemaHash?: string;
+  expiresAt?: string;
+  allowPrivateEgress?: boolean;
+  allowLoopbackCallbacks?: boolean;
+}
+
+export interface VerifiedRegistryBundle {
+  bundleId: string;
+  version: string;
+  signer: string;
+  generatedAt: string;
+  expiresAt?: string;
+  publicKeyId?: string;
+  signatureVerified: boolean;
+  entries: VerifiedRegistryEntry[];
+}
+
+export interface WorkflowBinding {
+  bindingId: string;
+  sourceObservationId?: string;
+  sourceArtifactId?: string;
+  originatingSurface: OriginatingSurface;
+  lineageChain: string[];
+  derivedTaintClass: TaintClass;
+  createdAt: string;
+}
+
+export interface ToolOnboardingSession {
+  sessionId: string;
+  approvalBindingId: string;
+  workflowBindingId?: string;
+  toolId: string;
+  registryEntryId: string;
+  registryBundleId: string;
+  callbackUri: string;
+  callbackOrigin: string;
+  requestedScopes: string[];
+  state: string;
+  pkceMethod: "S256";
+  createdAt: string;
+  expiresAt: string;
+  status: "prepared" | "used" | "expired";
+}
+
+export interface ToolPreparationResult {
+  verdict: SafeVerdict;
+  verifiedRegistryEntry?: VerifiedRegistryEntry;
+  workflowBinding?: WorkflowBinding;
+}
+
+export interface ToolCallbackVerificationRequest {
+  sessionId: string;
+  callbackUri: string;
+  callbackOrigin: string;
+  state: string;
+  payload?: Record<string, JsonValue>;
+}
+
+export interface ToolCallbackVerificationResult {
+  verdict: SafeVerdict;
+  sessionId: string;
+  verifiedAt: string;
+}
+
+export interface ArtifactV2Input extends ArtifactInput {
+  sourceObservationId?: string;
+  followOnToolRequest?: ToolRequest;
+}
+
+export interface ArtifactV2Result extends ArtifactBrokerResult {
+  followOnToolVerdict?: SafeVerdict;
+  workflowBinding?: WorkflowBinding;
 }
 
 export interface MemoryWriteRequest {
@@ -211,6 +334,7 @@ export interface ReplayBundle {
   createdAt: string;
   policyVersion: string;
   profile: string;
+  policyLayers?: PolicyLayerProvenance[];
   eventDigests: string[];
   events: ReplayEvent[];
   metrics: {
@@ -218,6 +342,12 @@ export interface ReplayBundle {
     blockingDecisions: number;
     reviewDecisions: number;
   };
+}
+
+export interface PolicyLayerProvenance {
+  name: string;
+  version: string;
+  profile: string;
 }
 
 export interface PolicyLayer {
@@ -246,6 +376,11 @@ export interface PolicyLayer {
     forbidTokenPassthrough?: boolean;
     enforceExactRedirectUri?: boolean;
     allowedRegistrySigners?: string[];
+    requireVerifiedRegistry?: boolean;
+    requireApprovalBinding?: boolean;
+    requireOauthStateBinding?: boolean;
+    taintedConnectorFlowDecision?: "block" | "user_confirm";
+    allowLoopbackCallbacksInDev?: boolean;
   };
   telemetry?: {
     replayBundle?: boolean;
@@ -275,6 +410,7 @@ export interface CompiledPolicy {
   profile: string;
   version: string;
   layerOrder: string[];
+  layerProvenance: PolicyLayerProvenance[];
   readOnlyOrigins: ReadonlySet<string>;
   writableOrigins: ReadonlySet<string>;
   allowedActions: ReadonlySet<string>;
@@ -286,6 +422,11 @@ export interface CompiledPolicy {
   forbidTokenPassthrough: boolean;
   enforceExactRedirectUri: boolean;
   allowedRegistrySigners: ReadonlySet<string>;
+  requireVerifiedRegistry: boolean;
+  requireApprovalBinding: boolean;
+  requireOauthStateBinding: boolean;
+  taintedConnectorFlowDecision: "block" | "user_confirm";
+  allowLoopbackCallbacksInDev: boolean;
   enableDocumentHandoff: boolean;
   quarantineOnHiddenTextMismatch: boolean;
   replayBundle: boolean;
@@ -321,6 +462,7 @@ export interface RuntimeContext {
   policy: CompiledPolicy;
   knowledgeBase?: Partial<KnowledgeBaseContext>;
   taskEnvelope?: TaskEnvelope;
+  verifiedRegistry?: VerifiedRegistryBundle;
   metadataOnlyCritic?: (input: MetadataCriticInput) => number;
   now?: () => Date;
 }
