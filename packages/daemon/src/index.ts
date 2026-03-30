@@ -3,9 +3,11 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { formatDaemonHelp, parseDaemonOptions, runDaemonCli } from "./cli.js";
+import { compileObservationInIsolation, probeParserIsolation } from "./parserIsolation.js";
 import { createSafeBrowseServer, startSafeBrowseDaemon } from "./server.js";
 
 export { formatDaemonHelp, parseDaemonOptions, runDaemonCli } from "./cli.js";
+export { compileObservationInIsolation, probeParserIsolation } from "./parserIsolation.js";
 export { createSafeBrowseServer, startSafeBrowseDaemon } from "./server.js";
 
 function isDirectExecution(): boolean {

@@ -1,16 +1,23 @@
-import type { ActionProposal, RawObservationInput, SafeVerdict } from "@safebrowse/core";
+import type {
+  ActionProposal,
+  HtmlSurfaceCapture,
+  RawObservationInput,
+  SafeVerdict
+} from "@safebrowse/core";
 
 export interface PageLike {
   url(): string;
   content?(): Promise<string>;
   title?(): Promise<string>;
+  visibleText?(): Promise<string>;
 }
 
 export interface PlaywrightPageSnapshot {
   url: string;
   frameUrl?: string;
   visibleText: string;
-  hiddenText?: string;
+  html?: string;
+  hiddenText?: string | string[];
   metadataText?: string[];
   annotations?: string[];
   renderedText?: string;
@@ -21,6 +28,12 @@ export interface PlaywrightPageSnapshot {
 export function createObservationFromSnapshot(
   snapshot: PlaywrightPageSnapshot
 ): RawObservationInput {
+  const hiddenText = Array.isArray(snapshot.hiddenText)
+    ? snapshot.hiddenText
+    : snapshot.hiddenText
+      ? [snapshot.hiddenText]
+      : [];
+
   return {
     sourceType: "page",
     text: snapshot.visibleText,
@@ -32,17 +45,13 @@ export function createObservationFromSnapshot(
         sourceOrigin: snapshot.url,
         frameOrigin: snapshot.frameUrl ?? snapshot.url
       },
-      ...(snapshot.hiddenText
-        ? [
-            {
-              text: snapshot.hiddenText,
-              visibilityClass: "hidden" as const,
-              medium: "metadata" as const,
-              sourceOrigin: snapshot.url,
-              frameOrigin: snapshot.frameUrl ?? snapshot.url
-            }
-          ]
-        : []),
+      ...hiddenText.map((text) => ({
+        text,
+        visibilityClass: "hidden" as const,
+        medium: "metadata" as const,
+        sourceOrigin: snapshot.url,
+        frameOrigin: snapshot.frameUrl ?? snapshot.url
+      })),
       ...(snapshot.metadataText ?? []).map((text) => ({
         text,
         visibilityClass: "metadata" as const,
@@ -57,6 +66,28 @@ export function createObservationFromSnapshot(
       userSharedFlag: snapshot.userShared ?? false,
       sessionDiscoveredFlag: !(snapshot.userShared ?? false)
     }
+  };
+}
+
+export function createSurfaceCaptureFromSnapshot(
+  snapshot: PlaywrightPageSnapshot
+): HtmlSurfaceCapture {
+  const hiddenText = Array.isArray(snapshot.hiddenText)
+    ? snapshot.hiddenText
+    : snapshot.hiddenText
+      ? [snapshot.hiddenText]
+      : [];
+
+  return {
+    surfaceType: "html",
+    url: snapshot.url,
+    frameUrl: snapshot.frameUrl,
+    html: snapshot.html,
+    visibleText: snapshot.visibleText,
+    hiddenText,
+    metadataText: snapshot.metadataText,
+    annotations: snapshot.annotations,
+    userShared: snapshot.userShared
   };
 }
 
@@ -86,10 +117,20 @@ export async function snapshotPage(page: PageLike): Promise<PlaywrightPageSnapsh
     page.content?.() ?? Promise.resolve(""),
     page.title?.() ?? Promise.resolve("")
   ]);
+  const visibleText = page.visibleText
+    ? await page.visibleText()
+    : html
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<!--[\s\S]*?-->/g, " ")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
 
   return {
     url: page.url(),
-    visibleText: html,
+    visibleText,
+    html,
     metadataText: title ? [title] : []
   };
 }

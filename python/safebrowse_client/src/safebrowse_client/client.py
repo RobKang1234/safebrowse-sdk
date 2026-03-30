@@ -29,14 +29,26 @@ class SafeBrowseClient:
     def health(self) -> dict[str, Any]:
         return self._get("/health")
 
+    def start_session(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post("/v4/session/start", payload)
+
     def observe(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v1/observe", payload)
+
+    def observe_v4(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post("/v4/observe", payload)
 
     def action(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v1/action", payload)
 
+    def action_v4(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post("/v4/action/evaluate", payload)
+
     def artifact(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v1/artifact", payload)
+
+    def artifact_ingest_v4(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post("/v4/artifact/ingest", payload)
 
     def tool(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v1/tool", payload)
@@ -44,11 +56,29 @@ class SafeBrowseClient:
     def tool_prepare(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v2/tool/prepare", payload)
 
+    def tool_prepare_v4(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post("/v4/tool/prepare", payload)
+
     def tool_callback_verify(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v2/tool/callback/verify", payload)
 
+    def tool_callback_verify_v4(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post("/v4/tool/callback/verify", payload)
+
+    def issue_approval_grant(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post("/v4/approval/grant", payload)
+
     def memory(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v1/memory", payload)
+
+    def memory_write_v4(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post("/v4/memory/write", payload)
+
+    def memory_promote_v4(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post("/v4/memory/promote", payload)
+
+    def memory_rollback_v4(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post("/v4/memory/rollback", payload)
 
     def artifact_v2(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v2/artifact", payload)
