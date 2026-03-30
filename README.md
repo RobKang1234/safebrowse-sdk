@@ -15,15 +15,15 @@ The current branch also includes the v2 hardening pass for connector and OAuth a
 
 ## Public Distribution Targets
 
-The v3 launch surface is:
+The current public launch surface is live:
 
 | Surface | Name | Notes |
 | --- | --- | --- |
-| PyPI | `safebrowse-client` | Thin Python client for the daemon |
-| npm | `@safebrowse/core` | Core runtime library |
-| npm | `@safebrowse/daemon` | Installable daemon package with `safebrowse-daemon` bin |
-| npm | `@safebrowse/playwright-adapter` | Reference adapter package |
-| GHCR | `ghcr.io/robkang1234/safebrowse-daemon` | Production daemon image |
+| PyPI | `safebrowse-client` | Thin Python client for the daemon, currently published as `0.1.1` |
+| npm | `@safebrowse/core` | Core runtime library, currently published as `0.1.2` |
+| npm | `@safebrowse/daemon` | Installable daemon package with `safebrowse-daemon` bin, currently published as `0.1.2` |
+| npm | `@safebrowse/playwright-adapter` | Reference adapter package, currently published as `0.1.2` |
+| GHCR | `ghcr.io/robkang1234/safebrowse-daemon` | Production daemon image, currently published as `0.1.2` |
 
 `@safebrowse/kb-tools` remains internal-only in v3.
 
@@ -48,7 +48,7 @@ npx @safebrowse/daemon --host 127.0.0.1 --port 8787
 pip install safebrowse-client
 ```
 
-For PyPI-first release operations, the repo now includes a dedicated GitHub Actions workflow named `publish-pypi` that can publish only the Python client before the npm and GHCR surfaces are live.
+For Python-only release operations, the repo includes a dedicated GitHub Actions workflow named `publish-pypi` that can publish just the Python client without running the full multi-surface release flow.
 
 The Python package also ships a starter helper for a model-connected browser agent template:
 
