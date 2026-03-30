@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  applyV4FailClosedMediation,
   attachCapabilitiesToPlannerInput,
   brokerArtifact,
   brokerArtifactV2,
@@ -549,6 +550,12 @@ export async function createSafeBrowseServer(
           }
         });
 
+        const failClosedObservation = applyV4FailClosedMediation(
+          observation.compiledObservation,
+          observation.plannerInput,
+          "observe"
+        );
+
         const capabilities = mintCapabilitiesForObservation(
           sessionState.session,
           observation.compiledObservation,
@@ -565,8 +572,9 @@ export async function createSafeBrowseServer(
 
         writeJson(response, 200, {
           compiledObservation: observation.compiledObservation,
+          observationVerdict: failClosedObservation.verdict,
           plannerInput: attachCapabilitiesToPlannerInput(
-            observation.plannerInput,
+            failClosedObservation.plannerInput,
             capabilities
           )
         });
@@ -728,17 +736,35 @@ export async function createSafeBrowseServer(
           }
         });
 
+        const failClosedArtifact = applyV4FailClosedMediation(
+          observation.compiledObservation,
+          observation.plannerInput,
+          "artifact"
+        );
+
         const legacyArtifact = buildLegacyObservationCapture(capture);
         const artifactResult =
           legacyArtifact !== undefined ? brokerArtifact(legacyArtifact, runtime) : undefined;
 
         sessionState.latestObservation = observation.compiledObservation;
 
+        const effectiveArtifactVerdict = failClosedArtifact.failClosed
+          ? failClosedArtifact.verdict
+          : artifactResult?.verdict;
+        const effectiveArtifact =
+          failClosedArtifact.failClosed && artifactResult?.artifact
+            ? {
+                ...artifactResult.artifact,
+                toolActivationPolicy: "block" as const,
+                approvalRequiredForFollowOn: true
+              }
+            : artifactResult?.artifact;
+
         writeJson(response, 200, {
           compiledObservation: observation.compiledObservation,
-          plannerInput: observation.plannerInput,
-          artifactVerdict: artifactResult?.verdict,
-          artifact: artifactResult?.artifact
+          plannerInput: failClosedArtifact.plannerInput,
+          artifactVerdict: effectiveArtifactVerdict,
+          artifact: effectiveArtifact
         });
         return;
       }

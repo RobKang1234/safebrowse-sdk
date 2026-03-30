@@ -404,4 +404,91 @@ describe("safebrowse daemon v4 routes", () => {
     expect(health.parserIsolation.egressDenied).toBe(true);
     expect(health.parserIsolation.envKeys).toEqual([]);
   });
+
+  it("fails closed on unsupported v4 observe captures", async () => {
+    const baseUrl = await startTestServer();
+    const session = await fetch(`${baseUrl}/v4/session/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        taskId: "task-v4-unsupported-observe",
+        userGoal: "Review only supported captures safely",
+        allowedOrigins: ["https://safe.example"],
+        allowedVerbs: ["navigate"],
+        forbiddenSinks: []
+      })
+    }).then((response) => response.json());
+
+    const observe = await fetch(`${baseUrl}/v4/observe`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        capture: {
+          surfaceType: "html",
+          url: "https://safe.example/page",
+          trustSignals: {
+            sourceOrigin: "https://safe.example",
+            frameOrigin: "https://safe.example",
+            taintClass: "tainted",
+            lineageChain: ["obs-v4-unsupported"]
+          }
+        }
+      })
+    }).then((response) => response.json());
+
+    expect(observe.compiledObservation.parseStatus).toBe("unsupported");
+    expect(observe.observationVerdict.decision).toBe("BLOCK");
+    expect(observe.observationVerdict.reasonCodes).toContain("PARSE_STATUS_UNSUPPORTED");
+    expect(observe.plannerInput.visibleExcerpt).toBe("");
+    expect(observe.plannerInput.facts).toEqual([]);
+    expect(observe.plannerInput.quotedUntrustedBlocks).toEqual([]);
+    expect(observe.plannerInput.candidateCapabilities).toEqual([]);
+    expect(observe.plannerInput.riskMarkers).toContain("parse_status_unsupported");
+  });
+
+  it("quarantines unsupported v4 artifact captures", async () => {
+    const baseUrl = await startTestServer();
+    const session = await fetch(`${baseUrl}/v4/session/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        taskId: "task-v4-unsupported-artifact",
+        userGoal: "Review only supported artifacts safely",
+        allowedOrigins: ["https://safe.example"],
+        allowedVerbs: ["navigate"],
+        forbiddenSinks: []
+      })
+    }).then((response) => response.json());
+
+    const artifact = await fetch(`${baseUrl}/v4/artifact/ingest`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        capture: {
+          surfaceType: "pdf",
+          url: "https://safe.example/files/blank.pdf",
+          trustSignals: {
+            sourceOrigin: "https://safe.example",
+            frameOrigin: "https://safe.example",
+            taintClass: "tainted",
+            lineageChain: ["artifact-v4-unsupported"]
+          }
+        }
+      })
+    }).then((response) => response.json());
+
+    expect(artifact.compiledObservation.parseStatus).toBe("unsupported");
+    expect(artifact.artifactVerdict.decision).toBe("QUARANTINE_ARTIFACT");
+    expect(artifact.artifactVerdict.reasonCodes).toContain("PARSE_STATUS_UNSUPPORTED");
+    expect(artifact.plannerInput.visibleExcerpt).toBe("");
+    expect(artifact.plannerInput.facts).toEqual([]);
+    expect(artifact.plannerInput.quotedUntrustedBlocks).toEqual([]);
+    expect(artifact.plannerInput.candidateCapabilities).toEqual([]);
+    if (artifact.artifact) {
+      expect(artifact.artifact.toolActivationPolicy).toBe("block");
+      expect(artifact.artifact.approvalRequiredForFollowOn).toBe(true);
+    }
+  });
 });

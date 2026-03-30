@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyV4FailClosedMediation,
   buildReplayBundle,
   compileObservation,
   compilePolicy,
@@ -285,6 +286,12 @@ describe("safebrowse core runtime v4", () => {
     );
     expect(mismatch.decision).toBe("BLOCK");
     expect(mismatch.reasonCodes).toContain("CAPABILITY_SOURCE_DIGEST_MISMATCH");
+
+    const noMintedCapabilities = mintCapabilitiesForObservation(session, {
+      ...compiled,
+      parseStatus: "partial"
+    });
+    expect(noMintedCapabilities).toEqual([]);
   });
 
   it("requires exact approval envelopes for brokered connector onboarding", () => {
@@ -389,5 +396,52 @@ describe("safebrowse core runtime v4", () => {
 
     expect(JSON.stringify(bundle.events)).not.toContain("secret-value");
     expect(JSON.stringify(bundle.events)).toContain("[REDACTED_SECRET]");
+  });
+
+  it("fails closed for unsupported or partial v4 planner inputs", () => {
+    const compiled = compileObservation(
+      {
+        surfaceType: "html",
+        url: "https://safe.example/page",
+        trustSignals: {
+          sourceOrigin: "https://safe.example",
+          frameOrigin: "https://safe.example",
+          taintClass: "tainted",
+          lineageChain: ["obs-v4"]
+        }
+      },
+      runtime
+    );
+
+    const unsupportedObserve = applyV4FailClosedMediation(
+      compiled.compiledObservation,
+      compiled.plannerInput,
+      "observe"
+    );
+    expect(unsupportedObserve.failClosed).toBe(true);
+    expect(unsupportedObserve.verdict.decision).toBe("BLOCK");
+    expect(unsupportedObserve.verdict.reasonCodes).toContain("PARSE_STATUS_UNSUPPORTED");
+    expect(unsupportedObserve.plannerInput.visibleExcerpt).toBe("");
+    expect(unsupportedObserve.plannerInput.facts).toEqual([]);
+    expect(unsupportedObserve.plannerInput.quotedUntrustedBlocks).toEqual([]);
+    expect(unsupportedObserve.plannerInput.candidateCapabilities).toEqual([]);
+
+    const partialArtifact = applyV4FailClosedMediation(
+      {
+        ...compiled.compiledObservation,
+        parseStatus: "partial"
+      },
+      {
+        ...compiled.plannerInput,
+        visibleExcerpt: "unsafe"
+      },
+      "artifact"
+    );
+    expect(partialArtifact.failClosed).toBe(true);
+    expect(partialArtifact.verdict.decision).toBe("QUARANTINE_ARTIFACT");
+    expect(partialArtifact.verdict.reasonCodes).toContain("PARSE_STATUS_PARTIAL");
+    expect(partialArtifact.plannerInput.visibleExcerpt).toBe("");
+    expect(partialArtifact.plannerInput.candidateCapabilities).toEqual([]);
+    expect(partialArtifact.plannerInput.riskMarkers).toContain("parse_status_partial");
   });
 });

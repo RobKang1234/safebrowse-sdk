@@ -6,6 +6,7 @@ import { normalizeTrustSignals } from "./trust.js";
 import type {
   CompiledObservation,
   ExtractedTarget,
+  SafeVerdict,
   HtmlSurfaceCapture,
   ParserIsolationReport,
   ProvenanceChannel,
@@ -826,5 +827,63 @@ export function compileObservation(
       secretRedactionsApplied: compiledObservation.secretFindings.length > 0,
       candidateCapabilities: []
     }
+  };
+}
+
+export function applyV4FailClosedMediation(
+  compiledObservation: CompiledObservation,
+  plannerInput: StructuredPlannerInput,
+  mode: "observe" | "artifact"
+): {
+  plannerInput: StructuredPlannerInput;
+  verdict: SafeVerdict;
+  failClosed: boolean;
+} {
+  if (compiledObservation.parseStatus === "compiled") {
+    return {
+      plannerInput,
+      verdict: {
+        decision: "ALLOW",
+        reasonCodes: [],
+        riskScore: clamp(Math.max(0.05, compiledObservation.riskScore)),
+        telemetryTags: uniq(["v4_parse_status", "compiled", mode, "allow"])
+      },
+      failClosed: false
+    };
+  }
+
+  const parseReasonCode =
+    compiledObservation.parseStatus === "partial"
+      ? "PARSE_STATUS_PARTIAL"
+      : "PARSE_STATUS_UNSUPPORTED";
+
+  return {
+    plannerInput: {
+      ...plannerInput,
+      visibleExcerpt: "",
+      facts: [],
+      quotedUntrustedBlocks: [],
+      candidateCapabilities: [],
+      riskMarkers: uniq([
+        ...plannerInput.riskMarkers,
+        `parse_status_${compiledObservation.parseStatus}`
+      ])
+    },
+    verdict: {
+      decision: mode === "artifact" ? "QUARANTINE_ARTIFACT" : "BLOCK",
+      reasonCodes: [parseReasonCode],
+      riskScore: 0.95,
+      safeConstraints: {
+        parse_status: compiledObservation.parseStatus,
+        planner_safe_content_removed: true
+      },
+      telemetryTags: uniq([
+        "v4_parse_status",
+        compiledObservation.parseStatus,
+        mode,
+        "fail_closed"
+      ])
+    },
+    failClosed: true
   };
 }

@@ -34,6 +34,10 @@ export function mintCapabilitiesForObservation(
     sourceObservationId?: string;
   } = {}
 ): CapabilityDescriptor[] {
+  if (observation.parseStatus !== "compiled") {
+    return [];
+  }
+
   const createdAt = new Date();
   const expiresAt = new Date(createdAt.getTime() + (options.ttlSeconds ?? 120) * 1_000).toISOString();
 
