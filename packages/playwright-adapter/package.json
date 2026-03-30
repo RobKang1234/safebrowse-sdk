@@ -1,6 +1,6 @@
 {
   "name": "@safebrowse/playwright-adapter",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Playwright reference adapter for the SafeBrowse runtime",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
