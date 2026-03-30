@@ -1,15 +1,22 @@
-import type { ActionProposal, RawObservationInput, SafeVerdict } from "@safebrowse/core";
+import type {
+  ActionProposal,
+  HtmlSurfaceCapture,
+  RawObservationInput,
+  SafeVerdict
+} from "@safebrowse/core";
 
 export interface PageLike {
   url(): string;
   content?(): Promise<string>;
   title?(): Promise<string>;
+  visibleText?(): Promise<string>;
 }
 
 export interface PlaywrightPageSnapshot {
   url: string;
   frameUrl?: string;
   visibleText: string;
+  html?: string;
   hiddenText?: string;
   metadataText?: string[];
   annotations?: string[];
@@ -60,6 +67,22 @@ export function createObservationFromSnapshot(
   };
 }
 
+export function createSurfaceCaptureFromSnapshot(
+  snapshot: PlaywrightPageSnapshot
+): HtmlSurfaceCapture {
+  return {
+    surfaceType: "html",
+    url: snapshot.url,
+    frameUrl: snapshot.frameUrl,
+    html: snapshot.html,
+    visibleText: snapshot.visibleText,
+    hiddenText: snapshot.hiddenText ? [snapshot.hiddenText] : [],
+    metadataText: snapshot.metadataText,
+    annotations: snapshot.annotations,
+    userShared: snapshot.userShared
+  };
+}
+
 export function proposeNavigationAction(input: {
   actionId: string;
   currentUrl: string;
@@ -86,10 +109,20 @@ export async function snapshotPage(page: PageLike): Promise<PlaywrightPageSnapsh
     page.content?.() ?? Promise.resolve(""),
     page.title?.() ?? Promise.resolve("")
   ]);
+  const visibleText = page.visibleText
+    ? await page.visibleText()
+    : html
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<!--[\s\S]*?-->/g, " ")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
 
   return {
     url: page.url(),
-    visibleText: html,
+    visibleText,
+    html,
     metadataText: title ? [title] : []
   };
 }

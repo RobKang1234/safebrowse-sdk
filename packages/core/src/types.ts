@@ -208,6 +208,8 @@ export interface ToolRequest {
   sourceArtifactId?: string;
   originatingSurface?: OriginatingSurface;
   approvalBindingId?: string;
+  approvalGrantId?: string;
+  capabilityId?: string;
   oauthContext?: OAuthContext;
   trustSignals?: Partial<TrustSignalSet>;
 }
@@ -299,6 +301,280 @@ export interface ToolCallbackVerificationResult {
   verdict: SafeVerdict;
   sessionId: string;
   verifiedAt: string;
+}
+
+export type V4SurfaceType =
+  | "html"
+  | "pdf"
+  | "image"
+  | "tool_manifest"
+  | "memory_candidate";
+
+export type ProvenanceChannel =
+  | "visible_text"
+  | "hidden_text"
+  | "metadata"
+  | "annotation"
+  | "ocr"
+  | "comment"
+  | "link"
+  | "schema"
+  | "memory_candidate"
+  | "fact";
+
+export interface SurfaceLinkCapture {
+  href: string;
+  text?: string;
+  selector?: string;
+  frameOrigin?: string;
+}
+
+interface BaseSurfaceCapture {
+  captureId?: string;
+  sessionId?: string;
+  taskId?: string;
+  url: string;
+  frameUrl?: string;
+  userShared?: boolean;
+  trustSignals?: Partial<TrustSignalSet>;
+}
+
+export interface HtmlSurfaceCapture extends BaseSurfaceCapture {
+  surfaceType: "html";
+  html?: string;
+  visibleText?: string;
+  title?: string;
+  hiddenText?: string[];
+  metadataText?: string[];
+  annotations?: string[];
+  links?: SurfaceLinkCapture[];
+  domDigest?: string;
+}
+
+export interface PdfSurfaceCapture extends BaseSurfaceCapture {
+  surfaceType: "pdf";
+  renderedText?: string;
+  extractedText?: string;
+  ocrText?: string;
+  annotations?: string[];
+  metadataText?: string[];
+  attachments?: string[];
+  sourceDigest?: string;
+}
+
+export interface ImageSurfaceCapture extends BaseSurfaceCapture {
+  surfaceType: "image";
+  ocrText?: string;
+  metadataText?: string[];
+  captionText?: string;
+  sourceDigest?: string;
+}
+
+export interface ToolManifestSurfaceCapture extends BaseSurfaceCapture {
+  surfaceType: "tool_manifest";
+  toolId: string;
+  description: string;
+  schemaDescriptions?: string[];
+  authType?: "none" | "oauth" | "api_key";
+  requestedScopes?: string[];
+  callbackUri?: string;
+  callbackOrigin?: string;
+  packageName?: string;
+  mode?: string;
+}
+
+export interface MemoryCandidateSurfaceCapture extends BaseSurfaceCapture {
+  surfaceType: "memory_candidate";
+  key: string;
+  value: JsonValue;
+  durable: boolean;
+  source: "user" | "web" | "model" | "system";
+}
+
+export type SurfaceCapture =
+  | HtmlSurfaceCapture
+  | PdfSurfaceCapture
+  | ImageSurfaceCapture
+  | ToolManifestSurfaceCapture
+  | MemoryCandidateSurfaceCapture;
+
+export interface ProvenanceSpan {
+  spanId: string;
+  channel: ProvenanceChannel;
+  text: string;
+  sourceOrigin: string;
+  frameOrigin: string;
+  visibilityClass: VisibilityClass;
+  extractionMethod: ExtractionMethod;
+  taintClass: TaintClass;
+  lineageChain: string[];
+  selector?: string;
+  supportingDigest?: string;
+}
+
+export interface ExtractedTarget {
+  targetId: string;
+  kind: "navigate" | "download_artifact" | "connector_prepare";
+  href?: string;
+  selector?: string;
+  sourceSpanIds: string[];
+  sourceOrigin: string;
+  frameOrigin: string;
+  targetOrigin: string;
+  displayText: string;
+}
+
+export interface ParserIsolationReport {
+  processIsolated: boolean;
+  secretAccess: false;
+  arbitraryEgress: false;
+  allowlistedEgress: string[];
+}
+
+export interface CompiledObservation {
+  observationId: string;
+  sessionId?: string;
+  taskId?: string;
+  surfaceType: V4SurfaceType;
+  sourceOrigin: string;
+  frameOrigin: string;
+  sourceDigest: string;
+  workflowHash?: string;
+  parseStatus: "compiled" | "partial" | "unsupported" | "failed";
+  parserIsolation: ParserIsolationReport;
+  spans: ProvenanceSpan[];
+  extractedFacts: string[];
+  extractedTargets: ExtractedTarget[];
+  riskFindings: string[];
+  suspicionFlags: string[];
+  matchedPatternIds: string[];
+  riskScore: number;
+  secretFindings: string[];
+  createdAt: string;
+}
+
+export interface PlannerCapabilityOption {
+  capabilityId: string;
+  title: string;
+  kind: CapabilityDescriptor["kind"];
+  parameterSchema: Record<string, JsonValue>;
+  expiresAt: string;
+}
+
+export interface StructuredPlannerInput {
+  observationId: string;
+  sessionId?: string;
+  surfaceType: V4SurfaceType;
+  visibleExcerpt: string;
+  facts: string[];
+  quotedUntrustedBlocks: Array<{
+    channel: ProvenanceChannel;
+    text: string;
+    spanId: string;
+  }>;
+  riskMarkers: string[];
+  blockedChannels: ProvenanceChannel[];
+  secretRedactionsApplied: boolean;
+  candidateCapabilities: PlannerCapabilityOption[];
+}
+
+export interface TaskSession {
+  sessionId: string;
+  taskId: string;
+  userGoal: string;
+  phase?: string;
+  allowedOrigins: string[];
+  allowedVerbs: string[];
+  forbiddenSinks: string[];
+  workflowHash: string;
+  currentStep: number;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface CapabilityDescriptor {
+  capabilityId: string;
+  sessionId: string;
+  workflowStep: number;
+  kind:
+    | "navigate"
+    | "download_artifact"
+    | "connector_prepare"
+    | "memory_promote";
+  targetClass:
+    | "browser_navigation"
+    | "artifact_ingest"
+    | "connector"
+    | "memory_promotion";
+  originBoundTo: string;
+  targetOrigin: string;
+  targetUrl?: string;
+  selector?: string;
+  sourceObservationId: string;
+  sourceArtifactId?: string;
+  sourceDigest: string;
+  frameOrigins: string[];
+  sourceSpanIds: string[];
+  parameterSchema: Record<string, JsonValue>;
+  expiresAt: string;
+  nonReplayable: true;
+  workflowHash: string;
+  title: string;
+}
+
+export interface CapabilityUseRequest {
+  sessionId: string;
+  capabilityId: string;
+  sourceObservationId: string;
+  sourceDigest: string;
+  parameters?: Record<string, JsonValue>;
+}
+
+export interface ApprovalGrant {
+  approvalGrantId: string;
+  sessionId: string;
+  workflowHash: string;
+  connectorId: string;
+  scopes: string[];
+  sinkClass: "connector_oauth" | "memory_promotion" | "outbound_navigation";
+  capabilityIds: string[];
+  targetOrigin: string;
+  issuedAt: string;
+  expiresAt: string;
+  grantHash: string;
+}
+
+export type MemoryTier = "trusted_durable" | "candidate_durable" | "tainted_ephemeral";
+
+export interface MemoryRecord {
+  recordId: string;
+  sessionId: string;
+  key: string;
+  value: JsonValue;
+  summaryValue: JsonValue;
+  tier: MemoryTier;
+  source: "user" | "web" | "model" | "system";
+  sourceObservationId?: string;
+  sourceDigest?: string;
+  secretFindings: string[];
+  summaryOnly: boolean;
+  createdAt: string;
+  expiresAt?: string;
+  snapshotId?: string;
+  rollbackPointId?: string;
+}
+
+export interface MemoryPromotionRequest {
+  sessionId: string;
+  recordId: string;
+  approvalGrantId?: string;
+  validationEvidence?: string[];
+}
+
+export interface ParserWorkerProbe {
+  envKeys: string[];
+  egressDenied: boolean;
+  processIsolated: boolean;
 }
 
 export interface ArtifactV2Input extends ArtifactInput {

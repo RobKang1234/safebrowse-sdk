@@ -17,8 +17,8 @@ def call_model(messages: list[dict]) -> dict:
 
     Return JSON like:
     {"action": "summarize"}
-    or
-    {"action": "navigate", "target_url": "https://docs.python.org/3/tutorial/"}
+    or:
+    {"action": "use_capability", "capability_id": "..."}
     \"""
     raise NotImplementedError("Plug your model client in here")
 
@@ -28,21 +28,15 @@ def origin_of(url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
-def make_observation_payload(page, visible_text: str) -> dict:
+def make_surface_capture(page, visible_text: str, html: str) -> dict:
     current_url = page.url
     return {
-        "observationId": str(uuid.uuid4()),
-        "sourceType": "page",
-        "text": visible_text,
-        "fragments": [
-            {
-                "text": visible_text,
-                "visibilityClass": "visible",
-                "medium": "text",
-                "sourceOrigin": current_url,
-                "frameOrigin": current_url,
-            }
-        ],
+        "surfaceType": "html",
+        "captureId": str(uuid.uuid4()),
+        "url": current_url,
+        "frameUrl": current_url,
+        "html": html,
+        "visibleText": visible_text,
         "trustSignals": {
             "sourceOrigin": current_url,
             "frameOrigin": current_url,
@@ -51,33 +45,6 @@ def make_observation_payload(page, visible_text: str) -> dict:
             "extractionMethod": "dom",
             "artifactKind": "page",
             "taintClass": "session-discovered",
-            "lineageChain": [str(uuid.uuid4())],
-            "userSharedFlag": False,
-            "sessionDiscoveredFlag": True,
-        },
-    }
-
-
-def make_action_payload(page, target_url: str) -> dict:
-    current_url = page.url
-    current_origin = origin_of(current_url)
-    target_origin = origin_of(target_url)
-    return {
-        "actionId": str(uuid.uuid4()),
-        "verb": "navigate",
-        "currentOrigin": current_origin,
-        "targetOrigin": target_origin,
-        "targetUrl": target_url,
-        "riskClass": "low",
-        "requestedWrite": False,
-        "trustSignals": {
-            "sourceOrigin": current_origin,
-            "frameOrigin": current_origin,
-            "sameOriginRelation": "cross-site" if current_origin != target_origin else "same-origin",
-            "visibilityClass": "visible",
-            "extractionMethod": "dom",
-            "artifactKind": "page",
-            "taintClass": "tainted",
             "lineageChain": [str(uuid.uuid4())],
             "userSharedFlag": False,
             "sessionDiscoveredFlag": True,
@@ -95,6 +62,18 @@ def run_agent():
     sb = SafeBrowseClient("http://127.0.0.1:8787")
 
     print("Daemon health:", sb.health())
+    session = sb.start_session(
+        {
+            "taskId": f"task-{uuid.uuid4()}",
+            "userGoal": "Summarize relevant public research pages without leaving the allowed origin set unless SafeBrowse mints a capability.",
+            "allowedOrigins": [
+                "https://arxiv.org",
+                "https://docs.python.org",
+            ],
+            "allowedVerbs": ["navigate"],
+            "forbiddenSinks": [],
+        }
+    )["session"]
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
@@ -104,8 +83,15 @@ def run_agent():
 
         for step in range(5):
             visible_text = extract_visible_text(page)
-            observe_result = sb.observe(make_observation_payload(page, visible_text))
+            html = page.content()
+            observe_result = sb.observe_v4(
+                {
+                    "sessionId": session["sessionId"],
+                    "capture": make_surface_capture(page, visible_text, html),
+                }
+            )
             print(f"\\n[step {step}] observe:", json.dumps(observe_result, indent=2)[:800])
+            planner_input = observe_result["plannerInput"]
 
             model_input = [
                 {
@@ -113,8 +99,9 @@ def run_agent():
                     "content": (
                         "You are a browsing agent. "
                         "Return only JSON. "
-                        "Allowed actions: summarize, navigate. "
-                        "If navigating, choose a helpful public documentation or research URL."
+                        "Allowed actions: summarize, use_capability. "
+                        "Use only one capability from the supplied list. "
+                        "Do not invent URLs, selectors, or tool callbacks."
                     ),
                 },
                 {
@@ -122,8 +109,7 @@ def run_agent():
                     "content": json.dumps(
                         {
                             "current_url": page.url,
-                            "page_excerpt": observe_result.get("normalizedText", visible_text[:3000]),
-                            "suspicion_flags": observe_result.get("suspicionFlags", []),
+                            "planner_input": planner_input,
                         }
                     ),
                 },
@@ -136,13 +122,26 @@ def run_agent():
                 print("[agent] summary requested; stopping.")
                 break
 
-            if decision["action"] == "navigate":
-                target_url = decision["target_url"]
-                verdict = sb.action(make_action_payload(page, target_url))
+            if decision["action"] == "use_capability":
+                verdict = sb.action_v4(
+                    {
+                        "sessionId": session["sessionId"],
+                        "capabilityId": decision["capability_id"],
+                        "sourceObservationId": observe_result["compiledObservation"]["observationId"],
+                        "sourceDigest": observe_result["compiledObservation"]["sourceDigest"],
+                        "parameters": {},
+                    }
+                )
                 print(f"[step {step}] verdict:", json.dumps(verdict, indent=2))
 
                 if verdict["decision"] != "ALLOW":
                     print("[agent] navigation blocked by SafeBrowse")
+                    break
+
+                execution_plan = verdict.get("executionPlan", {})
+                target_url = execution_plan.get("targetUrl")
+                if not target_url:
+                    print("[agent] no target URL returned; stopping.")
                     break
 
                 page.goto(target_url, wait_until="domcontentloaded")
