@@ -15,7 +15,11 @@ Before the first public release:
    - TestPyPI
    - PyPI
    - Prefer Trusted Publishing, but this repo also supports GitHub Actions secrets named `TEST_PYPI_API_TOKEN` and `PYPI_API_TOKEN` for token-backed uploads.
-3. Configure npm Trusted Publishing for this GitHub repository.
+3. Configure npm Trusted Publishing for these packages against `.github/workflows/release.yml`:
+   - `@safebrowse/core`
+   - `@safebrowse/daemon`
+   - `@safebrowse/playwright-adapter`
+   - Do not set a GitHub environment name for npm trusted publishing. The npm publish job intentionally runs without an Actions environment so the same workflow can handle both prerelease and production tags with one npm trusted publisher configuration per package.
 4. Create protected GitHub environments:
    - `release-rc`
    - `release-prod`
@@ -73,7 +77,7 @@ The release workflow will:
 
 - validate build, tests, packaging, and Docker smoke checks
 - build KB artifacts with the protected signing key instead of a dev key
-- publish npm packages with provenance
+- publish npm packages with provenance through npm Trusted Publishing from `.github/workflows/release.yml`
 - publish `safebrowse-client` through Trusted Publishing when configured, or through `PYPI_API_TOKEN` / `TEST_PYPI_API_TOKEN` when those secrets are present
 - publish the daemon image to GHCR with provenance and SBOM
 - sign the GHCR image with Cosign

@@ -6,12 +6,11 @@
     [
       "@safebrowse/core",
       "@safebrowse/daemon",
-      "@safebrowse/kb-tools",
       "@safebrowse/playwright-adapter"
     ]
   ],
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": []
+  "ignore": ["@safebrowse/kb-tools"]
 }
