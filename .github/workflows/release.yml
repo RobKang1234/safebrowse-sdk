@@ -75,8 +75,8 @@ jobs:
       - run: corepack enable
       - run: npm install -g npm@11.6.2
       - run: pnpm install --frozen-lockfile
-      - run: node scripts/release/sync-version.mjs --version "${{ needs.validate.outputs.javascript_version }}" --exact-internal-deps
       - run: pnpm build
+      - run: node scripts/release/sync-version.mjs --version "${{ needs.validate.outputs.javascript_version }}" --exact-internal-deps
       - name: Publish core
         working-directory: packages/core
         run: npm publish --access public --provenance --tag "${{ needs.validate.outputs.dist_tag }}"
