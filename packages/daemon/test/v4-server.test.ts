@@ -62,6 +62,14 @@ const manifest = {
   callbackUri: "https://safe.example/oauth/callback"
 };
 
+const crmManifest = {
+  toolId: "crm-sync",
+  description: "CRM sync connector for external customer note writes.",
+  authType: "oauth" as const,
+  requestedScopes: ["crm:write"],
+  callbackUri: "https://safe.example/oauth/callback"
+};
+
 const verifiedRegistry: VerifiedRegistryBundle = {
   bundleId: "safebrowse-local-registry",
   version: "4",
@@ -84,6 +92,23 @@ const verifiedRegistry: VerifiedRegistryBundle = {
       allowedScopes: ["citation:read"],
       manifestHash: computeToolManifestHash(manifest),
       schemaHash: computeToolSchemaHash([])
+    },
+    {
+      registryEntryId: "crm-sync",
+      adapterId: "crm-sync",
+      bundleId: "safebrowse-local-registry",
+      bundleVersion: "4",
+      signer: "safebrowse-dev",
+      authType: "oauth",
+      capabilities: ["crm_write_note"],
+      allowedTransports: ["https"],
+      allowedRedirectUris: ["https://safe.example/oauth/callback"],
+      allowedCallbackOrigins: ["https://safe.example"],
+      allowedScopes: ["crm:write"],
+      manifestHash: computeToolManifestHash(crmManifest),
+      schemaHash: computeToolSchemaHash([]),
+      sinkSensitivity: "external_sensitive_sink",
+      writeCapability: true
     }
   ]
 };
@@ -396,6 +421,73 @@ describe("safebrowse daemon v4 routes", () => {
     expect(promote.promotedRecord.snapshotId).toBeTruthy();
   });
 
+  it("supports rollback after trusted promotion and keeps model-derived memory tainted", async () => {
+    const baseUrl = await startTestServer();
+    const session = await fetch(`${baseUrl}/v4/session/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        taskId: "task-v4-memory-rollback",
+        userGoal: "Store notes safely",
+        allowedOrigins: ["https://safe.example"],
+        allowedVerbs: ["navigate"],
+        forbiddenSinks: []
+      })
+    }).then((response) => response.json());
+
+    const modelWrite = await fetch(`${baseUrl}/v4/memory/write`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        entryId: "mem-v4-model",
+        key: "workflow_hint",
+        value: true,
+        source: "model",
+        durable: true
+      })
+    }).then((response) => response.json());
+
+    expect(modelWrite.record.tier).toBe("tainted_ephemeral");
+    expect(modelWrite.record.sourceClass).toBe("model_inferred");
+
+    const write = await fetch(`${baseUrl}/v4/memory/write`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        entryId: "mem-v4-rollback",
+        key: "workflow_hint",
+        value: "candidate only",
+        source: "web",
+        durable: true
+      })
+    }).then((response) => response.json());
+
+    const promote = await fetch(`${baseUrl}/v4/memory/promote`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        recordId: "mem-v4-rollback",
+        validationEvidence: ["human validated"]
+      })
+    }).then((response) => response.json());
+
+    const rollback = await fetch(`${baseUrl}/v4/memory/rollback`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        recordId: write.record.recordId,
+        snapshotId: promote.promotedRecord.snapshotId
+      })
+    }).then((response) => response.json());
+
+    expect(rollback.verdict.decision).toBe("ALLOW");
+    expect(rollback.rollbackEvent.snapshotId).toBe(promote.promotedRecord.snapshotId);
+  });
+
   it("reports parser isolation in health output", async () => {
     const baseUrl = await startTestServer();
     const health = await fetch(`${baseUrl}/health`).then((response) => response.json());
@@ -445,6 +537,65 @@ describe("safebrowse daemon v4 routes", () => {
     expect(observe.plannerInput.quotedUntrustedBlocks).toEqual([]);
     expect(observe.plannerInput.candidateCapabilities).toEqual([]);
     expect(observe.plannerInput.riskMarkers).toContain("parse_status_unsupported");
+  });
+
+  it("fails closed on nested unsupported html components and exposes legacy claim metadata", async () => {
+    const baseUrl = await startTestServer();
+    const session = await fetch(`${baseUrl}/v4/session/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        taskId: "task-v4-nested",
+        userGoal: "Review docs safely",
+        allowedOrigins: ["https://safe.example"],
+        allowedVerbs: ["navigate"],
+        forbiddenSinks: []
+      })
+    }).then((response) => response.json());
+
+    const observe = await fetch(`${baseUrl}/v4/observe`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        capture: {
+          surfaceType: "html",
+          url: "https://safe.example/page",
+          html: "<main>Visible docs only.</main>",
+          visibleText: "Visible docs only.",
+          hiddenText: ["encrypted nested instructions"],
+          nestedUnsupportedComponents: ["encrypted nested pdf"],
+          trustSignals: {
+            sourceOrigin: "https://safe.example",
+            frameOrigin: "https://safe.example",
+            taintClass: "tainted",
+            lineageChain: ["obs-v4-partial"]
+          }
+        }
+      })
+    }).then((response) => response.json());
+
+    expect(observe.compiledObservation.parseStatus).toBe("partial");
+    expect(observe.observationVerdict.decision).toBe("BLOCK");
+    expect(observe.plannerInput.visibleExcerpt).toBe("");
+    expect(observe.plannerInput.candidateCapabilities).toEqual([]);
+
+    const legacy = await fetch(`${baseUrl}/v1/action`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        actionId: "legacy-v4-test",
+        verb: "navigate",
+        targetUrl: "https://evil.example/upload",
+        trustSignals: {
+          sourceOrigin: "https://safe.example",
+          frameOrigin: "https://safe.example"
+        }
+      })
+    }).then((response) => response.json());
+
+    expect(legacy.deprecated).toBe(true);
+    expect(legacy.telemetry.claimScope).toBe("legacy_compatibility");
   });
 
   it("quarantines unsupported v4 artifact captures", async () => {

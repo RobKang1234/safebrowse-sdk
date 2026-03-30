@@ -5,10 +5,9 @@ from pathlib import Path
 
 MODEL_CONNECTED_BROWSER_AGENT_TEMPLATE = """import json
 import uuid
-from urllib.parse import urlparse
 
 from playwright.sync_api import sync_playwright
-from safebrowse_client import SafeBrowseClient
+from safebrowse_client import SafeBrowseClient, build_html_surface_capture
 
 
 def call_model(messages: list[dict]) -> dict:
@@ -23,33 +22,8 @@ def call_model(messages: list[dict]) -> dict:
     raise NotImplementedError("Plug your model client in here")
 
 
-def origin_of(url: str) -> str:
-    parsed = urlparse(url)
-    return f"{parsed.scheme}://{parsed.netloc}"
-
-
 def make_surface_capture(page, visible_text: str, html: str) -> dict:
-    current_url = page.url
-    return {
-        "surfaceType": "html",
-        "captureId": str(uuid.uuid4()),
-        "url": current_url,
-        "frameUrl": current_url,
-        "html": html,
-        "visibleText": visible_text,
-        "trustSignals": {
-            "sourceOrigin": current_url,
-            "frameOrigin": current_url,
-            "sameOriginRelation": "same-origin",
-            "visibilityClass": "visible",
-            "extractionMethod": "dom",
-            "artifactKind": "page",
-            "taintClass": "session-discovered",
-            "lineageChain": [str(uuid.uuid4())],
-            "userSharedFlag": False,
-            "sessionDiscoveredFlag": True,
-        },
-    }
+    return build_html_surface_capture(url=page.url, visible_text=visible_text, html=html)
 
 
 def extract_visible_text(page) -> str:

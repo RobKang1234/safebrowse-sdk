@@ -243,6 +243,8 @@ export interface VerifiedRegistryEntry {
   expiresAt?: string;
   allowPrivateEgress?: boolean;
   allowLoopbackCallbacks?: boolean;
+  sinkSensitivity?: "read_only" | "external_sensitive_sink";
+  writeCapability?: boolean;
 }
 
 export interface VerifiedRegistryBundle {
@@ -349,6 +351,7 @@ export interface HtmlSurfaceCapture extends BaseSurfaceCapture {
   annotations?: string[];
   links?: SurfaceLinkCapture[];
   domDigest?: string;
+  nestedUnsupportedComponents?: string[];
 }
 
 export interface PdfSurfaceCapture extends BaseSurfaceCapture {
@@ -516,6 +519,8 @@ export interface CapabilityDescriptor {
   frameOrigins: string[];
   sourceSpanIds: string[];
   parameterSchema: Record<string, JsonValue>;
+  derivedSinkClass: "browser_navigation" | "connector_oauth" | "memory_promotion";
+  derivedSensitiveSink: boolean;
   expiresAt: string;
   nonReplayable: true;
   workflowHash: string;
@@ -545,6 +550,12 @@ export interface ApprovalGrant {
 }
 
 export type MemoryTier = "trusted_durable" | "candidate_durable" | "tainted_ephemeral";
+export type MemorySourceClass =
+  | "user_provided"
+  | "web_observed"
+  | "model_inferred"
+  | "validated_system"
+  | "system_generated";
 
 export interface MemoryRecord {
   recordId: string;
@@ -554,6 +565,7 @@ export interface MemoryRecord {
   summaryValue: JsonValue;
   tier: MemoryTier;
   source: "user" | "web" | "model" | "system";
+  sourceClass: MemorySourceClass;
   sourceObservationId?: string;
   sourceDigest?: string;
   secretFindings: string[];
@@ -569,6 +581,17 @@ export interface MemoryPromotionRequest {
   recordId: string;
   approvalGrantId?: string;
   validationEvidence?: string[];
+}
+
+export interface MemoryRollbackRequest {
+  sessionId: string;
+  recordId: string;
+  snapshotId: string;
+}
+
+export interface MemoryRollbackResult {
+  verdict: SafeVerdict;
+  restoredRecord?: MemoryRecord;
 }
 
 export interface ParserWorkerProbe {
@@ -591,7 +614,8 @@ export interface MemoryWriteRequest {
   entryId: string;
   key: string;
   value: JsonValue;
-  source: "user" | "web" | "system";
+  source: "user" | "web" | "model" | "system";
+  sourceClass?: MemorySourceClass;
   durable: boolean;
   previousValue?: JsonValue;
   trustSignals?: Partial<TrustSignalSet>;

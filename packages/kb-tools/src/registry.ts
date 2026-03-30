@@ -21,6 +21,8 @@ interface RawRegistryAdapter {
   signer?: string;
   allowPrivateEgress?: boolean;
   allowLoopbackCallbacks?: boolean;
+  sinkSensitivity?: "read_only" | "external_sensitive_sink";
+  writeCapability?: boolean;
 }
 
 interface RawRegistryBundle {
@@ -63,7 +65,9 @@ function toVerifiedEntry(
     schemaHash: adapter.schemaHash,
     expiresAt: adapter.expiresAt ?? bundle.expiresAt,
     allowPrivateEgress: adapter.allowPrivateEgress ?? false,
-    allowLoopbackCallbacks: adapter.allowLoopbackCallbacks ?? false
+    allowLoopbackCallbacks: adapter.allowLoopbackCallbacks ?? false,
+    sinkSensitivity: adapter.sinkSensitivity,
+    writeCapability: adapter.writeCapability ?? false
   };
 }
 

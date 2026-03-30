@@ -66,6 +66,8 @@ export function mintCapabilitiesForObservation(
             parameterSchema: {
               openInNewTab: "boolean"
             },
+            derivedSinkClass: "browser_navigation",
+            derivedSensitiveSink: false,
             expiresAt,
             nonReplayable: true,
             workflowHash: session.workflowHash,
@@ -94,6 +96,8 @@ export function mintCapabilitiesForObservation(
             frameOrigins: uniq([normalizeOrigin(target.frameOrigin)]),
             sourceSpanIds: target.sourceSpanIds,
             parameterSchema: {},
+            derivedSinkClass: "connector_oauth",
+            derivedSensitiveSink: true,
             expiresAt,
             nonReplayable: true,
             workflowHash: session.workflowHash,
@@ -222,6 +226,8 @@ export function evaluateCapabilityUse(
           capability_id: capability.capabilityId,
           target_class: capability.targetClass,
           target_origin: capability.targetOrigin,
+          derived_sink_class: capability.derivedSinkClass,
+          derived_sensitive_sink: capability.derivedSensitiveSink,
           non_replayable: true
         }
       : undefined,

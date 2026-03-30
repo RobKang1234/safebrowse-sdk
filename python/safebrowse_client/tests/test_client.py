@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from safebrowse_client import (
     SafeBrowseClient,
+    build_html_surface_capture,
     get_model_connected_browser_agent_template,
     write_model_connected_browser_agent_template,
 )
@@ -37,6 +38,7 @@ class SafeBrowseClientTest(unittest.TestCase):
         self.assertIn("https://docs.python.org", template)
         self.assertIn("SafeBrowseClient", template)
         self.assertIn("use_capability", template)
+        self.assertIn("build_html_surface_capture", template)
 
     def test_template_writer_creates_python_file(self) -> None:
         output_path = Path(__file__).resolve().parent / "_tmp_agent_template.py"
@@ -96,6 +98,40 @@ class SafeBrowseClientTest(unittest.TestCase):
         self.assertEqual(result["compiledObservation"]["observationId"], "obs-1")
         args, _kwargs = mock_urlopen.call_args
         self.assertIn("/v4/observe", args[0].full_url)
+
+    @patch("safebrowse_client.client.request.urlopen")
+    def test_memory_rollback_v4_posts_to_v4_route(self, mock_urlopen) -> None:
+        mock_urlopen.return_value = _FakeResponse({"verdict": {"decision": "ALLOW"}})
+        client = SafeBrowseClient()
+
+        result = client.memory_rollback_v4(
+            {"sessionId": "session-1", "recordId": "mem-1", "snapshotId": "snap-1"}
+        )
+
+        self.assertEqual(result["verdict"]["decision"], "ALLOW")
+        args, _kwargs = mock_urlopen.call_args
+        self.assertIn("/v4/memory/rollback", args[0].full_url)
+
+    def test_build_html_surface_capture_returns_v4_shape(self) -> None:
+        capture = build_html_surface_capture(
+            url="https://docs.python.org/3/tutorial/",
+            visible_text="Visible docs text",
+            html="<main>Visible docs text</main>",
+            hidden_text=["hidden prompt"],
+            metadata_text=["metadata hint"],
+            nested_unsupported_components=["encrypted nested pdf"],
+        )
+
+        self.assertEqual(capture["surfaceType"], "html")
+        self.assertEqual(capture["visibleText"], "Visible docs text")
+        self.assertEqual(capture["hiddenText"], ["hidden prompt"])
+        self.assertEqual(capture["metadataText"], ["metadata hint"])
+        self.assertEqual(
+            capture["nestedUnsupportedComponents"], ["encrypted nested pdf"]
+        )
+        self.assertEqual(
+            capture["trustSignals"]["sourceOrigin"], "https://docs.python.org"
+        )
 
     @patch("safebrowse_client.client.request.urlopen")
     def test_replay_wraps_events_payload(self, mock_urlopen) -> None:

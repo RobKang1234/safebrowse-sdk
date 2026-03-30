@@ -17,7 +17,7 @@ export interface PlaywrightPageSnapshot {
   frameUrl?: string;
   visibleText: string;
   html?: string;
-  hiddenText?: string;
+  hiddenText?: string | string[];
   metadataText?: string[];
   annotations?: string[];
   renderedText?: string;
@@ -28,6 +28,12 @@ export interface PlaywrightPageSnapshot {
 export function createObservationFromSnapshot(
   snapshot: PlaywrightPageSnapshot
 ): RawObservationInput {
+  const hiddenText = Array.isArray(snapshot.hiddenText)
+    ? snapshot.hiddenText
+    : snapshot.hiddenText
+      ? [snapshot.hiddenText]
+      : [];
+
   return {
     sourceType: "page",
     text: snapshot.visibleText,
@@ -39,17 +45,13 @@ export function createObservationFromSnapshot(
         sourceOrigin: snapshot.url,
         frameOrigin: snapshot.frameUrl ?? snapshot.url
       },
-      ...(snapshot.hiddenText
-        ? [
-            {
-              text: snapshot.hiddenText,
-              visibilityClass: "hidden" as const,
-              medium: "metadata" as const,
-              sourceOrigin: snapshot.url,
-              frameOrigin: snapshot.frameUrl ?? snapshot.url
-            }
-          ]
-        : []),
+      ...hiddenText.map((text) => ({
+        text,
+        visibilityClass: "hidden" as const,
+        medium: "metadata" as const,
+        sourceOrigin: snapshot.url,
+        frameOrigin: snapshot.frameUrl ?? snapshot.url
+      })),
       ...(snapshot.metadataText ?? []).map((text) => ({
         text,
         visibilityClass: "metadata" as const,
@@ -70,13 +72,19 @@ export function createObservationFromSnapshot(
 export function createSurfaceCaptureFromSnapshot(
   snapshot: PlaywrightPageSnapshot
 ): HtmlSurfaceCapture {
+  const hiddenText = Array.isArray(snapshot.hiddenText)
+    ? snapshot.hiddenText
+    : snapshot.hiddenText
+      ? [snapshot.hiddenText]
+      : [];
+
   return {
     surfaceType: "html",
     url: snapshot.url,
     frameUrl: snapshot.frameUrl,
     html: snapshot.html,
     visibleText: snapshot.visibleText,
-    hiddenText: snapshot.hiddenText ? [snapshot.hiddenText] : [],
+    hiddenText,
     metadataText: snapshot.metadataText,
     annotations: snapshot.annotations,
     userShared: snapshot.userShared

@@ -21,6 +21,7 @@ import {
   prepareToolOnboarding,
   prepareToolOnboardingV4,
   promoteMemoryRecordV4,
+  rollbackMemoryRecordV4,
   sanitizeObservation,
   verifyToolCallback,
   verifyToolCallbackV4,
@@ -34,10 +35,12 @@ import {
   type KnowledgeBaseContext,
   type MemoryPromotionRequest,
   type MemoryRecord,
+  type MemoryRollbackRequest,
   type MemoryWriteRequest,
   type PolicyPack,
   type ReplayEvent,
   type RuntimeContext,
+  type StructuredPlannerInput,
   type SurfaceCapture,
   type TaskSession,
   type ToolCallbackVerificationRequest,
@@ -69,8 +72,11 @@ interface SessionState {
   latestObservation?: CompiledObservation;
   capabilities: Map<string, CapabilityDescriptor>;
   usedCapabilities: Set<string>;
+  authorityReduced: boolean;
+  authorityReductionReasons: string[];
   approvalGrants: Map<string, ApprovalGrant>;
   memoryRecords: Map<string, MemoryRecord>;
+  memorySnapshots: Map<string, MemoryRecord>;
   onboardingSessions: Map<string, ToolOnboardingSession>;
 }
 
@@ -138,6 +144,18 @@ function writeJson(response: ServerResponse, statusCode: number, payload: unknow
   response.statusCode = statusCode;
   response.setHeader("content-type", "application/json; charset=utf-8");
   response.end(JSON.stringify(payload, null, 2));
+}
+
+function legacyResponseMeta(route: string) {
+  return {
+    deprecated: true as const,
+    telemetry: {
+      deprecated: true as const,
+      claimScope: "legacy_compatibility" as const,
+      preventionClaim: false as const,
+      routeVersion: route
+    }
+  };
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -245,9 +263,60 @@ function createSessionState(
     session,
     capabilities: new Map(),
     usedCapabilities: new Set(),
+    authorityReduced: false,
+    authorityReductionReasons: [],
     approvalGrants: new Map(),
     memoryRecords: new Map(),
+    memorySnapshots: new Map(),
     onboardingSessions: new Map()
+  };
+}
+
+function shouldReduceAuthority(
+  sessionState: SessionState,
+  observation: CompiledObservation
+): boolean {
+  if (sessionState.authorityReduced) {
+    return true;
+  }
+
+  const hasPriorSurface = Boolean(sessionState.latestObservation);
+  const hasMeaningfulRisk =
+    observation.parseStatus !== "compiled" ||
+    observation.riskFindings.length > 0 ||
+    observation.secretFindings.length > 0;
+
+  return hasPriorSurface && hasMeaningfulRisk;
+}
+
+function applyAuthorityReduction(
+  sessionState: SessionState,
+  observation: CompiledObservation,
+  plannerInput: StructuredPlannerInput
+): StructuredPlannerInput {
+  const reasons = [
+    ...sessionState.authorityReductionReasons,
+    ...(observation.parseStatus !== "compiled"
+      ? [`parse_status_${observation.parseStatus}`]
+      : []),
+    ...observation.riskFindings,
+    ...(observation.secretFindings.length ? ["secret_redaction_boundary"] : [])
+  ];
+
+  sessionState.authorityReduced = true;
+  sessionState.authorityReductionReasons = [...new Set(reasons)];
+  sessionState.capabilities.clear();
+
+  return {
+    ...plannerInput,
+    candidateCapabilities: [],
+    riskMarkers: [
+      ...new Set([
+        ...plannerInput.riskMarkers,
+        "multimodal_reducer_active",
+        ...sessionState.authorityReductionReasons.map((reason) => `chain:${reason}`)
+      ])
+    ]
   };
 }
 
@@ -421,37 +490,55 @@ export async function createSafeBrowseServer(
 
       if (request.url === "/v1/observe") {
         const payload = await readJson<Parameters<typeof sanitizeObservation>[0]>(request);
-        writeJson(response, 200, sanitizeObservation(payload, runtime));
+        writeJson(response, 200, {
+          ...sanitizeObservation(payload, runtime),
+          ...legacyResponseMeta("/v1/observe")
+        });
         return;
       }
 
       if (request.url === "/v1/action") {
         const payload = await readJson<ActionProposal>(request);
-        writeJson(response, 200, evaluateAction(payload, runtime));
+        writeJson(response, 200, {
+          ...evaluateAction(payload, runtime),
+          ...legacyResponseMeta("/v1/action")
+        });
         return;
       }
 
       if (request.url === "/v1/artifact") {
         const payload = await readJson<ArtifactInput>(request);
-        writeJson(response, 200, brokerArtifact(payload, runtime));
+        writeJson(response, 200, {
+          ...brokerArtifact(payload, runtime),
+          ...legacyResponseMeta("/v1/artifact")
+        });
         return;
       }
 
       if (request.url === "/v1/tool") {
         const payload = await readJson<ToolRequest>(request);
-        writeJson(response, 200, evaluateToolRequest(payload, runtime));
+        writeJson(response, 200, {
+          ...evaluateToolRequest(payload, runtime),
+          ...legacyResponseMeta("/v1/tool")
+        });
         return;
       }
 
       if (request.url === "/v1/memory") {
         const payload = await readJson<MemoryWriteRequest>(request);
-        writeJson(response, 200, evaluateMemoryWrite(payload, runtime));
+        writeJson(response, 200, {
+          ...evaluateMemoryWrite(payload, runtime),
+          ...legacyResponseMeta("/v1/memory")
+        });
         return;
       }
 
       if (request.url === "/v1/replay") {
         const payload = await readJson<{ events: ReplayEvent[] }>(request);
-        writeJson(response, 200, buildReplayBundle(payload.events, runtime));
+        writeJson(response, 200, {
+          ...buildReplayBundle(payload.events, runtime),
+          ...legacyResponseMeta("/v1/replay")
+        });
         return;
       }
 
@@ -492,7 +579,8 @@ export async function createSafeBrowseServer(
           verdict: prepared.verdict,
           verifiedRegistryEntry: prepared.verifiedRegistryEntry,
           workflowBinding: prepared.workflowBinding,
-          onboardingSession
+          onboardingSession,
+          ...legacyResponseMeta("/v2/tool/prepare")
         });
         return;
       }
@@ -507,13 +595,19 @@ export async function createSafeBrowseServer(
             status: result.verdict.decision === "ALLOW" ? "used" : session.status
           });
         }
-        writeJson(response, 200, result);
+        writeJson(response, 200, {
+          ...result,
+          ...legacyResponseMeta("/v2/tool/callback/verify")
+        });
         return;
       }
 
       if (request.url === "/v2/artifact") {
         const payload = await readJson<ArtifactV2Input>(request);
-        writeJson(response, 200, brokerArtifactV2(payload, runtime));
+        writeJson(response, 200, {
+          ...brokerArtifactV2(payload, runtime),
+          ...legacyResponseMeta("/v2/artifact")
+        });
         return;
       }
 
@@ -556,13 +650,23 @@ export async function createSafeBrowseServer(
           "observe"
         );
 
-        const capabilities = mintCapabilitiesForObservation(
+        let capabilities = mintCapabilitiesForObservation(
           sessionState.session,
           observation.compiledObservation,
           {
             sourceObservationId: observation.compiledObservation.observationId
           }
         );
+        let plannerInput = failClosedObservation.plannerInput;
+
+        if (shouldReduceAuthority(sessionState, observation.compiledObservation)) {
+          plannerInput = applyAuthorityReduction(
+            sessionState,
+            observation.compiledObservation,
+            plannerInput
+          );
+          capabilities = [];
+        }
 
         sessionState.capabilities.clear();
         for (const capability of capabilities) {
@@ -573,10 +677,7 @@ export async function createSafeBrowseServer(
         writeJson(response, 200, {
           compiledObservation: observation.compiledObservation,
           observationVerdict: failClosedObservation.verdict,
-          plannerInput: attachCapabilitiesToPlannerInput(
-            failClosedObservation.plannerInput,
-            capabilities
-          )
+          plannerInput: attachCapabilitiesToPlannerInput(plannerInput, capabilities)
         });
         return;
       }
@@ -606,7 +707,9 @@ export async function createSafeBrowseServer(
                   verb: capability.kind,
                   targetUrl: capability.targetUrl,
                   targetOrigin: capability.targetOrigin,
-                  selector: capability.selector
+                  selector: capability.selector,
+                  derivedSinkClass: capability.derivedSinkClass,
+                  derivedSensitiveSink: capability.derivedSensitiveSink
                 }
               : undefined
         });
@@ -759,10 +862,17 @@ export async function createSafeBrowseServer(
                 approvalRequiredForFollowOn: true
               }
             : artifactResult?.artifact;
+        const plannerInput = shouldReduceAuthority(sessionState, observation.compiledObservation)
+          ? applyAuthorityReduction(
+              sessionState,
+              observation.compiledObservation,
+              failClosedArtifact.plannerInput
+            )
+          : failClosedArtifact.plannerInput;
 
         writeJson(response, 200, {
           compiledObservation: observation.compiledObservation,
-          plannerInput: failClosedArtifact.plannerInput,
+          plannerInput,
           artifactVerdict: effectiveArtifactVerdict,
           artifact: effectiveArtifact
         });
@@ -798,10 +908,49 @@ export async function createSafeBrowseServer(
           approvalGrant
         );
         if (sessionState && result.promotedRecord) {
+          if (record && result.promotedRecord.snapshotId) {
+            sessionState.memorySnapshots.set(result.promotedRecord.snapshotId, {
+              ...record,
+              tier: "trusted_durable",
+              summaryOnly: false,
+              snapshotId: result.promotedRecord.snapshotId,
+              rollbackPointId: result.promotedRecord.rollbackPointId
+            });
+          }
           sessionState.memoryRecords.set(result.promotedRecord.recordId, result.promotedRecord);
         }
 
         writeJson(response, 200, result);
+        return;
+      }
+
+      if (request.url === "/v4/memory/rollback") {
+        const payload = await readJson<MemoryRollbackRequest>(request);
+        const sessionState = findSessionState(sessions, payload.sessionId);
+        const record = sessionState?.memoryRecords.get(payload.recordId);
+        const snapshotRecord = sessionState?.memorySnapshots.get(payload.snapshotId);
+        const result = rollbackMemoryRecordV4(
+          payload,
+          sessionState?.session,
+          record,
+          snapshotRecord
+        );
+
+        if (sessionState && result.restoredRecord) {
+          sessionState.memoryRecords.set(result.restoredRecord.recordId, result.restoredRecord);
+        }
+
+        writeJson(response, 200, {
+          ...result,
+          rollbackEvent:
+            result.verdict.decision === "ALLOW"
+              ? {
+                  recordId: payload.recordId,
+                  snapshotId: payload.snapshotId,
+                  appliedAt: new Date().toISOString()
+                }
+              : undefined
+        });
         return;
       }
 

@@ -12,6 +12,41 @@ import type {
 import { prepareToolOnboarding, verifyToolCallback } from "./toolProtocolV2.js";
 import { clamp, normalizeOrigin, sha256Hex, stableStringify, uniq } from "./utils.js";
 
+function deriveSinkMetadata(
+  request: ToolRequest,
+  entry: ToolPreparationResult["verifiedRegistryEntry"]
+): {
+  derivedSinkClass: "connector_oauth" | "external_sensitive_sink";
+  derivedSensitiveSink: boolean;
+} {
+  const requestedScopes = request.requestedScopes ?? request.oauthContext?.requestedScopes ?? [];
+  const scopeImpliesWrite = requestedScopes.some((scope) =>
+    /(write|submit|export|post|publish|digest:write|note:write)/i.test(scope)
+  );
+  const capabilityImpliesWrite =
+    Boolean(entry?.writeCapability) ||
+    Boolean(entry?.capabilities.some((capability) => /(write|submit|export|post|publish)/i.test(capability)));
+  const sensitive =
+    entry?.sinkSensitivity === "external_sensitive_sink" || scopeImpliesWrite || capabilityImpliesWrite;
+
+  return {
+    derivedSinkClass: sensitive ? "external_sensitive_sink" : "connector_oauth",
+    derivedSensitiveSink: sensitive
+  };
+}
+
+function lookupVerifiedEntry(
+  request: ToolRequest,
+  context: RuntimeContext
+): ToolPreparationResult["verifiedRegistryEntry"] {
+  return context.verifiedRegistry?.entries.find(
+    (entry) =>
+      entry.registryEntryId === request.registryEntryId ||
+      entry.registryEntryId === request.toolId ||
+      entry.adapterId === request.toolId
+  );
+}
+
 function grantMatchesToolEnvelope(
   grant: ApprovalGrant | undefined,
   session: TaskSession | undefined,
@@ -101,6 +136,8 @@ export function prepareToolOnboardingV4(
 ): ToolPreparationResult & {
   approvalVerdict: SafeVerdict;
 } {
+  const preverifiedEntry = lookupVerifiedEntry(request, context);
+  const sinkMetadata = deriveSinkMetadata(request, preverifiedEntry);
   const approvalCheck = grantMatchesToolEnvelope(approvalGrant, session, request);
   const approvalVerdict: SafeVerdict = {
     decision: approvalCheck.ok ? "ALLOW" : "BLOCK",
@@ -108,7 +145,9 @@ export function prepareToolOnboardingV4(
     riskScore: clamp(approvalCheck.ok ? 0.2 : 0.99),
     safeConstraints: {
       session_bound: true,
-      workflow_hash_bound: true
+      workflow_hash_bound: true,
+      derived_sink_class: sinkMetadata.derivedSinkClass,
+      derived_sensitive_sink: sinkMetadata.derivedSensitiveSink
     },
     telemetryTags: uniq(["tool_v4_approval", approvalCheck.ok ? "allow" : "block"])
   };
@@ -127,9 +166,21 @@ export function prepareToolOnboardingV4(
     },
     context
   );
+  const preparedSinkMetadata = deriveSinkMetadata(
+    request,
+    prepared.verifiedRegistryEntry ?? preverifiedEntry
+  );
 
   return {
     ...prepared,
+    verdict: {
+      ...prepared.verdict,
+      safeConstraints: {
+        ...prepared.verdict.safeConstraints,
+        derived_sink_class: preparedSinkMetadata.derivedSinkClass,
+        derived_sensitive_sink: preparedSinkMetadata.derivedSensitiveSink
+      }
+    },
     approvalVerdict
   };
 }

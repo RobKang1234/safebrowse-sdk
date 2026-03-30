@@ -7,6 +7,7 @@ on:
       - main
       - v2
       - v3
+      - v4
 
 permissions:
   contents: read
@@ -35,3 +36,20 @@ jobs:
       - run: pnpm release:audit
       - run: pnpm release:smoke:artifacts
       - run: pnpm release:smoke:docker
+
+  wrapper-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/run-python-module.mjs -m pip install build twine
+      - run: pnpm build
+      - run: pnpm release:build:python
+      - run: pnpm auditor:parity

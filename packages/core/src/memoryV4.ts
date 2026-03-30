@@ -3,8 +3,11 @@ import { randomUUID } from "node:crypto";
 import { redactJsonValue } from "./secretIsolation.js";
 import type {
   ApprovalGrant,
+  MemoryRollbackRequest,
+  MemoryRollbackResult,
   MemoryPromotionRequest,
   MemoryRecord,
+  MemorySourceClass,
   MemoryTier,
   MemoryWriteRequest,
   RuntimeContext,
@@ -13,23 +16,47 @@ import type {
 } from "./types.js";
 import { clamp, sha256Hex, stableStringify, uniq } from "./utils.js";
 
+function deriveSourceClass(request: MemoryWriteRequest): MemorySourceClass {
+  if (request.sourceClass) {
+    return request.sourceClass;
+  }
+
+  switch (request.source) {
+    case "web":
+      return "web_observed";
+    case "model":
+      return "model_inferred";
+    case "system":
+      return "validated_system";
+    case "user":
+    default:
+      return "user_provided";
+  }
+}
+
 function buildTier(
   request: MemoryWriteRequest,
   secretFindings: string[]
 ): MemoryTier {
-  if (request.source === "web" || request.source === "system") {
-    return request.durable ? "candidate_durable" : "tainted_ephemeral";
-  }
-
-  if (request.source === "user") {
-    return request.durable ? "candidate_durable" : "tainted_ephemeral";
-  }
+  const sourceClass = deriveSourceClass(request);
 
   if (secretFindings.length) {
     return request.durable ? "candidate_durable" : "tainted_ephemeral";
   }
 
-  return request.durable ? "candidate_durable" : "tainted_ephemeral";
+  if (sourceClass === "model_inferred") {
+    return "tainted_ephemeral";
+  }
+
+  if (sourceClass === "web_observed" || sourceClass === "validated_system") {
+    return request.durable ? "candidate_durable" : "tainted_ephemeral";
+  }
+
+  if (sourceClass === "system_generated" || sourceClass === "user_provided") {
+    return request.durable ? "candidate_durable" : "tainted_ephemeral";
+  }
+
+  return "tainted_ephemeral";
 }
 
 export function evaluateMemoryWriteV4(
@@ -58,10 +85,16 @@ export function evaluateMemoryWriteV4(
 
   const redacted = redactJsonValue(request.value);
   const tier = buildTier(request, redacted.secretFindings);
+  const sourceClass = deriveSourceClass(request);
 
-  if (request.durable && request.source === "web") {
+  if (request.durable && sourceClass === "web_observed") {
     reasonCodes.push("WEB_DERIVED_MEMORY_DOWNGRADED_TO_CANDIDATE");
     riskScore = Math.max(riskScore, 0.72);
+  }
+
+  if (sourceClass === "model_inferred") {
+    reasonCodes.push("MODEL_DERIVED_MEMORY_DOWNGRADED_TO_TAINTED");
+    riskScore = Math.max(riskScore, 0.76);
   }
 
   if (redacted.secretFindings.length) {
@@ -91,7 +124,8 @@ export function evaluateMemoryWriteV4(
     value: redacted.value,
     summaryValue: redacted.value,
     tier,
-    source: request.source === "web" ? "web" : request.source === "system" ? "system" : "user",
+    source: request.source,
+    sourceClass,
     secretFindings: redacted.secretFindings,
     summaryOnly: tier !== "trusted_durable",
     createdAt,
@@ -110,7 +144,8 @@ export function evaluateMemoryWriteV4(
       safeConstraints: {
         tier,
         authority_scoped: tier === "trusted_durable",
-        summary_only: tier !== "trusted_durable"
+        summary_only: tier !== "trusted_durable",
+        source_class: sourceClass
       },
       telemetryTags: uniq(["memory_v4", tier, decision.toLowerCase()])
     },
@@ -221,3 +256,80 @@ export function promoteMemoryRecordV4(
   };
 }
 
+export function rollbackMemoryRecordV4(
+  request: MemoryRollbackRequest,
+  session: TaskSession | undefined,
+  record: MemoryRecord | undefined,
+  snapshotRecord: MemoryRecord | undefined
+): MemoryRollbackResult {
+  const reasonCodes: string[] = [];
+  let decision: SafeVerdict["decision"] = "ALLOW";
+  let riskScore = 0.3;
+
+  if (!session) {
+    decision = "BLOCK";
+    reasonCodes.push("UNKNOWN_SESSION");
+    riskScore = 0.99;
+  }
+
+  if (!record) {
+    decision = "BLOCK";
+    reasonCodes.push("UNKNOWN_MEMORY_RECORD");
+    riskScore = 0.99;
+  }
+
+  if (!snapshotRecord) {
+    decision = "BLOCK";
+    reasonCodes.push("UNKNOWN_MEMORY_SNAPSHOT");
+    riskScore = 0.99;
+  }
+
+  if (session && record && record.sessionId !== session.sessionId) {
+    decision = "BLOCK";
+    reasonCodes.push("MEMORY_RECORD_OUTSIDE_SESSION");
+    riskScore = 0.99;
+  }
+
+  if (
+    record &&
+    snapshotRecord &&
+    record.snapshotId &&
+    request.snapshotId !== record.snapshotId
+  ) {
+    decision = "BLOCK";
+    reasonCodes.push("SNAPSHOT_ID_MISMATCH");
+    riskScore = 0.99;
+  }
+
+  if (decision !== "ALLOW" || !snapshotRecord) {
+    return {
+      verdict: {
+        decision,
+        reasonCodes: uniq(reasonCodes),
+        riskScore: clamp(riskScore),
+        telemetryTags: uniq(["memory_v4_rollback", decision.toLowerCase()])
+      }
+    };
+  }
+
+  const restoredRecord: MemoryRecord = {
+    ...snapshotRecord,
+    tier: "trusted_durable",
+    summaryOnly: false
+  };
+
+  return {
+    verdict: {
+      decision,
+      reasonCodes: uniq(["ROLLBACK_APPLIED", ...reasonCodes]),
+      riskScore: clamp(riskScore),
+      safeConstraints: {
+        tier: "trusted_durable",
+        rollback_applied: true,
+        snapshot_id: request.snapshotId
+      },
+      telemetryTags: uniq(["memory_v4_rollback", decision.toLowerCase()])
+    },
+    restoredRecord
+  };
+}

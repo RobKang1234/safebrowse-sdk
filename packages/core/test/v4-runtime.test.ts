@@ -13,6 +13,7 @@ import {
   mintCapabilitiesForObservation,
   prepareToolOnboardingV4,
   promoteMemoryRecordV4,
+  rollbackMemoryRecordV4,
   type ApprovalGrant,
   type CapabilityUseRequest,
   type PolicyPack,
@@ -75,6 +76,14 @@ const manifest = {
   callbackUri: "https://safe.example/oauth/callback"
 };
 
+const crmManifest = {
+  toolId: "crm-sync",
+  description: "CRM sync connector for external customer note writes.",
+  authType: "oauth" as const,
+  requestedScopes: ["crm:write"],
+  callbackUri: "https://safe.example/oauth/callback"
+};
+
 const verifiedRegistry: VerifiedRegistryBundle = {
   bundleId: "safebrowse-local-registry",
   version: "4",
@@ -97,6 +106,23 @@ const verifiedRegistry: VerifiedRegistryBundle = {
       allowedScopes: ["citation:read"],
       manifestHash: computeToolManifestHash(manifest),
       schemaHash: computeToolSchemaHash([])
+    },
+    {
+      registryEntryId: "crm-sync",
+      adapterId: "crm-sync",
+      bundleId: "safebrowse-local-registry",
+      bundleVersion: "4",
+      signer: "safebrowse-dev",
+      authType: "oauth",
+      capabilities: ["crm_write_note"],
+      allowedTransports: ["https"],
+      allowedRedirectUris: ["https://safe.example/oauth/callback"],
+      allowedCallbackOrigins: ["https://safe.example"],
+      allowedScopes: ["crm:write"],
+      manifestHash: computeToolManifestHash(crmManifest),
+      schemaHash: computeToolSchemaHash([]),
+      sinkSensitivity: "external_sensitive_sink",
+      writeCapability: true
     }
   ]
 };
@@ -377,6 +403,95 @@ describe("safebrowse core runtime v4", () => {
     );
     expect(promoteAllowed.verdict.decision).toBe("ALLOW");
     expect(promoteAllowed.promotedRecord?.tier).toBe("trusted_durable");
+  });
+
+  it("forces model-derived durable memory into tainted ephemeral storage", () => {
+    const session = buildSession();
+    const writeResult = evaluateMemoryWriteV4(
+      {
+        entryId: "mem-model-1",
+        key: "workflow_hint",
+        value: true,
+        source: "model",
+        durable: true
+      },
+      session,
+      runtime
+    );
+
+    expect(writeResult.verdict.decision).toBe("ALLOW");
+    expect(writeResult.record?.tier).toBe("tainted_ephemeral");
+    expect(writeResult.record?.sourceClass).toBe("model_inferred");
+    expect(writeResult.verdict.reasonCodes).toContain(
+      "MODEL_DERIVED_MEMORY_DOWNGRADED_TO_TAINTED"
+    );
+  });
+
+  it("supports snapshot-backed rollback on promoted trusted memory", () => {
+    const session = buildSession();
+    const writeResult = evaluateMemoryWriteV4(
+      {
+        entryId: "mem-rollback-1",
+        key: "workflow_hint",
+        value: "validated note",
+        source: "web",
+        durable: true
+      },
+      session,
+      runtime
+    );
+    const promoteAllowed = promoteMemoryRecordV4(
+      {
+        sessionId: session.sessionId,
+        recordId: "mem-rollback-1",
+        validationEvidence: ["validated by human reviewer"]
+      },
+      session,
+      writeResult.record
+    );
+
+    const rollback = rollbackMemoryRecordV4(
+      {
+        sessionId: session.sessionId,
+        recordId: "mem-rollback-1",
+        snapshotId: promoteAllowed.promotedRecord?.snapshotId ?? ""
+      },
+      session,
+      promoteAllowed.promotedRecord,
+      promoteAllowed.promotedRecord
+    );
+
+    expect(rollback.verdict.decision).toBe("ALLOW");
+    expect(rollback.verdict.reasonCodes).toContain("ROLLBACK_APPLIED");
+    expect(rollback.restoredRecord?.tier).toBe("trusted_durable");
+  });
+
+  it("re-derives sensitive sink metadata from verified connector entries", () => {
+    const session = buildSession();
+    const grant = buildApprovalGrant({
+      connectorId: "crm-sync",
+      scopes: ["crm:write"],
+      capabilityIds: ["cap-crm"]
+    });
+
+    const prepared = prepareToolOnboardingV4(
+      buildToolRequest({
+        toolId: "crm-sync",
+        registryEntryId: "crm-sync",
+        description: crmManifest.description,
+        requestedScopes: ["crm:write"],
+        capabilityId: "cap-crm",
+        manifestHash: computeToolManifestHash(crmManifest)
+      }),
+      session,
+      grant,
+      runtime
+    );
+
+    expect(prepared.verdict.safeConstraints?.derived_sink_class).toBe(
+      "external_sensitive_sink"
+    );
+    expect(prepared.verdict.safeConstraints?.derived_sensitive_sink).toBe(true);
   });
 
   it("redacts secrets from replay bundles", () => {

@@ -131,6 +131,7 @@ function parseHtmlCapture(
   const extractedTargets: ExtractedTarget[] = [];
   const riskFindings: string[] = [];
   const blockedChannels: ProvenanceChannel[] = [];
+  const nestedUnsupportedComponents = capture.nestedUnsupportedComponents ?? [];
 
   if (visibleText) {
     spans.push(
@@ -335,8 +336,28 @@ function parseHtmlCapture(
     });
   }
 
-  const parseStatus: CompiledObservation["parseStatus"] =
-    html || capture.visibleText ? "compiled" : "unsupported";
+  if (nestedUnsupportedComponents.length) {
+    extractedFacts.push(
+      ...nestedUnsupportedComponents.map((entry) => `nested unsupported component: ${normalizeText(entry)}`)
+    );
+    riskFindings.push("nested_unparsed_component");
+    if (
+      spans.some(
+        (span) =>
+          span.channel === "hidden_text" ||
+          span.channel === "metadata" ||
+          span.channel === "comment"
+      )
+    ) {
+      riskFindings.push("surrounding_context_claims_safe_to_continue");
+    }
+  }
+
+  const parseStatus: CompiledObservation["parseStatus"] = nestedUnsupportedComponents.length
+    ? "partial"
+    : html || capture.visibleText
+      ? "compiled"
+      : "unsupported";
 
   return {
     spans,
@@ -596,6 +617,24 @@ function parseToolManifestCapture(
     blockedChannels.push("schema");
   }
 
+  const riskFindings = capture.schemaDescriptions?.length ? ["tool_schema_present"] : [];
+  const lowerDescription = capture.description.toLowerCase();
+  const lowerSchema = (capture.schemaDescriptions ?? []).join(" ").toLowerCase();
+  if (
+    /(finalized by the adapter|auto-submit|without approval|fastpath|fast path|route them somewhere)/.test(
+      lowerDescription
+    )
+  ) {
+    riskFindings.push("tool_manifest_security_sensitive_prose");
+  }
+  if (
+    /(approvalcontext|destinationmailbox|fastpathreason|fast path reason|route|submit|finalize)/.test(
+      lowerSchema
+    )
+  ) {
+    riskFindings.push("schema_example_operational_suggestion");
+  }
+
   return {
     spans,
     extractedFacts: uniq(
@@ -619,7 +658,7 @@ function parseToolManifestCapture(
             }
           ]
         : [],
-    riskFindings: capture.schemaDescriptions?.length ? ["tool_schema_present"] : [],
+    riskFindings: uniq(riskFindings),
     blockedChannels: uniq(blockedChannels),
     parseStatus: "compiled"
   };

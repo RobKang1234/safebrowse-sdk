@@ -9,7 +9,11 @@ export {
 export { compilePolicy } from "./policy.js";
 export { applyV4FailClosedMediation, compileObservation } from "./observationV4.js";
 export { evaluateMemoryWrite } from "./memory.js";
-export { evaluateMemoryWriteV4, promoteMemoryRecordV4 } from "./memoryV4.js";
+export {
+  evaluateMemoryWriteV4,
+  promoteMemoryRecordV4,
+  rollbackMemoryRecordV4
+} from "./memoryV4.js";
 export { runPromptInjectionGuard } from "./promptInjection.js";
 export { buildReplayBundle } from "./replay.js";
 export { sanitizeObservation } from "./sanitize.js";

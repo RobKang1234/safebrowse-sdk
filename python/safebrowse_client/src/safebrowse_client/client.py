@@ -77,6 +77,9 @@ class SafeBrowseClient:
     def memory_promote_v4(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v4/memory/promote", payload)
 
+    def memory_rollback_v4(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post("/v4/memory/rollback", payload)
+
     def artifact_v2(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v2/artifact", payload)
 
