@@ -64,7 +64,6 @@ jobs:
   publish_npm:
     runs-on: ubuntu-latest
     needs: validate
-    environment: ${{ needs.validate.outputs.release_env }}
     permissions:
       contents: read
       id-token: write

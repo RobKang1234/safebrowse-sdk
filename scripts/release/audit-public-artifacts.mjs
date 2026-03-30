@@ -18,7 +18,7 @@ const publicPackages = [
   {
     name: "@safebrowse/core",
     dir: resolve(repoRoot, "packages/core"),
-    requiredFiles: ["dist/index.js", "dist/index.d.ts", "README.md"]
+    requiredFiles: ["dist/index.js", "dist/index.d.ts", "README.md", "LICENSE"]
   },
   {
     name: "@safebrowse/daemon",
@@ -29,13 +29,16 @@ const publicPackages = [
       "dist/runtime/knowledge_base/safebrowse_vf_knowledge_base_index.json",
       "dist/runtime/knowledge_base/signing/safebrowse_vf_ed25519_public.pem",
       "dist/runtime/policies/base/research.yaml",
-      "README.md"
-    ]
+      "README.md",
+      "LICENSE"
+    ],
+    requiredManifestFields: ["bin.safebrowse-daemon"]
   },
   {
     name: "@safebrowse/playwright-adapter",
     dir: resolve(repoRoot, "packages/playwright-adapter"),
-    requiredFiles: ["dist/index.js", "dist/index.d.ts", "README.md"]
+    requiredFiles: ["dist/index.js", "dist/index.d.ts", "README.md", "LICENSE"],
+    requiredManifestFields: ["peerDependencies.playwright-core"]
   }
 ];
 
@@ -50,6 +53,15 @@ const bannedFragments = [
 
 function normalizePath(value) {
   return value.replace(/\\/g, "/");
+}
+
+function getNestedValue(source, path) {
+  return path.split(".").reduce((value, key) => {
+    if (value && typeof value === "object" && key in value) {
+      return value[key];
+    }
+    return undefined;
+  }, source);
 }
 
 async function stagePackage(pkg, stagingRoot, releaseVersion) {
@@ -68,11 +80,11 @@ async function stagePackage(pkg, stagingRoot, releaseVersion) {
   }
 
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-  return stagedDir;
+  return { stagedDir, manifest };
 }
 
 async function getPackedFiles(pkg, stagingRoot, releaseVersion) {
-  const stagedDir = await stagePackage(pkg, stagingRoot, releaseVersion);
+  const { stagedDir, manifest } = await stagePackage(pkg, stagingRoot, releaseVersion);
   const { stdout } = await execFileAsync(
     npmRunner.command,
     [...npmRunner.baseArgs, "pack", "--dry-run", "--json"],
@@ -82,7 +94,11 @@ async function getPackedFiles(pkg, stagingRoot, releaseVersion) {
     }
   );
   const [payload] = JSON.parse(stdout);
-  return payload.files.map((entry) => normalizePath(entry.path));
+  return {
+    stagedDir,
+    manifest,
+    files: payload.files.map((entry) => normalizePath(entry.path))
+  };
 }
 
 async function getPythonArtifactEntries() {
@@ -148,6 +164,58 @@ function assertRequiredContent(label, files, requiredFiles) {
   }
 }
 
+function assertManifestAcceptable(pkg, manifest) {
+  const requiredFields = [
+    "name",
+    "version",
+    "description",
+    "license",
+    "repository.url",
+    "homepage",
+    "bugs.url",
+    "publishConfig.access",
+    "publishConfig.provenance",
+    "engines.node"
+  ];
+
+  for (const field of [...requiredFields, ...(pkg.requiredManifestFields ?? [])]) {
+    const value = getNestedValue(manifest, field);
+    if (value === undefined || value === null || value === "") {
+      throw new Error(`${pkg.name} is missing manifest field ${field}`);
+    }
+  }
+
+  if (manifest.private) {
+    throw new Error(`${pkg.name} is unexpectedly marked private`);
+  }
+
+  if (manifest.publishConfig.access !== "public") {
+    throw new Error(`${pkg.name} must publish with public access`);
+  }
+
+  if (manifest.publishConfig.provenance !== true) {
+    throw new Error(`${pkg.name} must publish with provenance enabled`);
+  }
+
+  const workspaceDependency = Object.values(manifest.dependencies ?? {}).find(
+    (value) => typeof value === "string" && value.startsWith("workspace:")
+  );
+  if (workspaceDependency) {
+    throw new Error(`${pkg.name} still contains workspace protocol dependencies after staging`);
+  }
+}
+
+async function assertPublishDryRun(pkg, stagedDir) {
+  await execFileAsync(
+    npmRunner.command,
+    [...npmRunner.baseArgs, "publish", "--dry-run", "--access", "public"],
+    {
+      cwd: stagedDir,
+      encoding: "utf8"
+    }
+  );
+}
+
 async function main() {
   const stagingRoot = await mkdtemp(resolve(tmpdir(), "safebrowse-audit-stage-"));
 
@@ -157,9 +225,11 @@ async function main() {
     ).version;
 
     for (const pkg of publicPackages) {
-      const files = await getPackedFiles(pkg, stagingRoot, releaseVersion);
+      const { stagedDir, manifest, files } = await getPackedFiles(pkg, stagingRoot, releaseVersion);
       assertRequiredContent(pkg.name, files, pkg.requiredFiles);
       assertNoBannedContent(pkg.name, files);
+      assertManifestAcceptable(pkg, manifest);
+      await assertPublishDryRun(pkg, stagedDir);
     }
 
     const pythonArtifacts = await getPythonArtifactEntries();
