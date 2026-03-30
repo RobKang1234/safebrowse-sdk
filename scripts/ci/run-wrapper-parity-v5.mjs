@@ -1,0 +1,607 @@
+import { createServer } from "node:net";
+import { execFile, spawn } from "node:child_process";
+import { generateKeyPairSync, sign as signBuffer } from "node:crypto";
+import { cp, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+const repoRoot = resolve(import.meta.dirname, "..", "..");
+const npmRunner =
+  process.platform === "win32"
+    ? {
+        command: process.execPath,
+        baseArgs: [resolve(process.execPath, "..", "node_modules", "npm", "bin", "npm-cli.js")]
+      }
+    : { command: "npm", baseArgs: [] };
+
+const packageDirs = [
+  resolve(repoRoot, "packages/core"),
+  resolve(repoRoot, "packages/daemon"),
+  resolve(repoRoot, "packages/playwright-adapter")
+];
+
+const toolManifestCapture = {
+  surfaceType: "tool_manifest",
+  url: "https://safe.example/connectors/citation-sync-safe",
+  toolId: "citation-sync-safe",
+  description: "Citation sync connector for scholarly cross-reference enrichment.",
+  authType: "oauth",
+  requestedScopes: ["citation:read"],
+  callbackUri: "https://safe.example/oauth/callback",
+  callbackOrigin: "https://safe.example"
+};
+
+function parseArgs() {
+  const args = process.argv.slice(2);
+  const options = {
+    subset: "full",
+    jsonOut: undefined
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === "--subset" && args[index + 1]) {
+      options.subset = args[index + 1];
+      index += 1;
+    } else if (args[index] === "--json-out" && args[index + 1]) {
+      options.jsonOut = resolve(args[index + 1]);
+      index += 1;
+    }
+  }
+
+  return options;
+}
+
+async function npm(args, options = {}) {
+  return execFileAsync(npmRunner.command, [...npmRunner.baseArgs, ...args], {
+    encoding: "utf8",
+    ...options
+  });
+}
+
+async function getFreePort() {
+  const server = createServer();
+  await new Promise((resolvePromise, rejectPromise) => {
+    server.once("error", rejectPromise);
+    server.listen(0, "127.0.0.1", resolvePromise);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to allocate an ephemeral port.");
+  }
+  const port = address.port;
+  await new Promise((resolvePromise) => server.close(() => resolvePromise()));
+  return port;
+}
+
+async function sleep(ms) {
+  return new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
+}
+
+async function stopProcess(child) {
+  if (child.exitCode !== null || child.killed) {
+    return;
+  }
+  await new Promise((resolvePromise) => {
+    const finalize = () => resolvePromise();
+    child.once("close", finalize);
+    child.kill("SIGTERM");
+    setTimeout(() => {
+      if (child.exitCode === null) {
+        child.kill("SIGKILL");
+      }
+    }, 1000).unref();
+  });
+}
+
+function attachProcessLogBuffer(child, label) {
+  const log = {
+    stdout: "",
+    stderr: ""
+  };
+
+  child.stdout?.on("data", (chunk) => {
+    log.stdout += chunk.toString();
+  });
+  child.stderr?.on("data", (chunk) => {
+    log.stderr += chunk.toString();
+  });
+  child.once("exit", (code, signal) => {
+    if (code && code !== 0) {
+      console.error(
+        `${label} exited with code ${code}${signal ? ` (${signal})` : ""}\nSTDERR:\n${log.stderr || "<empty>"}\nSTDOUT:\n${log.stdout || "<empty>"}`
+      );
+    }
+  });
+
+  return log;
+}
+
+async function buildPythonWheelIfNeeded() {
+  const pythonDistDir = resolve(repoRoot, "python/dist");
+  await execFileAsync(process.execPath, [resolve(repoRoot, "scripts/release/build-python-artifacts.mjs")], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  const refreshed = await readdir(pythonDistDir);
+  const builtWheel = refreshed
+    .filter((file) => file.endsWith(".whl"))
+    .sort()
+    .at(-1);
+  if (!builtWheel) {
+    throw new Error("No wheel found in python/dist after build.");
+  }
+  return resolve(pythonDistDir, builtWheel);
+}
+
+async function packPackage(packageDir, destination) {
+  const releaseVersion = JSON.parse(
+    await readFile(resolve(repoRoot, "packages/core/package.json"), "utf8")
+  ).version;
+  const stagedDir = resolve(destination, `${packageDir.split(/[\\/]/).pop()}-stage`);
+  await cp(packageDir, stagedDir, {
+    recursive: true,
+    force: true,
+    filter: (path) => !path.replace(/\\/g, "/").includes("/node_modules")
+  });
+  const manifestPath = resolve(stagedDir, "package.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  manifest.version = releaseVersion;
+  if (manifest.dependencies?.["@safebrowse/core"]) {
+    manifest.dependencies["@safebrowse/core"] = releaseVersion;
+  }
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  const { stdout } = await npm(["pack", "--json", "--pack-destination", destination], {
+    cwd: stagedDir
+  });
+  const [payload] = JSON.parse(stdout);
+  return resolve(destination, payload.filename);
+}
+
+async function waitForHealth(baseUrl) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    try {
+      const response = await fetch(`${baseUrl}/health`);
+      if (response.ok) {
+        return;
+      }
+    } catch {
+      // ignore and retry
+    }
+    await sleep(250);
+  }
+  throw new Error(`Daemon at ${baseUrl} failed to become healthy.`);
+}
+
+async function postJson(baseUrl, path, payload) {
+  let response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+  } catch (error) {
+    throw new Error(
+      `Fetch failed for ${path}: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Unexpected ${response.status} from ${path}: ${body}`);
+  }
+  return response.json();
+}
+
+function normalizeObserve(response) {
+  return {
+    parseStatus: response.compiledObservation?.parseStatus ?? null,
+    authorityEligible: response.observationVerdict?.safeConstraints?.authority_eligible ?? null,
+    blockedChannels: [...(response.plannerView?.blockedChannels ?? [])].sort(),
+    capabilityKinds: [...(response.capabilities ?? [])].map((entry) => entry.kind).sort(),
+    riskMarkers: [...(response.plannerView?.riskMarkers ?? [])].sort()
+  };
+}
+
+function normalizeAction(response) {
+  return {
+    decision: response.verdict?.decision ?? null,
+    reasonCodes: [...(response.verdict?.reasonCodes ?? [])].sort(),
+    derivedSinkClass: response.executionPlan?.derivedSinkClass ?? null,
+    targetOrigin: response.executionPlan?.targetOrigin ?? null
+  };
+}
+
+function normalizeApproval(response) {
+  return {
+    decision: response.verdict?.decision ?? null,
+    reasonCodes: [...(response.verdict?.reasonCodes ?? [])].sort(),
+    sinkClass: response.approvalEnvelope?.sinkClass ?? null,
+    connectorId: response.approvalEnvelope?.connectorId ?? null
+  };
+}
+
+function normalizeToolPrepare(response) {
+  return {
+    decision: response.verdict?.decision ?? null,
+    reasonCodes: [...(response.verdict?.reasonCodes ?? [])].sort(),
+    connectorId: response.onboardingSession?.connectorId ?? null
+  };
+}
+
+function normalizeCallback(response) {
+  return {
+    decision: response.verdict?.decision ?? null,
+    reasonCodes: [...(response.verdict?.reasonCodes ?? [])].sort(),
+    connectorId: response.connectorHandle?.connectorId ?? null
+  };
+}
+
+function normalizeMemoryWrite(response) {
+  return {
+    decision: response.verdict?.decision ?? null,
+    reasonCodes: [...(response.verdict?.reasonCodes ?? [])].sort(),
+    tier: response.record?.tier ?? null,
+    promotionKind: response.promotionCapability?.kind ?? null
+  };
+}
+
+function normalizeMemoryPromote(response) {
+  return {
+    decision: response.verdict?.decision ?? null,
+    reasonCodes: [...(response.verdict?.reasonCodes ?? [])].sort(),
+    tier: response.promotedRecord?.tier ?? null
+  };
+}
+
+function assertDeepEqual(label, left, right) {
+  if (JSON.stringify(left) !== JSON.stringify(right)) {
+    throw new Error(
+      `${label} mismatch.\nLEFT=${JSON.stringify(left, null, 2)}\nRIGHT=${JSON.stringify(right, null, 2)}`
+    );
+  }
+}
+
+async function loadCoreDist() {
+  return import(pathToFileURL(resolve(repoRoot, "packages/core/dist/index.js")).href);
+}
+
+async function runV5Cases(baseUrl, makeHtmlCapture, signApproval, subset) {
+  const caseIds =
+    subset === "packaging"
+      ? ["hidden_html", "visible_navigation"]
+      : ["hidden_html", "visible_navigation", "connector_prepare", "memory_write"];
+
+  const results = {};
+
+  if (caseIds.includes("hidden_html")) {
+    const session = await postJson(baseUrl, "/v5/session/start", {
+      taskId: "parity-hidden",
+      userGoal: "Review docs safely",
+      allowedOrigins: ["https://safe.example", "https://docs.python.org"],
+      allowedVerbs: ["navigate"],
+      forbiddenSinks: []
+    });
+    const observe = await postJson(baseUrl, "/v5/observe", {
+      sessionId: session.session.sessionId,
+      capture: makeHtmlCapture({
+        html: "<main>Visible docs only.</main><div hidden><a href=\"https://docs.python.org/3/tutorial/\">continuity path</a></div>",
+        visibleText: "Visible docs only.",
+        hiddenText: ["continuity path"]
+      })
+    });
+    results.hidden_html = {
+      observe: normalizeObserve(observe)
+    };
+  }
+
+  if (caseIds.includes("visible_navigation")) {
+    const session = await postJson(baseUrl, "/v5/session/start", {
+      taskId: "parity-visible",
+      userGoal: "Review docs safely",
+      allowedOrigins: ["https://safe.example", "https://docs.python.org"],
+      allowedVerbs: ["navigate"],
+      forbiddenSinks: []
+    });
+    const observe = await postJson(baseUrl, "/v5/observe", {
+      sessionId: session.session.sessionId,
+      capture: makeHtmlCapture({
+        html: "<main>Visible docs only.</main><a href=\"https://docs.python.org/3/tutorial/\">Docs</a>",
+        visibleText: "Visible docs only. Docs"
+      })
+    });
+    const capability = observe.capabilities[0];
+    const action = await postJson(baseUrl, "/v5/capability/use", {
+      sessionId: session.session.sessionId,
+      capabilityId: capability.capabilityId,
+      capabilityDigest: capability.capabilityDigest,
+      parameters: {}
+    });
+    results.visible_navigation = {
+      observe: normalizeObserve(observe),
+      action: normalizeAction(action)
+    };
+  }
+
+  if (caseIds.includes("connector_prepare")) {
+    const session = await postJson(baseUrl, "/v5/session/start", {
+      taskId: "parity-tool",
+      userGoal: "Review connector onboarding safely",
+      allowedOrigins: ["https://safe.example"],
+      allowedVerbs: ["connector_prepare"],
+      forbiddenSinks: []
+    });
+    const observe = await postJson(baseUrl, "/v5/observe", {
+      sessionId: session.session.sessionId,
+      capture: toolManifestCapture
+    });
+    const capability = observe.capabilities[0];
+    const brokerSignature = signApproval(session.session, capability);
+    const approval = await postJson(baseUrl, "/v5/approval/issue", {
+      sessionId: session.session.sessionId,
+      capabilityId: capability.capabilityId,
+      capabilityDigest: capability.capabilityDigest,
+      brokerSignature
+    });
+    const prepare = await postJson(baseUrl, "/v5/tool/prepare", {
+      sessionId: session.session.sessionId,
+      approvalId: approval.approvalEnvelope.approvalId
+    });
+    const callback = await postJson(baseUrl, "/v5/tool/callback/verify", {
+      sessionId: session.session.sessionId,
+      approvalId: approval.approvalEnvelope.approvalId,
+      onboardingSessionId: prepare.onboardingSession.onboardingSessionId,
+      request: {
+        sessionId: prepare.onboardingSession.onboardingSessionId,
+        callbackUri: "https://safe.example/oauth/callback",
+        callbackOrigin: "https://safe.example",
+        state: prepare.onboardingSession.state,
+        payload: {
+          code: "auth-code",
+          state: prepare.onboardingSession.state
+        }
+      }
+    });
+    results.connector_prepare = {
+      observe: normalizeObserve(observe),
+      approval: normalizeApproval(approval),
+      prepare: normalizeToolPrepare(prepare),
+      callback: normalizeCallback(callback)
+    };
+  }
+
+  if (caseIds.includes("memory_write")) {
+    const session = await postJson(baseUrl, "/v5/session/start", {
+      taskId: "parity-memory",
+      userGoal: "Store notes safely",
+      allowedOrigins: ["https://safe.example"],
+      allowedVerbs: [],
+      forbiddenSinks: []
+    });
+    const memoryWrite = await postJson(baseUrl, "/v5/memory/write", {
+      sessionId: session.session.sessionId,
+      inputKind: "user_note",
+      key: "workflow_hint",
+      value: {
+        note: "review later"
+      },
+      durable: true
+    });
+    const memoryPromote = await postJson(baseUrl, "/v5/memory/promote", {
+      sessionId: session.session.sessionId,
+      recordId: memoryWrite.record.recordId,
+      validationEvidence: ["validated by reviewer"]
+    });
+    results.memory_write = {
+      write: normalizeMemoryWrite(memoryWrite),
+      promote: normalizeMemoryPromote(memoryPromote)
+    };
+  }
+
+  return results;
+}
+
+async function startWorkspaceDaemon(publicKeyPath) {
+  const port = await getFreePort();
+  const daemonProcess = spawn(
+    process.execPath,
+    [
+      resolve(repoRoot, "packages/daemon/dist/index.js"),
+      "--port",
+      String(port),
+      "--root-dir",
+      repoRoot,
+      "--deployment-profile",
+      "secure_v5",
+      "--approval-broker-public-key-path",
+      publicKeyPath
+    ],
+    {
+      cwd: repoRoot,
+      stdio: "pipe"
+    }
+  );
+  const daemonLog = attachProcessLogBuffer(daemonProcess, "workspace secure_v5 daemon");
+  const baseUrl = `http://127.0.0.1:${port}`;
+  await waitForHealth(baseUrl);
+  return {
+    baseUrl,
+    daemonLog,
+    stop: () => stopProcess(daemonProcess)
+  };
+}
+
+async function runPythonLane(baseUrl, wheelPath, tempDir, subset, nodePath, privateKeyPem) {
+  const pythonTarget = resolve(tempDir, "python-target");
+  const resultsPath = resolve(tempDir, "python-results.json");
+  const scriptPath = resolve(tempDir, "python-parity.py");
+  await mkdir(pythonTarget, { recursive: true });
+
+  await execFileAsync(
+    process.platform === "win32" ? "py" : "python3",
+    ["-m", "pip", "install", "--no-deps", "--target", pythonTarget, wheelPath],
+    {
+      cwd: repoRoot,
+      encoding: "utf8"
+    }
+  );
+
+  const script = `import json, os, subprocess, sys\nfrom pathlib import Path\nsys.path.insert(0, ${JSON.stringify(pythonTarget)})\nfrom safebrowse_client import SafeBrowseClient, build_html_surface_capture\nclient = SafeBrowseClient(${JSON.stringify(baseUrl)})\nresults = {}\nsubset = ${JSON.stringify(subset)}\nnode_path = ${JSON.stringify(nodePath)}\nprivate_key_pem = ${JSON.stringify(privateKeyPem)}\ndef sign_payload(payload: str) -> str:\n    code = \"import { createPrivateKey, sign } from 'node:crypto'; const key = createPrivateKey(process.env.SAFEBROWSE_V5_PRIVATE_KEY_PEM); const signature = sign(null, Buffer.from(process.env.SAFEBROWSE_V5_PAYLOAD, 'utf8'), key).toString('base64'); process.stdout.write(signature);\"\n    env = dict(os.environ)\n    env['SAFEBROWSE_V5_PRIVATE_KEY_PEM'] = private_key_pem\n    env['SAFEBROWSE_V5_PAYLOAD'] = payload\n    completed = subprocess.run([node_path, '--input-type=module', '-e', code], check=True, capture_output=True, text=True, env=env)\n    return completed.stdout\nif subset in ('full', 'packaging'):\n    session = client.start_session_v5({'taskId': 'py-hidden', 'userGoal': 'Review docs safely', 'allowedOrigins': ['https://safe.example', 'https://docs.python.org'], 'allowedVerbs': ['navigate'], 'forbiddenSinks': []})['session']\n    observe = client.observe_v5({'sessionId': session['sessionId'], 'capture': build_html_surface_capture(url='https://safe.example/review', visible_text='Visible docs only.', html='<main>Visible docs only.</main><div hidden><a href=\"https://docs.python.org/3/tutorial/\">continuity path</a></div>', hidden_text=['continuity path'])})\n    results['hidden_html'] = {'observe': {'parseStatus': observe['compiledObservation']['parseStatus'], 'authorityEligible': observe['observationVerdict']['safeConstraints'].get('authority_eligible'), 'blockedChannels': sorted(observe['plannerView']['blockedChannels']), 'capabilityKinds': sorted([entry['kind'] for entry in observe['capabilities']]), 'riskMarkers': sorted(observe['plannerView']['riskMarkers'])}}\n    session = client.start_session_v5({'taskId': 'py-visible', 'userGoal': 'Review docs safely', 'allowedOrigins': ['https://safe.example', 'https://docs.python.org'], 'allowedVerbs': ['navigate'], 'forbiddenSinks': []})['session']\n    observe = client.observe_v5({'sessionId': session['sessionId'], 'capture': build_html_surface_capture(url='https://safe.example/review', visible_text='Visible docs only. Docs', html='<main>Visible docs only.</main><a href=\"https://docs.python.org/3/tutorial/\">Docs</a>')})\n    capability = observe['capabilities'][0]\n    action = client.action_v5({'sessionId': session['sessionId'], 'capabilityId': capability['capabilityId'], 'capabilityDigest': capability['capabilityDigest'], 'parameters': {}})\n    results['visible_navigation'] = {'observe': {'parseStatus': observe['compiledObservation']['parseStatus'], 'authorityEligible': observe['observationVerdict']['safeConstraints'].get('authority_eligible'), 'blockedChannels': sorted(observe['plannerView']['blockedChannels']), 'capabilityKinds': sorted([entry['kind'] for entry in observe['capabilities']]), 'riskMarkers': sorted(observe['plannerView']['riskMarkers'])}, 'action': {'decision': action['verdict']['decision'], 'reasonCodes': sorted(action['verdict']['reasonCodes']), 'derivedSinkClass': action.get('executionPlan', {}).get('derivedSinkClass'), 'targetOrigin': action.get('executionPlan', {}).get('targetOrigin')}}\nif subset == 'full':\n    session = client.start_session_v5({'taskId': 'py-tool', 'userGoal': 'Review connector onboarding safely', 'allowedOrigins': ['https://safe.example'], 'allowedVerbs': ['connector_prepare'], 'forbiddenSinks': []})['session']\n    observe = client.observe_v5({'sessionId': session['sessionId'], 'capture': ${JSON.stringify(toolManifestCapture)}})\n    capability = observe['capabilities'][0]\n    payload = json.dumps({'capabilityDigest': capability['capabilityDigest'], 'capabilityId': capability['capabilityId'], 'expiresInSeconds': 600, 'sessionId': session['sessionId'], 'workflowHash': session['workflowHash']}, separators=(',', ':'), sort_keys=True)\n    approval = client.issue_approval_envelope_v5({'sessionId': session['sessionId'], 'capabilityId': capability['capabilityId'], 'capabilityDigest': capability['capabilityDigest'], 'brokerSignature': sign_payload(payload)})\n    prepare = client.tool_prepare_v5({'sessionId': session['sessionId'], 'approvalId': approval['approvalEnvelope']['approvalId']})\n    callback = client.tool_callback_verify_v5({'sessionId': session['sessionId'], 'approvalId': approval['approvalEnvelope']['approvalId'], 'onboardingSessionId': prepare['onboardingSession']['onboardingSessionId'], 'request': {'sessionId': prepare['onboardingSession']['onboardingSessionId'], 'callbackUri': 'https://safe.example/oauth/callback', 'callbackOrigin': 'https://safe.example', 'state': prepare['onboardingSession']['state'], 'payload': {'code': 'auth-code', 'state': prepare['onboardingSession']['state']}}})\n    results['connector_prepare'] = {'observe': {'parseStatus': observe['compiledObservation']['parseStatus'], 'authorityEligible': observe['observationVerdict']['safeConstraints'].get('authority_eligible'), 'blockedChannels': sorted(observe['plannerView']['blockedChannels']), 'capabilityKinds': sorted([entry['kind'] for entry in observe['capabilities']]), 'riskMarkers': sorted(observe['plannerView']['riskMarkers'])}, 'approval': {'decision': approval['verdict']['decision'], 'reasonCodes': sorted(approval['verdict']['reasonCodes']), 'sinkClass': approval.get('approvalEnvelope', {}).get('sinkClass'), 'connectorId': approval.get('approvalEnvelope', {}).get('connectorId')}, 'prepare': {'decision': prepare['verdict']['decision'], 'reasonCodes': sorted(prepare['verdict']['reasonCodes']), 'connectorId': prepare.get('onboardingSession', {}).get('connectorId')}, 'callback': {'decision': callback['verdict']['decision'], 'reasonCodes': sorted(callback['verdict']['reasonCodes']), 'connectorId': callback.get('connectorHandle', {}).get('connectorId')}}\n    session = client.start_session_v5({'taskId': 'py-memory', 'userGoal': 'Store notes safely', 'allowedOrigins': ['https://safe.example'], 'allowedVerbs': [], 'forbiddenSinks': []})['session']\n    memory = client.memory_write_v5({'sessionId': session['sessionId'], 'inputKind': 'user_note', 'key': 'workflow_hint', 'value': {'note': 'review later'}, 'durable': True})\n    promote = client.memory_promote_v5({'sessionId': session['sessionId'], 'recordId': memory['record']['recordId'], 'validationEvidence': ['validated by reviewer']})\n    results['memory_write'] = {'write': {'decision': memory['verdict']['decision'], 'reasonCodes': sorted(memory['verdict']['reasonCodes']), 'tier': memory['record']['tier'], 'promotionKind': memory.get('promotionCapability', {}).get('kind')}, 'promote': {'decision': promote['verdict']['decision'], 'reasonCodes': sorted(promote['verdict']['reasonCodes']), 'tier': promote.get('promotedRecord', {}).get('tier')}}\nPath(${JSON.stringify(resultsPath)}).write_text(json.dumps(results, indent=2), encoding='utf-8')\n`;
+  await writeFile(scriptPath, script, "utf8");
+  await execFileAsync(process.platform === "win32" ? "py" : "python3", [scriptPath], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  return JSON.parse(await readFile(resultsPath, "utf8"));
+}
+
+async function runNpmLane(packDir, publicKeyPath, signApproval, subset) {
+  const installDir = resolve(packDir, "npm-install");
+  await mkdir(installDir, { recursive: true });
+  await writeFile(
+    resolve(installDir, "package.json"),
+    `${JSON.stringify({ name: "safebrowse-parity", private: true, type: "module" }, null, 2)}\n`,
+    "utf8"
+  );
+
+  const tarballs = [];
+  for (const packageDir of packageDirs) {
+    tarballs.push(await packPackage(packageDir, packDir));
+  }
+  await npm(["install", "--no-package-lock", "--ignore-scripts", ...tarballs], {
+    cwd: installDir
+  });
+
+  const port = await getFreePort();
+  const daemonProcess = spawn(
+    process.execPath,
+    [
+      resolve(installDir, "node_modules/@safebrowse/daemon/dist/index.js"),
+      "--port",
+      String(port),
+      "--deployment-profile",
+      "secure_v5",
+      "--approval-broker-public-key-path",
+      publicKeyPath
+    ],
+    {
+      cwd: installDir,
+      stdio: "pipe"
+    }
+  );
+  const daemonLog = attachProcessLogBuffer(daemonProcess, "npm-installed secure_v5 daemon");
+
+  try {
+    const baseUrl = `http://127.0.0.1:${port}`;
+    await waitForHealth(baseUrl);
+    const adapter = await import(
+      pathToFileURL(resolve(installDir, "node_modules/@safebrowse/playwright-adapter/dist/index.js")).href
+    );
+    const makeHtmlCapture = ({ html, visibleText, hiddenText = [] }) =>
+      adapter.createSurfaceCaptureFromSnapshot({
+        url: "https://safe.example/review",
+        visibleText,
+        html,
+        hiddenText
+      });
+    try {
+      return await runV5Cases(baseUrl, makeHtmlCapture, signApproval, subset);
+    } catch (error) {
+      throw new Error(
+        `npm lane failed: ${error instanceof Error ? error.message : String(error)}\nSTDERR:\n${daemonLog.stderr || "<empty>"}\nSTDOUT:\n${daemonLog.stdout || "<empty>"}`
+      );
+    }
+  } finally {
+    await stopProcess(daemonProcess);
+  }
+}
+
+async function main() {
+  const options = parseArgs();
+  const workspace = await mkdtemp(resolve(tmpdir(), "safebrowse-v5-parity-"));
+
+  try {
+    const core = await loadCoreDist();
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+    const publicKeyPem = publicKey.export({ format: "pem", type: "spki" }).toString();
+    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+    const publicKeyPath = resolve(workspace, "approval-broker-public.pem");
+    await writeFile(publicKeyPath, publicKeyPem, "utf8");
+
+    const signApproval = (session, capability) => {
+      const payload = core.createApprovalIntentPayloadV5({
+        sessionId: session.sessionId,
+        workflowHash: session.workflowHash,
+        capabilityId: capability.capabilityId,
+        capabilityDigest: capability.capabilityDigest
+      });
+      return signBuffer(null, Buffer.from(payload, "utf8"), privateKey).toString("base64");
+    };
+
+    const directDaemon = await startWorkspaceDaemon(publicKeyPath);
+    try {
+      console.error("Running direct V5 parity lane...");
+      const directResults = await runV5Cases(
+        directDaemon.baseUrl,
+        ({ html, visibleText, hiddenText = [] }) => ({
+          surfaceType: "html",
+          url: "https://safe.example/review",
+          frameUrl: "https://safe.example/review",
+          html,
+          visibleText,
+          hiddenText
+        }),
+        signApproval,
+        options.subset
+      ).catch((error) => {
+        throw new Error(
+          `direct lane failed: ${error instanceof Error ? error.message : String(error)}\nSTDERR:\n${directDaemon.daemonLog.stderr || "<empty>"}\nSTDOUT:\n${directDaemon.daemonLog.stdout || "<empty>"}`
+        );
+      });
+
+      console.error("Running Python V5 parity lane...");
+      const wheelPath = await buildPythonWheelIfNeeded();
+      const pythonResults = await runPythonLane(
+        directDaemon.baseUrl,
+        wheelPath,
+        workspace,
+        options.subset,
+        process.execPath,
+        privateKeyPem
+      );
+      console.error("Running npm V5 parity lane...");
+      const npmResults = await runNpmLane(workspace, publicKeyPath, signApproval, options.subset);
+
+      assertDeepEqual("python/direct wrapper parity", pythonResults, directResults);
+      assertDeepEqual("npm/direct wrapper parity", npmResults, directResults);
+
+      const summary = {
+        subset: options.subset,
+        status: "ok",
+        cases: Object.keys(directResults),
+        direct: directResults,
+        python: pythonResults,
+        npm: npmResults
+      };
+
+      if (options.jsonOut) {
+        await writeFile(options.jsonOut, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
+      }
+
+      console.log(JSON.stringify(summary, null, 2));
+    } finally {
+      await directDaemon.stop();
+    }
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+}
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+});

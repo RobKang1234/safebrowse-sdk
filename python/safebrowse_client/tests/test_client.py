@@ -39,6 +39,8 @@ class SafeBrowseClientTest(unittest.TestCase):
         self.assertIn("SafeBrowseClient", template)
         self.assertIn("use_capability", template)
         self.assertIn("build_html_surface_capture", template)
+        self.assertIn("observe_v5", template)
+        self.assertIn("action_v5", template)
 
     def test_template_writer_creates_python_file(self) -> None:
         output_path = Path(__file__).resolve().parent / "_tmp_agent_template.py"
@@ -100,6 +102,17 @@ class SafeBrowseClientTest(unittest.TestCase):
         self.assertIn("/v4/observe", args[0].full_url)
 
     @patch("safebrowse_client.client.request.urlopen")
+    def test_observe_v5_posts_to_v5_route(self, mock_urlopen) -> None:
+        mock_urlopen.return_value = _FakeResponse({"compiledObservation": {"observationId": "obs-5"}})
+        client = SafeBrowseClient()
+
+        result = client.observe_v5({"sessionId": "session-1", "capture": {"surfaceType": "html", "url": "https://safe.example"}})
+
+        self.assertEqual(result["compiledObservation"]["observationId"], "obs-5")
+        args, _kwargs = mock_urlopen.call_args
+        self.assertIn("/v5/observe", args[0].full_url)
+
+    @patch("safebrowse_client.client.request.urlopen")
     def test_memory_rollback_v4_posts_to_v4_route(self, mock_urlopen) -> None:
         mock_urlopen.return_value = _FakeResponse({"verdict": {"decision": "ALLOW"}})
         client = SafeBrowseClient()
@@ -111,6 +124,19 @@ class SafeBrowseClientTest(unittest.TestCase):
         self.assertEqual(result["verdict"]["decision"], "ALLOW")
         args, _kwargs = mock_urlopen.call_args
         self.assertIn("/v4/memory/rollback", args[0].full_url)
+
+    @patch("safebrowse_client.client.request.urlopen")
+    def test_memory_rollback_v5_posts_to_v5_route(self, mock_urlopen) -> None:
+        mock_urlopen.return_value = _FakeResponse({"verdict": {"decision": "ALLOW"}})
+        client = SafeBrowseClient()
+
+        result = client.memory_rollback_v5(
+            {"sessionId": "session-1", "recordId": "mem-1", "snapshotId": "snap-1"}
+        )
+
+        self.assertEqual(result["verdict"]["decision"], "ALLOW")
+        args, _kwargs = mock_urlopen.call_args
+        self.assertIn("/v5/memory/rollback", args[0].full_url)
 
     def test_build_html_surface_capture_returns_v4_shape(self) -> None:
         capture = build_html_surface_capture(

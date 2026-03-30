@@ -413,6 +413,9 @@ export interface ProvenanceSpan {
   lineageChain: string[];
   selector?: string;
   supportingDigest?: string;
+  sourceNodePathHash?: string;
+  blockedForAuthority?: boolean;
+  visibleOnlyFlag?: boolean;
 }
 
 export interface ExtractedTarget {
@@ -425,6 +428,9 @@ export interface ExtractedTarget {
   frameOrigin: string;
   targetOrigin: string;
   displayText: string;
+  sourceNodePathHash?: string;
+  sourceChannelSet?: ProvenanceChannel[];
+  visibleOnlyFlag?: boolean;
 }
 
 export interface ParserIsolationReport {
@@ -493,6 +499,9 @@ export interface TaskSession {
   currentStep: number;
   createdAt: string;
   expiresAt: string;
+  claimProfile?: "legacy_compatibility" | "secure_v5";
+  approvalBrokerRequired?: boolean;
+  legacyRoutesDisabled?: boolean;
 }
 
 export interface CapabilityDescriptor {
@@ -525,6 +534,134 @@ export interface CapabilityDescriptor {
   nonReplayable: true;
   workflowHash: string;
   title: string;
+}
+
+export interface PlannerViewV5 {
+  observationId: string;
+  sessionId?: string;
+  surfaceType: V4SurfaceType;
+  visibleExcerpt: string;
+  facts: string[];
+  quotedTaintedBlocks: Array<{
+    channel: ProvenanceChannel;
+    text: string;
+    spanId: string;
+  }>;
+  blockedChannels: ProvenanceChannel[];
+  riskMarkers: string[];
+  secretRedactionsApplied: boolean;
+}
+
+export interface CompiledObservationV5 extends CompiledObservation {
+  authorityEligible: boolean;
+  provenanceDigest: string;
+}
+
+export interface CapabilityDescriptorV5 {
+  capabilityId: string;
+  capabilityDigest: string;
+  semanticDigest: string;
+  sessionId: string;
+  workflowHash: string;
+  workflowStep: number;
+  kind: "navigate" | "connector_prepare" | "memory_promote";
+  targetClass: "browser_navigation" | "connector" | "memory_promotion";
+  originBoundTo: string;
+  targetOrigin: string;
+  targetUrl?: string;
+  selector?: string;
+  sourceObservationId: string;
+  sourceDigest: string;
+  frameOrigins: string[];
+  sourceSpanIds: string[];
+  sourceNodePathHash?: string;
+  mintedFromChannels: ProvenanceChannel[];
+  visibleOnlyFlag: boolean;
+  parameterSchema: Record<string, JsonValue>;
+  derivedSinkClass: "browser_navigation" | "connector_oauth" | "memory_promotion";
+  derivedSensitiveSink: boolean;
+  registryEntryId?: string;
+  connectorId?: string;
+  requestedScopes?: string[];
+  callbackUri?: string;
+  callbackOrigin?: string;
+  memoryRecordId?: string;
+  expiresAt: string;
+  nonReplayable: true;
+  title: string;
+}
+
+export interface CapabilityUseRequestV5 {
+  sessionId: string;
+  capabilityId: string;
+  capabilityDigest: string;
+  parameters?: Record<string, JsonValue>;
+}
+
+export interface ApprovalEnvelopeV5 {
+  approvalId: string;
+  sessionId: string;
+  workflowHash: string;
+  workflowStep: number;
+  capabilityId: string;
+  capabilityDigest: string;
+  semanticDigest: string;
+  sinkClass: "connector_oauth" | "memory_promotion";
+  connectorId?: string;
+  registryEntryId?: string;
+  requestedScopes: string[];
+  requestedScopesHash: string;
+  callbackUri?: string;
+  callbackOrigin?: string;
+  targetOrigin: string;
+  issuedAt: string;
+  expiresAt: string;
+  brokerSignature: string;
+  signedByBroker: true;
+}
+
+export interface ConnectorHandle {
+  handleId: string;
+  sessionId: string;
+  approvalId: string;
+  connectorId: string;
+  registryEntryId: string;
+  scopeSet: string[];
+  issuedAt: string;
+  expiresAt: string;
+  status: "active" | "expired";
+}
+
+export interface ToolOnboardingSessionV5 {
+  onboardingSessionId: string;
+  sessionId: string;
+  approvalId: string;
+  capabilityDigest: string;
+  connectorId: string;
+  registryEntryId: string;
+  callbackUri: string;
+  callbackOrigin: string;
+  requestedScopes: string[];
+  state: string;
+  pkceMethod: "S256";
+  createdAt: string;
+  expiresAt: string;
+  status: "prepared" | "used" | "expired";
+}
+
+export interface V5ObservationResponse {
+  compiledObservation: CompiledObservationV5;
+  plannerView: PlannerViewV5;
+  capabilities: Array<{
+    capabilityId: string;
+    capabilityDigest: string;
+    semanticDigest: string;
+    title: string;
+    kind: CapabilityDescriptorV5["kind"];
+    parameterSchema: Record<string, JsonValue>;
+    expiresAt: string;
+  }>;
+  observationVerdict: SafeVerdict;
 }
 
 export interface CapabilityUseRequest {
@@ -580,6 +717,21 @@ export interface MemoryPromotionRequest {
   sessionId: string;
   recordId: string;
   approvalGrantId?: string;
+  validationEvidence?: string[];
+}
+
+export interface MemoryWriteRequestV5 {
+  sessionId: string;
+  inputKind: "user_note";
+  key: string;
+  value: JsonValue;
+  durable: boolean;
+}
+
+export interface MemoryPromotionRequestV5 {
+  sessionId: string;
+  recordId: string;
+  approvalId?: string;
   validationEvidence?: string[];
 }
 

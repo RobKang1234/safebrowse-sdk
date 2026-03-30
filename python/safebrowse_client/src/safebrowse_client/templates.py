@@ -36,7 +36,7 @@ def run_agent():
     sb = SafeBrowseClient("http://127.0.0.1:8787")
 
     print("Daemon health:", sb.health())
-    session = sb.start_session(
+    session = sb.start_session_v5(
         {
             "taskId": f"task-{uuid.uuid4()}",
             "userGoal": "Summarize relevant public research pages without leaving the allowed origin set unless SafeBrowse mints a capability.",
@@ -58,14 +58,15 @@ def run_agent():
         for step in range(5):
             visible_text = extract_visible_text(page)
             html = page.content()
-            observe_result = sb.observe_v4(
+            observe_result = sb.observe_v5(
                 {
                     "sessionId": session["sessionId"],
                     "capture": make_surface_capture(page, visible_text, html),
                 }
             )
             print(f"\\n[step {step}] observe:", json.dumps(observe_result, indent=2)[:800])
-            planner_input = observe_result["plannerInput"]
+            planner_view = observe_result["plannerView"]
+            capabilities = observe_result["capabilities"]
 
             model_input = [
                 {
@@ -75,7 +76,7 @@ def run_agent():
                         "Return only JSON. "
                         "Allowed actions: summarize, use_capability. "
                         "Use only one capability from the supplied list. "
-                        "Do not invent URLs, selectors, or tool callbacks."
+                        "Do not invent URLs, selectors, connectors, or tool callbacks."
                     ),
                 },
                 {
@@ -83,7 +84,8 @@ def run_agent():
                     "content": json.dumps(
                         {
                             "current_url": page.url,
-                            "planner_input": planner_input,
+                            "planner_view": planner_view,
+                            "capabilities": capabilities,
                         }
                     ),
                 },
@@ -97,12 +99,15 @@ def run_agent():
                 break
 
             if decision["action"] == "use_capability":
-                verdict = sb.action_v4(
+                verdict = sb.action_v5(
                     {
                         "sessionId": session["sessionId"],
                         "capabilityId": decision["capability_id"],
-                        "sourceObservationId": observe_result["compiledObservation"]["observationId"],
-                        "sourceDigest": observe_result["compiledObservation"]["sourceDigest"],
+                        "capabilityDigest": next(
+                            capability["capabilityDigest"]
+                            for capability in capabilities
+                            if capability["capabilityId"] == decision["capability_id"]
+                        ),
                         "parameters": {},
                     }
                 )

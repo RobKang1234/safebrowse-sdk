@@ -22,6 +22,7 @@ type WorkerPayload =
     }
   | {
       kind: "parse";
+      compilerVersion?: "v4" | "v5";
       capture: SurfaceCapture;
       workflowHash?: string;
       allowlistedEgress?: string[];
@@ -86,12 +87,15 @@ export function compileObservationInIsolation(input: {
   workflowHash?: string;
   allowlistedEgress?: string[];
   runtime?: Partial<RuntimeContext>;
+  compilerVersion?: "v4" | "v5";
 }): Promise<{
   compiledObservation: CompiledObservation;
-  plannerInput: StructuredPlannerInput;
+  plannerInput?: StructuredPlannerInput;
+  plannerView?: unknown;
 }> {
   return runWorker({
     kind: "parse",
+    compilerVersion: input.compilerVersion,
     capture: input.capture,
     workflowHash: input.workflowHash,
     allowlistedEgress: input.allowlistedEgress,

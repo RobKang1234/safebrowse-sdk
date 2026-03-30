@@ -65,6 +65,7 @@ lockDownEnvironment();
 
 async function loadCoreRuntime(): Promise<{
   compileObservation: typeof import("@safebrowse/core").compileObservation;
+  compileObservationV5: typeof import("@safebrowse/core").compileObservationV5;
 }> {
   if (import.meta.url.endsWith(".ts")) {
     const sourceEntryUrl = new URL("../../core/src/index.ts", import.meta.url).href;
@@ -80,6 +81,7 @@ type ParserWorkerMessage =
     }
   | {
       kind: "parse";
+      compilerVersion?: "v4" | "v5";
       capture: SurfaceCapture;
       workflowHash?: string;
       allowlistedEgress?: string[];
@@ -88,7 +90,7 @@ type ParserWorkerMessage =
 
 process.on("message", async (message: ParserWorkerMessage) => {
   try {
-    const { compileObservation } = await loadCoreRuntime();
+    const { compileObservation, compileObservationV5 } = await loadCoreRuntime();
 
     if (message.kind === "probe") {
       process.send?.({
@@ -98,7 +100,8 @@ process.on("message", async (message: ParserWorkerMessage) => {
       return;
     }
 
-    const result = compileObservation(message.capture, message.runtime ?? {}, {
+    const compiler = message.compilerVersion === "v5" ? compileObservationV5 : compileObservation;
+    const result = compiler(message.capture, message.runtime ?? {}, {
       workflowHash: message.workflowHash,
       parserIsolation: {
         processIsolated: true,

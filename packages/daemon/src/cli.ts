@@ -10,12 +10,14 @@ export interface ParsedDaemonOptions extends SafeBrowseDaemonOptions {
 const HELP_TEXT = `SafeBrowse daemon
 
 Usage:
-  safebrowse-daemon [--host 127.0.0.1] [--port 8787] [--root-dir <path>]
+  safebrowse-daemon [--host 127.0.0.1] [--port 8787] [--root-dir <path>] [--deployment-profile development|secure_v5]
 
 Environment:
   SAFEBROWSE_HOST
   SAFEBROWSE_PORT
   SAFEBROWSE_ROOT_DIR
+  SAFEBROWSE_DEPLOYMENT_PROFILE
+  SAFEBROWSE_APPROVAL_BROKER_PUBLIC_KEY_PATH
 `;
 
 function parsePort(value: string): number {
@@ -40,6 +42,8 @@ export function parseDaemonOptions(
   const envHost = env.SAFEBROWSE_HOST?.trim();
   const envPort = env.SAFEBROWSE_PORT?.trim();
   const envRootDir = env.SAFEBROWSE_ROOT_DIR?.trim();
+  const envDeploymentProfile = env.SAFEBROWSE_DEPLOYMENT_PROFILE?.trim();
+  const envApprovalBrokerPublicKeyPath = env.SAFEBROWSE_APPROVAL_BROKER_PUBLIC_KEY_PATH?.trim();
 
   if (envHost) {
     options.host = envHost;
@@ -49,6 +53,12 @@ export function parseDaemonOptions(
   }
   if (envRootDir) {
     options.rootDir = resolve(envRootDir);
+  }
+  if (envDeploymentProfile === "development" || envDeploymentProfile === "secure_v5") {
+    options.deploymentProfile = envDeploymentProfile;
+  }
+  if (envApprovalBrokerPublicKeyPath) {
+    options.approvalBrokerPublicKeyPath = resolve(envApprovalBrokerPublicKeyPath);
   }
 
   while (queue.length > 0) {
@@ -86,6 +96,24 @@ export function parseDaemonOptions(
         throw new Error("Missing value for --root-dir");
       }
       options.rootDir = resolve(value);
+      continue;
+    }
+
+    if (arg === "--deployment-profile") {
+      const value = queue.shift();
+      if (!value || !["development", "secure_v5"].includes(value)) {
+        throw new Error("Invalid value for --deployment-profile");
+      }
+      options.deploymentProfile = value as "development" | "secure_v5";
+      continue;
+    }
+
+    if (arg === "--approval-broker-public-key-path") {
+      const value = queue.shift();
+      if (!value) {
+        throw new Error("Missing value for --approval-broker-public-key-path");
+      }
+      options.approvalBrokerPublicKeyPath = resolve(value);
       continue;
     }
 

@@ -406,7 +406,7 @@ async function main() {
       await stopProcess(daemonProcess);
     }
 
-    await execFileAsync(process.execPath, [resolve(repoRoot, "scripts/ci/run-wrapper-parity.mjs"), "--subset", "packaging"], {
+    await execFileAsync(process.execPath, [resolve(repoRoot, "scripts/ci/run-wrapper-parity-v5.mjs"), "--subset", "packaging"], {
       cwd: repoRoot,
       encoding: "utf8"
     });
