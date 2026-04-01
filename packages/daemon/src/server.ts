@@ -102,11 +102,12 @@ interface SessionState {
   authorityReductionReasons: string[];
   approvalGrants: Map<string, ApprovalGrant>;
   memoryRecords: Map<string, MemoryRecord>;
-  memorySnapshots: Map<string, MemoryRecord>;
+  memorySnapshots: Map<string, MemoryRecord | MemorySnapshotState>;
   onboardingSessions: Map<string, ToolOnboardingSession>;
   latestObservationV5?: CompiledObservationV5;
   observationsV5: Map<string, CompiledObservationV5>;
   capabilitiesV5: Map<string, CapabilityDescriptorV5>;
+  consumedCapabilitiesV5: Map<string, CapabilityDescriptorV5>;
   usedCapabilitiesV5: Set<string>;
   approvalEnvelopesV5: Map<string, ApprovalEnvelopeV5>;
   onboardingSessionsV5: Map<string, ToolOnboardingSessionV5>;
@@ -184,6 +185,16 @@ interface V5ToolCallbackPayload {
   approvalId: string;
   onboardingSessionId: string;
   request: ToolCallbackVerificationRequest;
+}
+
+interface MemorySnapshotState {
+  snapshotId: string;
+  sessionId: string;
+  recordId: string;
+  key: string;
+  createdAt: string;
+  baselineAbsent: boolean;
+  snapshotRecord?: MemoryRecord;
 }
 
 function hashValue(input: unknown): string {
@@ -357,6 +368,7 @@ function createSessionState(
     onboardingSessions: new Map(),
     observationsV5: new Map(),
     capabilitiesV5: new Map(),
+    consumedCapabilitiesV5: new Map(),
     usedCapabilitiesV5: new Set(),
     approvalEnvelopesV5: new Map(),
     onboardingSessionsV5: new Map(),
@@ -516,6 +528,126 @@ function lookupVerifiedRegistryEntry(
       entry.registryEntryId === toolId ||
       entry.adapterId === toolId
   );
+}
+
+function resolveToolManifestRegistryEntry(
+  runtime: { verifiedRegistry?: VerifiedRegistryBundle },
+  capture: Extract<SurfaceCapture, { surfaceType: "tool_manifest" }>
+): VerifiedRegistryEntry | undefined {
+  return runtime.verifiedRegistry?.entries.find((entry) => {
+    if (capture.toolId !== entry.adapterId && capture.toolId !== entry.registryEntryId) {
+      return false;
+    }
+    if (capture.authType && capture.authType !== entry.authType) {
+      return false;
+    }
+    if (capture.callbackUri && !entry.allowedRedirectUris.includes(capture.callbackUri)) {
+      return false;
+    }
+    if (
+      capture.callbackOrigin &&
+      !entry.allowedCallbackOrigins.includes(capture.callbackOrigin)
+    ) {
+      return false;
+    }
+    if (
+      capture.requestedScopes?.length &&
+      capture.requestedScopes.some((scope) => !entry.allowedScopes.includes(scope))
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function getCapabilityV5(
+  sessionState: SessionState | undefined,
+  capabilityId: string | undefined
+): CapabilityDescriptorV5 | undefined {
+  if (!sessionState || !capabilityId) {
+    return undefined;
+  }
+  return (
+    sessionState.capabilitiesV5.get(capabilityId) ??
+    sessionState.consumedCapabilitiesV5.get(capabilityId)
+  );
+}
+
+function consumeCapabilityV5(
+  sessionState: SessionState,
+  capability: CapabilityDescriptorV5,
+  consumedAt = new Date().toISOString()
+): CapabilityDescriptorV5 {
+  const consumedCapability = {
+    ...capability,
+    consumedAt
+  };
+  sessionState.capabilitiesV5.delete(capability.capabilityId);
+  sessionState.consumedCapabilitiesV5.set(capability.capabilityId, consumedCapability);
+  sessionState.usedCapabilitiesV5.add(capability.capabilityId);
+  return consumedCapability;
+}
+
+function getActiveApprovalEnvelopeForCapability(
+  sessionState: SessionState | undefined,
+  capabilityId: string | undefined
+): ApprovalEnvelopeV5 | undefined {
+  if (!sessionState || !capabilityId) {
+    return undefined;
+  }
+  return [...sessionState.approvalEnvelopesV5.values()].find(
+    (envelope) =>
+      envelope.capabilityId === capabilityId &&
+      !envelope.consumedAt &&
+      new Date(envelope.expiresAt).getTime() > Date.now()
+  );
+}
+
+function buildMemorySnapshotState(
+  sessionState: SessionState,
+  record: MemoryRecord
+): MemorySnapshotState {
+  const priorTrustedBaseline = [...sessionState.memoryRecords.values()]
+    .filter(
+      (candidate) =>
+        candidate.sessionId === record.sessionId &&
+        candidate.key === record.key &&
+        candidate.tier === "trusted_durable" &&
+        candidate.recordId !== record.recordId
+    )
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+
+  return {
+    snapshotId: randomUUID(),
+    sessionId: record.sessionId,
+    recordId: record.recordId,
+    key: record.key,
+    createdAt: new Date().toISOString(),
+    baselineAbsent: !priorTrustedBaseline,
+    snapshotRecord: priorTrustedBaseline
+      ? {
+          ...priorTrustedBaseline
+        }
+      : undefined
+  };
+}
+
+function retireObservationCapabilitiesV5(sessionState: SessionState): void {
+  const retiredCapabilityIds: string[] = [];
+  for (const [capabilityId, capability] of sessionState.capabilitiesV5.entries()) {
+    if (capability.kind !== "memory_promote") {
+      sessionState.capabilitiesV5.delete(capabilityId);
+      retiredCapabilityIds.push(capabilityId);
+    }
+  }
+  if (!retiredCapabilityIds.length) {
+    return;
+  }
+  for (const [approvalId, envelope] of sessionState.approvalEnvelopesV5.entries()) {
+    if (retiredCapabilityIds.includes(envelope.capabilityId) && !envelope.consumedAt) {
+      sessionState.approvalEnvelopesV5.delete(approvalId);
+    }
+  }
 }
 
 function buildV5ExecutionPlan(capability: CapabilityDescriptorV5 | undefined) {
@@ -778,12 +910,6 @@ export async function createSafeBrowseServer(
       if (request.url === "/v5/session/start") {
         const payload = await readJson<SessionStartRequest>(request);
         const sessionState = createSessionState(payload, runtime);
-        sessionState.session = {
-          ...sessionState.session,
-          claimProfile: "secure_v5",
-          approvalBrokerRequired: true,
-          legacyRoutesDisabled: legacyRoutesDisabled(runtime)
-        };
         sessions.set(sessionState.session.sessionId, sessionState);
         writeJson(response, 200, {
           session: sessionState.session
@@ -820,17 +946,22 @@ export async function createSafeBrowseServer(
         const mediated = applyV5ObservationMediation(compiledObservation, plannerView);
         const verifiedEntry =
           capture.surfaceType === "tool_manifest"
-            ? lookupVerifiedRegistryEntry(runtime, capture.toolId, capture.toolId)
+            ? resolveToolManifestRegistryEntry(runtime, capture)
             : undefined;
 
+        retireObservationCapabilitiesV5(sessionState);
         const capabilities = mediated.failClosed
           ? []
           : mintCapabilitiesForObservationV5(sessionState.session, compiledObservation, mediated.plannerView, {
               verifiedRegistryEntry: verifiedEntry,
-              connectorId: capture.surfaceType === "tool_manifest" ? capture.toolId : undefined,
+              registryEntryId:
+                capture.surfaceType === "tool_manifest" ? verifiedEntry?.registryEntryId : undefined,
+              connectorId:
+                capture.surfaceType === "tool_manifest" ? verifiedEntry?.adapterId ?? capture.toolId : undefined,
               requestedScopes: capture.surfaceType === "tool_manifest" ? capture.requestedScopes : undefined,
               callbackUri: capture.surfaceType === "tool_manifest" ? capture.callbackUri : undefined,
-              callbackOrigin: capture.surfaceType === "tool_manifest" ? capture.callbackOrigin : undefined
+              callbackOrigin: capture.surfaceType === "tool_manifest" ? capture.callbackOrigin : undefined,
+              manifestAuthType: capture.surfaceType === "tool_manifest" ? capture.authType : undefined
             });
 
         sessionState.latestObservationV5 = compiledObservation;
@@ -859,14 +990,13 @@ export async function createSafeBrowseServer(
       if (request.url === "/v5/capability/use") {
         const payload = await readJson<CapabilityUseRequestV5>(request);
         const sessionState = findSessionState(sessions, payload.sessionId);
-        const capability = sessionState?.capabilitiesV5.get(payload.capabilityId);
+        const capability = getCapabilityV5(sessionState, payload.capabilityId);
         const verdict = evaluateCapabilityUseV5(payload, sessionState?.session, capability, {
           alreadyUsed: sessionState?.usedCapabilitiesV5.has(payload.capabilityId) ?? false
         });
 
         if (verdict.decision === "ALLOW" && sessionState && capability) {
-          sessionState.usedCapabilitiesV5.add(payload.capabilityId);
-          sessionState.capabilitiesV5.delete(payload.capabilityId);
+          consumeCapabilityV5(sessionState, capability);
           sessionState.session = {
             ...sessionState.session,
             currentStep: sessionState.session.currentStep + 1
@@ -900,6 +1030,38 @@ export async function createSafeBrowseServer(
           return;
         }
 
+        if (capability && payload.capabilityDigest !== capability.capabilityDigest) {
+          writeJson(response, 200, {
+            verdict: {
+              decision: "BLOCK",
+              reasonCodes: ["CAPABILITY_DIGEST_MISMATCH"],
+              riskScore: 0.99,
+              safeConstraints: {
+                claim_profile: "secure_v5"
+              },
+              telemetryTags: ["approval_v5_issue", "block"]
+            }
+          });
+          return;
+        }
+
+        const activeApproval = getActiveApprovalEnvelopeForCapability(sessionState, payload.capabilityId);
+        if (activeApproval) {
+          writeJson(response, 200, {
+            verdict: {
+              decision: "BLOCK",
+              reasonCodes: ["APPROVAL_ALREADY_ISSUED_FOR_CAPABILITY"],
+              riskScore: 0.99,
+              safeConstraints: {
+                claim_profile: "secure_v5"
+              },
+              telemetryTags: ["approval_v5_issue", "block"]
+            },
+            approvalEnvelope: activeApproval
+          });
+          return;
+        }
+
         const brokerPayload =
           sessionState && capability
             ? createApprovalIntentPayloadV5({
@@ -928,7 +1090,6 @@ export async function createSafeBrowseServer(
             issued.approvalEnvelope.approvalId,
             issued.approvalEnvelope
           );
-          sessionState.usedCapabilitiesV5.add(payload.capabilityId);
         }
 
         writeJson(response, 200, issued);
@@ -940,7 +1101,7 @@ export async function createSafeBrowseServer(
         const sessionState = findSessionState(sessions, payload.sessionId);
         const approvalEnvelope = sessionState?.approvalEnvelopesV5.get(payload.approvalId);
         const capability = approvalEnvelope
-          ? sessionState?.capabilitiesV5.get(approvalEnvelope.capabilityId)
+          ? getCapabilityV5(sessionState, approvalEnvelope.capabilityId)
           : undefined;
         const verifiedEntry = approvalEnvelope
           ? lookupVerifiedRegistryEntry(
@@ -958,15 +1119,31 @@ export async function createSafeBrowseServer(
         });
 
         if (sessionState && prepared.onboardingSession) {
+          const consumedAt = new Date().toISOString();
+          if (capability) {
+            consumeCapabilityV5(sessionState, capability, consumedAt);
+          }
+          if (approvalEnvelope) {
+            sessionState.approvalEnvelopesV5.set(payload.approvalId, {
+              ...approvalEnvelope,
+              consumedAt,
+              onboardingSessionId: prepared.onboardingSession.onboardingSessionId
+            });
+          }
           sessionState.onboardingSessionsV5.set(
             prepared.onboardingSession.onboardingSessionId,
             prepared.onboardingSession
           );
+          sessionState.session = {
+            ...sessionState.session,
+            currentStep: sessionState.session.currentStep + 1
+          };
         }
 
         writeJson(response, 200, {
           verdict: prepared.verdict,
-          approvalEnvelope,
+          approvalEnvelope:
+            sessionState?.approvalEnvelopesV5.get(payload.approvalId) ?? approvalEnvelope,
           verifiedRegistryEntry: verifiedEntry,
           onboardingSession: prepared.onboardingSession
         });
@@ -978,7 +1155,7 @@ export async function createSafeBrowseServer(
         const sessionState = findSessionState(sessions, payload.sessionId);
         const approvalEnvelope = sessionState?.approvalEnvelopesV5.get(payload.approvalId);
         const capability = approvalEnvelope
-          ? sessionState?.capabilitiesV5.get(approvalEnvelope.capabilityId)
+          ? getCapabilityV5(sessionState, approvalEnvelope.capabilityId)
           : undefined;
         const onboardingSession = sessionState?.onboardingSessionsV5.get(payload.onboardingSessionId);
         const verifiedEntry = approvalEnvelope
@@ -1039,29 +1216,46 @@ export async function createSafeBrowseServer(
         });
         const compiledObservation = observationResult.compiledObservation as CompiledObservationV5;
         const plannerView = observationResult.plannerView as PlannerViewV5;
+        const artifactAuthoritative =
+          compiledObservation.parseStatus === "compiled" &&
+          compiledObservation.authorityEligible &&
+          !plannerView.blockedChannels.length &&
+          !compiledObservation.riskFindings.length;
         const artifactVerdict =
-          compiledObservation.parseStatus === "compiled"
+          artifactAuthoritative
             ? {
                 decision: "ALLOW",
                 reasonCodes: [],
                 riskScore: compiledObservation.riskScore,
                 safeConstraints: {
-                  claim_profile: "secure_v5"
+                  claim_profile: "secure_v5",
+                  authority_eligible: true
                 },
                 telemetryTags: ["artifact_v5", "allow"]
               }
             : {
-                decision: "QUARANTINE_ARTIFACT",
+                decision:
+                  compiledObservation.parseStatus === "compiled"
+                    ? "QUARANTINE_ARTIFACT"
+                    : "BLOCK",
                 reasonCodes: [
-                  compiledObservation.parseStatus === "partial"
-                    ? "PARSE_STATUS_PARTIAL"
-                    : "PARSE_STATUS_UNSUPPORTED"
+                  ...(compiledObservation.parseStatus === "compiled"
+                    ? ["ARTIFACT_NOT_AUTHORITY_ELIGIBLE"]
+                    : [
+                        compiledObservation.parseStatus === "partial"
+                          ? "PARSE_STATUS_PARTIAL"
+                          : "PARSE_STATUS_UNSUPPORTED"
+                      ])
                 ],
                 riskScore: 0.98,
                 safeConstraints: {
-                  claim_profile: "secure_v5"
+                  claim_profile: "secure_v5",
+                  authority_eligible: false
                 },
-                telemetryTags: ["artifact_v5", "quarantine"]
+                telemetryTags: [
+                  "artifact_v5",
+                  compiledObservation.parseStatus === "compiled" ? "quarantine" : "block"
+                ]
               };
 
         sessionState.latestObservationV5 = compiledObservation;
@@ -1118,30 +1312,46 @@ export async function createSafeBrowseServer(
         const payload = await readJson<MemoryPromotionRequestV5>(request);
         const sessionState = findSessionState(sessions, payload.sessionId);
         const record = sessionState?.memoryRecords.get(payload.recordId);
-        const approvalEnvelope =
-          payload.approvalId && sessionState
-            ? sessionState.approvalEnvelopesV5.get(payload.approvalId)
-            : undefined;
+        const capability = sessionState?.capabilitiesV5.get(payload.capabilityId);
+        const approvalEnvelope = sessionState?.approvalEnvelopesV5.get(payload.approvalId);
         const result = promoteMemoryRecordV5(
           payload,
           sessionState?.session,
           record,
+          capability,
           approvalEnvelope
         );
         if (sessionState && result.promotedRecord) {
           if (record && result.promotedRecord.snapshotId) {
+            const snapshotState = buildMemorySnapshotState(sessionState, record);
             sessionState.memorySnapshots.set(result.promotedRecord.snapshotId, {
-              ...record,
-              tier: "trusted_durable",
-              summaryOnly: false,
-              snapshotId: result.promotedRecord.snapshotId,
-              rollbackPointId: result.promotedRecord.rollbackPointId
+              ...snapshotState,
+              snapshotId: result.promotedRecord.snapshotId
             });
           }
           sessionState.memoryRecords.set(result.promotedRecord.recordId, result.promotedRecord);
+          if (capability) {
+            consumeCapabilityV5(sessionState, capability);
+          }
+          if (approvalEnvelope) {
+            sessionState.approvalEnvelopesV5.set(payload.approvalId, {
+              ...approvalEnvelope,
+              consumedAt: new Date().toISOString()
+            });
+          }
+          sessionState.session = {
+            ...sessionState.session,
+            currentStep: sessionState.session.currentStep + 1
+          };
         }
 
-        writeJson(response, 200, result);
+        writeJson(response, 200, {
+          ...result,
+          approvalEnvelope:
+            payload.approvalId && sessionState
+              ? sessionState.approvalEnvelopesV5.get(payload.approvalId)
+              : approvalEnvelope
+        });
         return;
       }
 
@@ -1149,16 +1359,25 @@ export async function createSafeBrowseServer(
         const payload = await readJson<MemoryRollbackRequest>(request);
         const sessionState = findSessionState(sessions, payload.sessionId);
         const record = sessionState?.memoryRecords.get(payload.recordId);
-        const snapshotRecord = sessionState?.memorySnapshots.get(payload.snapshotId);
+        const snapshotState = sessionState?.memorySnapshots.get(payload.snapshotId) as
+          | MemorySnapshotState
+          | undefined;
         const result = rollbackMemoryRecordV5(
           payload,
           sessionState?.session,
           record,
-          snapshotRecord
+          {
+            snapshotRecord: snapshotState?.snapshotRecord,
+            baselineAbsent: snapshotState?.baselineAbsent
+          }
         );
 
-        if (sessionState && result.restoredRecord) {
-          sessionState.memoryRecords.set(result.restoredRecord.recordId, result.restoredRecord);
+        if (sessionState && result.verdict.decision === "ALLOW") {
+          if (result.restoredRecord) {
+            sessionState.memoryRecords.set(result.restoredRecord.recordId, result.restoredRecord);
+          } else {
+            sessionState.memoryRecords.delete(payload.recordId);
+          }
         }
 
         writeJson(response, 200, {
@@ -1500,7 +1719,9 @@ export async function createSafeBrowseServer(
         const payload = await readJson<MemoryRollbackRequest>(request);
         const sessionState = findSessionState(sessions, payload.sessionId);
         const record = sessionState?.memoryRecords.get(payload.recordId);
-        const snapshotRecord = sessionState?.memorySnapshots.get(payload.snapshotId);
+        const snapshotRecord = sessionState?.memorySnapshots.get(payload.snapshotId) as
+          | MemoryRecord
+          | undefined;
         const result = rollbackMemoryRecordV4(
           payload,
           sessionState?.session,

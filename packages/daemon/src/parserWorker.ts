@@ -101,12 +101,14 @@ process.on("message", async (message: ParserWorkerMessage) => {
     }
 
     const compiler = message.compilerVersion === "v5" ? compileObservationV5 : compileObservation;
+    const probe = await probeIsolation();
     const result = compiler(message.capture, message.runtime ?? {}, {
       workflowHash: message.workflowHash,
       parserIsolation: {
-        processIsolated: true,
-        secretAccess: false,
-        arbitraryEgress: false,
+        processIsolated: probe.processIsolated,
+        envScrubbed: probe.envKeys.length === 0,
+        egressDenied: probe.egressDenied,
+        envKeys: probe.envKeys,
         allowlistedEgress: message.allowlistedEgress ?? []
       }
     });

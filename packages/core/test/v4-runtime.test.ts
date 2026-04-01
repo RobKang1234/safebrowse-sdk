@@ -243,8 +243,9 @@ describe("safebrowse core runtime v4", () => {
       {
         parserIsolation: {
           processIsolated: true,
-          secretAccess: false,
-          arbitraryEgress: false,
+          envScrubbed: true,
+          egressDenied: true,
+          envKeys: [],
           allowlistedEgress: []
         },
         workflowHash: "workflow-hash-v4"

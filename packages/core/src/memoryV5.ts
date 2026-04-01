@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { redactJsonValue } from "./secretIsolation.js";
 import type {
   ApprovalEnvelopeV5,
+  CapabilityDescriptorV5,
   MemoryPromotionRequestV5,
   MemoryRecord,
   MemoryRollbackRequest,
@@ -92,6 +93,7 @@ export function promoteMemoryRecordV5(
   request: MemoryPromotionRequestV5,
   session: TaskSession | undefined,
   record: MemoryRecord | undefined,
+  capability: CapabilityDescriptorV5 | undefined,
   approvalEnvelope?: ApprovalEnvelopeV5
 ): {
   verdict: SafeVerdict;
@@ -125,12 +127,64 @@ export function promoteMemoryRecordV5(
     riskScore = 0.99;
   }
 
-  const hasValidationEvidence = Boolean(request.validationEvidence?.length);
-  const hasApproval = Boolean(approvalEnvelope);
-  if (!hasValidationEvidence && !hasApproval) {
-    decision = "USER_CONFIRM";
-    reasonCodes.push("PROMOTION_REQUIRES_VALIDATION_OR_APPROVAL");
-    riskScore = 0.85;
+  if (!capability) {
+    decision = "BLOCK";
+    reasonCodes.push("MEMORY_PROMOTION_CAPABILITY_REQUIRED");
+    riskScore = 0.99;
+  }
+
+  if (!approvalEnvelope) {
+    decision = "BLOCK";
+    reasonCodes.push("APPROVAL_ENVELOPE_REQUIRED");
+    riskScore = 0.99;
+  }
+
+  if (capability && session) {
+    if (capability.kind !== "memory_promote") {
+      decision = "BLOCK";
+      reasonCodes.push("CAPABILITY_KIND_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (capability.sessionId !== session.sessionId) {
+      decision = "BLOCK";
+      reasonCodes.push("CAPABILITY_OUTSIDE_SESSION");
+      riskScore = 0.99;
+    }
+    if (capability.workflowHash !== session.workflowHash) {
+      decision = "BLOCK";
+      reasonCodes.push("CAPABILITY_WORKFLOW_HASH_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (capability.workflowStep !== session.currentStep) {
+      decision = "BLOCK";
+      reasonCodes.push("CAPABILITY_OUTSIDE_WORKFLOW_STEP");
+      riskScore = 0.99;
+    }
+    if (capability.capabilityId !== request.capabilityId) {
+      decision = "BLOCK";
+      reasonCodes.push("CAPABILITY_ID_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (capability.capabilityDigest !== request.capabilityDigest) {
+      decision = "BLOCK";
+      reasonCodes.push("CAPABILITY_DIGEST_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (capability.memoryRecordId !== request.recordId) {
+      decision = "BLOCK";
+      reasonCodes.push("CAPABILITY_MEMORY_RECORD_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (capability.consumedAt) {
+      decision = "BLOCK";
+      reasonCodes.push("CAPABILITY_REPLAYED");
+      riskScore = 0.99;
+    }
+    if (new Date(capability.expiresAt).getTime() <= Date.now()) {
+      decision = "BLOCK";
+      reasonCodes.push("CAPABILITY_EXPIRED");
+      riskScore = 0.99;
+    }
   }
 
   if (approvalEnvelope && session) {
@@ -147,6 +201,36 @@ export function promoteMemoryRecordV5(
     if (approvalEnvelope.sinkClass !== "memory_promotion") {
       decision = "BLOCK";
       reasonCodes.push("APPROVAL_ENVELOPE_SINK_CLASS_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (approvalEnvelope.approvalId !== request.approvalId) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_ENVELOPE_ID_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (capability && approvalEnvelope.capabilityId !== capability.capabilityId) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_CAPABILITY_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (capability && approvalEnvelope.capabilityDigest !== capability.capabilityDigest) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_CAPABILITY_DIGEST_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (capability && approvalEnvelope.semanticDigest !== capability.semanticDigest) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_SEMANTIC_DIGEST_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (approvalEnvelope.consumedAt) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_ENVELOPE_ALREADY_USED");
+      riskScore = 0.99;
+    }
+    if (new Date(approvalEnvelope.expiresAt).getTime() <= Date.now()) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_ENVELOPE_EXPIRED");
       riskScore = 0.99;
     }
   }
@@ -168,6 +252,7 @@ export function promoteMemoryRecordV5(
   const promotedRecord: MemoryRecord = {
     ...record,
     tier: "trusted_durable",
+    sourceClass: "validated_system",
     summaryOnly: false,
     snapshotId: randomUUID(),
     rollbackPointId: randomUUID()
@@ -194,7 +279,10 @@ export function rollbackMemoryRecordV5(
   request: MemoryRollbackRequest,
   session: TaskSession | undefined,
   record: MemoryRecord | undefined,
-  snapshotRecord: MemoryRecord | undefined
+  snapshot: {
+    snapshotRecord?: MemoryRecord;
+    baselineAbsent?: boolean;
+  }
 ): MemoryRollbackResult {
   const reasonCodes: string[] = [];
   let decision: SafeVerdict["decision"] = "ALLOW";
@@ -210,7 +298,7 @@ export function rollbackMemoryRecordV5(
     reasonCodes.push("UNKNOWN_MEMORY_RECORD");
     riskScore = 0.99;
   }
-  if (!snapshotRecord) {
+  if (!snapshot.snapshotRecord && !snapshot.baselineAbsent) {
     decision = "BLOCK";
     reasonCodes.push("UNKNOWN_MEMORY_SNAPSHOT");
     riskScore = 0.99;
@@ -228,7 +316,7 @@ export function rollbackMemoryRecordV5(
     riskScore = 0.99;
   }
 
-  if (decision !== "ALLOW" || !snapshotRecord) {
+  if (decision !== "ALLOW") {
     return {
       verdict: {
         decision,
@@ -236,6 +324,23 @@ export function rollbackMemoryRecordV5(
         riskScore: clamp(riskScore),
         safeConstraints: {
           claim_profile: "secure_v5"
+        },
+        telemetryTags: uniq(["memory_v5_rollback", decision.toLowerCase()])
+      }
+    };
+  }
+
+  if (snapshot.baselineAbsent) {
+    return {
+      verdict: {
+        decision,
+        reasonCodes: uniq(["ROLLBACK_APPLIED", "ROLLBACK_RESTORED_EMPTY_BASELINE", ...reasonCodes]),
+        riskScore: clamp(riskScore),
+        safeConstraints: {
+          claim_profile: "secure_v5",
+          rollback_applied: true,
+          snapshot_id: request.snapshotId,
+          baseline_absent: true
         },
         telemetryTags: uniq(["memory_v5_rollback", decision.toLowerCase()])
       }
@@ -255,7 +360,7 @@ export function rollbackMemoryRecordV5(
       telemetryTags: uniq(["memory_v5_rollback", decision.toLowerCase()])
     },
     restoredRecord: {
-      ...snapshotRecord,
+      ...snapshot.snapshotRecord!,
       tier: "trusted_durable",
       summaryOnly: false
     }

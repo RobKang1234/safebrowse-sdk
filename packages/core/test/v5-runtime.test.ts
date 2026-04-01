@@ -238,10 +238,12 @@ describe("safebrowse core runtime v5", () => {
       observed.plannerView,
       {
         verifiedRegistryEntry: verifiedRegistry.entries[0],
-        connectorId: manifest.toolId,
+        registryEntryId: verifiedRegistry.entries[0].registryEntryId,
+        connectorId: verifiedRegistry.entries[0].adapterId,
         requestedScopes: ["citation:read"],
         callbackUri: manifest.callbackUri,
-        callbackOrigin: "https://safe.example"
+        callbackOrigin: "https://safe.example",
+        manifestAuthType: "oauth"
       }
     );
     expect(capability.kind).toBe("connector_prepare");
@@ -275,11 +277,22 @@ describe("safebrowse core runtime v5", () => {
       verifiedRegistryEntry: verifiedRegistry.entries[0]
     });
     expect(prepared.verdict.decision).toBe("ALLOW");
+    const preparedApprovalEnvelope = issued.approvalEnvelope
+      ? {
+          ...issued.approvalEnvelope,
+          consumedAt: "2026-03-30T00:01:00.000Z",
+          onboardingSessionId: prepared.onboardingSession?.onboardingSessionId
+        }
+      : undefined;
+    const consumedCapability = {
+      ...capability,
+      consumedAt: "2026-03-30T00:01:00.000Z"
+    };
 
     const callback = verifyToolCallbackV5({
       session,
-      capability,
-      approvalEnvelope: issued.approvalEnvelope,
+      capability: consumedCapability,
+      approvalEnvelope: preparedApprovalEnvelope,
       onboardingSession: prepared.onboardingSession,
       verifiedRegistryEntry: verifiedRegistry.entries[0],
       request: {
@@ -323,8 +336,9 @@ describe("safebrowse core runtime v5", () => {
     expect(issued.verdict.reasonCodes).toContain("CAPABILITY_NOT_APPROVABLE");
   });
 
-  it("keeps v5 memory writes summary-only and allows trusted promotion with evidence", () => {
+  it("keeps v5 memory writes summary-only and allows trusted promotion with approval-bound capability", () => {
     const session = buildSession();
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
     const writeResult = evaluateMemoryWriteV5(
       {
         sessionId: session.sessionId,
@@ -351,14 +365,35 @@ describe("safebrowse core runtime v5", () => {
     });
     expect(promotionCapability.kind).toBe("memory_promote");
 
+    const approvalPayload = createApprovalIntentPayloadV5({
+      sessionId: session.sessionId,
+      workflowHash: session.workflowHash,
+      capabilityId: promotionCapability.capabilityId,
+      capabilityDigest: promotionCapability.capabilityDigest
+    });
+    const signature = signBuffer(null, Buffer.from(approvalPayload, "utf8"), privateKey).toString(
+      "base64"
+    );
+    const verified = verifyApprovalIntentSignatureV5(approvalPayload, signature, publicKey);
+    const issued = issueApprovalEnvelopeV5({
+      session,
+      capability: promotionCapability,
+      brokerSignature: signature,
+      brokerSignatureVerified: verified
+    });
+
     const promoted = promoteMemoryRecordV5(
       {
         sessionId: session.sessionId,
         recordId: writeResult.record?.recordId ?? "",
-        validationEvidence: ["validated by reviewer"]
+        capabilityId: promotionCapability.capabilityId,
+        capabilityDigest: promotionCapability.capabilityDigest,
+        approvalId: issued.approvalEnvelope?.approvalId ?? ""
       },
       session,
-      writeResult.record
+      writeResult.record,
+      promotionCapability,
+      issued.approvalEnvelope
     );
     expect(promoted.verdict.decision).toBe("ALLOW");
     expect(promoted.promotedRecord?.tier).toBe("trusted_durable");

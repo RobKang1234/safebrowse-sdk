@@ -89,13 +89,13 @@ const verifiedRegistry: VerifiedRegistryBundle = {
 
 const servers: Array<{ close: () => Promise<void> }> = [];
 
-async function startTestServer() {
+async function startTestServer(deploymentProfile: "development" | "secure_v5" = "secure_v5") {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
   const publicKeyPem = publicKey.export({ format: "pem", type: "spki" }).toString();
   const server = await createSafeBrowseServer({
     policyPack,
     verifiedRegistry,
-    deploymentProfile: "secure_v5",
+    deploymentProfile,
     approvalBrokerPublicKeyPem: publicKeyPem,
     knowledgeBase: {
       promptInjectionPatterns: [],
@@ -131,6 +131,16 @@ async function startTestServer() {
     baseUrl: `http://127.0.0.1:${address.port}`,
     privateKey
   };
+}
+
+function signApproval(session: Record<string, any>, capability: Record<string, any>, privateKey: ReturnType<typeof generateKeyPairSync>["privateKey"]) {
+  const approvalPayload = createApprovalIntentPayloadV5({
+    sessionId: session.sessionId,
+    workflowHash: session.workflowHash,
+    capabilityId: capability.capabilityId,
+    capabilityDigest: capability.capabilityDigest
+  });
+  return signBuffer(null, Buffer.from(approvalPayload, "utf8"), privateKey).toString("base64");
 }
 
 afterEach(async () => {
@@ -294,5 +304,336 @@ describe("safebrowse daemon v5 routes", () => {
 
     expect(callback.verdict.decision).toBe("ALLOW");
     expect(callback.connectorHandle.connectorId).toBe("citation-sync-safe");
+  });
+
+  it("reports an honest claim profile and retires stale capabilities after a later risky observation", async () => {
+    const { baseUrl } = await startTestServer("development");
+    const session = await fetch(`${baseUrl}/v5/session/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        taskId: "task-v5-dev",
+        userGoal: "Review docs safely",
+        allowedOrigins: ["https://safe.example", "https://docs.python.org"],
+        allowedVerbs: ["navigate"],
+        forbiddenSinks: []
+      })
+    }).then((response) => response.json());
+
+    expect(session.session.claimProfile).toBeUndefined();
+
+    const initialObserve = await fetch(`${baseUrl}/v5/observe`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        capture: {
+          surfaceType: "html",
+          url: "https://safe.example/page",
+          html: `<html><body><a href="https://docs.python.org/3/tutorial/">Docs</a></body></html>`
+        }
+      })
+    }).then((response) => response.json());
+
+    const retiredCapability = initialObserve.capabilities[0];
+    expect(retiredCapability.kind).toBe("navigate");
+
+    const riskyObserve = await fetch(`${baseUrl}/v5/observe`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        capture: {
+          surfaceType: "html",
+          url: "https://safe.example/page-2",
+          html: `<html><body><main>Visible docs only.</main><div hidden><a href="https://docs.python.org/3/tutorial/">continuity path</a></div></body></html>`
+        }
+      })
+    }).then((response) => response.json());
+
+    expect(riskyObserve.capabilities).toEqual([]);
+
+    const staleUse = await fetch(`${baseUrl}/v5/capability/use`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        capabilityId: retiredCapability.capabilityId,
+        capabilityDigest: retiredCapability.capabilityDigest,
+        parameters: {}
+      })
+    }).then((response) => response.json());
+
+    expect(staleUse.verdict.decision).toBe("BLOCK");
+    expect(staleUse.verdict.reasonCodes).toContain("UNKNOWN_CAPABILITY");
+  });
+
+  it("requires approval-bound memory promotion and restores the prior trusted baseline on rollback", async () => {
+    const { baseUrl, privateKey } = await startTestServer();
+    const session = await fetch(`${baseUrl}/v5/session/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        taskId: "task-v5-memory",
+        userGoal: "Store notes safely",
+        allowedOrigins: ["https://safe.example"],
+        allowedVerbs: ["memory_promote"],
+        forbiddenSinks: []
+      })
+    }).then((response) => response.json());
+
+    const firstWrite = await fetch(`${baseUrl}/v5/memory/write`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        inputKind: "user_note",
+        key: "workflow_hint",
+        value: { note: "baseline" },
+        durable: true
+      })
+    }).then((response) => response.json());
+
+    const firstPromoteBlocked = await fetch(`${baseUrl}/v5/memory/promote`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        recordId: firstWrite.record.recordId
+      })
+    }).then((response) => response.json());
+
+    expect(firstPromoteBlocked.verdict.decision).toBe("BLOCK");
+    expect(firstPromoteBlocked.verdict.reasonCodes).toContain("MEMORY_PROMOTION_CAPABILITY_REQUIRED");
+
+    const firstSignature = signApproval(session.session, firstWrite.promotionCapability, privateKey);
+    const firstApproval = await fetch(`${baseUrl}/v5/approval/issue`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        capabilityId: firstWrite.promotionCapability.capabilityId,
+        capabilityDigest: firstWrite.promotionCapability.capabilityDigest,
+        brokerSignature: firstSignature
+      })
+    }).then((response) => response.json());
+
+    const firstPromote = await fetch(`${baseUrl}/v5/memory/promote`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        recordId: firstWrite.record.recordId,
+        capabilityId: firstWrite.promotionCapability.capabilityId,
+        capabilityDigest: firstWrite.promotionCapability.capabilityDigest,
+        approvalId: firstApproval.approvalEnvelope.approvalId
+      })
+    }).then((response) => response.json());
+
+    expect(firstPromote.verdict.decision).toBe("ALLOW");
+
+    const secondWrite = await fetch(`${baseUrl}/v5/memory/write`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        inputKind: "user_note",
+        key: "workflow_hint",
+        value: { note: "replacement" },
+        durable: true
+      })
+    }).then((response) => response.json());
+
+    const secondSignature = signApproval(session.session, secondWrite.promotionCapability, privateKey);
+    const secondApproval = await fetch(`${baseUrl}/v5/approval/issue`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        capabilityId: secondWrite.promotionCapability.capabilityId,
+        capabilityDigest: secondWrite.promotionCapability.capabilityDigest,
+        brokerSignature: secondSignature
+      })
+    }).then((response) => response.json());
+
+    const secondPromote = await fetch(`${baseUrl}/v5/memory/promote`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        recordId: secondWrite.record.recordId,
+        capabilityId: secondWrite.promotionCapability.capabilityId,
+        capabilityDigest: secondWrite.promotionCapability.capabilityDigest,
+        approvalId: secondApproval.approvalEnvelope.approvalId
+      })
+    }).then((response) => response.json());
+
+    expect(secondPromote.verdict.decision).toBe("ALLOW");
+
+    const rollback = await fetch(`${baseUrl}/v5/memory/rollback`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        recordId: secondPromote.promotedRecord.recordId,
+        snapshotId: secondPromote.promotedRecord.snapshotId
+      })
+    }).then((response) => response.json());
+
+    expect(rollback.verdict.decision).toBe("ALLOW");
+    expect(rollback.restoredRecord.value).toEqual({ note: "baseline" });
+  });
+
+  it("blocks scope escalation, exact callback-path mismatch, approval reuse, and callback mismatch after a valid prepare", async () => {
+    const { baseUrl, privateKey } = await startTestServer();
+    const session = await fetch(`${baseUrl}/v5/session/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        taskId: "task-v5-tool-hardening",
+        userGoal: "Review connector onboarding safely",
+        allowedOrigins: ["https://safe.example"],
+        allowedVerbs: ["connector_prepare"],
+        forbiddenSinks: []
+      })
+    }).then((response) => response.json());
+
+    const badScopeObserve = await fetch(`${baseUrl}/v5/observe`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        capture: {
+          ...manifest,
+          surfaceType: "tool_manifest",
+          url: "https://safe.example/connectors/citation-sync-safe",
+          requestedScopes: ["citation:write"],
+          callbackOrigin: "https://safe.example"
+        }
+      })
+    }).then((response) => response.json());
+
+    expect(badScopeObserve.capabilities).toEqual([]);
+
+    const badCallbackObserve = await fetch(`${baseUrl}/v5/observe`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        capture: {
+          ...manifest,
+          surfaceType: "tool_manifest",
+          url: "https://safe.example/connectors/citation-sync-safe",
+          callbackUri: "https://safe.example/oauth/callback/unexpected",
+          callbackOrigin: "https://safe.example"
+        }
+      })
+    }).then((response) => response.json());
+
+    expect(badCallbackObserve.capabilities).toEqual([]);
+
+    const observe = await fetch(`${baseUrl}/v5/observe`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        capture: {
+          ...manifest,
+          surfaceType: "tool_manifest",
+          url: "https://safe.example/connectors/citation-sync-safe",
+          callbackOrigin: "https://safe.example"
+        }
+      })
+    }).then((response) => response.json());
+
+    const capability = observe.capabilities[0];
+    const brokerSignature = signApproval(session.session, capability, privateKey);
+    const approval = await fetch(`${baseUrl}/v5/approval/issue`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        capabilityId: capability.capabilityId,
+        capabilityDigest: capability.capabilityDigest,
+        brokerSignature
+      })
+    }).then((response) => response.json());
+
+    const prepare = await fetch(`${baseUrl}/v5/tool/prepare`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        approvalId: approval.approvalEnvelope.approvalId
+      })
+    }).then((response) => response.json());
+
+    expect(prepare.verdict.decision).toBe("ALLOW");
+
+    const prepareReuse = await fetch(`${baseUrl}/v5/tool/prepare`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        approvalId: approval.approvalEnvelope.approvalId
+      })
+    }).then((response) => response.json());
+
+    expect(prepareReuse.verdict.decision).toBe("BLOCK");
+    expect(prepareReuse.verdict.reasonCodes).toContain("APPROVAL_ENVELOPE_ALREADY_USED");
+
+    const callbackMismatch = await fetch(`${baseUrl}/v5/tool/callback/verify`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        approvalId: approval.approvalEnvelope.approvalId,
+        onboardingSessionId: prepare.onboardingSession.onboardingSessionId,
+        request: {
+          sessionId: prepare.onboardingSession.onboardingSessionId,
+          callbackUri: "https://safe.example/oauth/callback/unexpected",
+          callbackOrigin: "https://safe.example",
+          state: prepare.onboardingSession.state,
+          payload: {
+            code: "auth-code",
+            state: prepare.onboardingSession.state
+          }
+        }
+      })
+    }).then((response) => response.json());
+
+    expect(callbackMismatch.verdict.decision).toBe("BLOCK");
+    expect(callbackMismatch.verdict.reasonCodes).toContain("CALLBACK_URI_MISMATCH");
+  });
+
+  it("does not treat non-authoritative artifacts as safe effect-bearing observations", async () => {
+    const { baseUrl } = await startTestServer();
+    const session = await fetch(`${baseUrl}/v5/session/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        taskId: "task-v5-artifact",
+        userGoal: "Inspect a risky artifact safely",
+        allowedOrigins: ["https://safe.example"],
+        allowedVerbs: ["navigate"],
+        forbiddenSinks: []
+      })
+    }).then((response) => response.json());
+
+    const artifact = await fetch(`${baseUrl}/v5/artifact/ingest`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        capture: {
+          surfaceType: "html",
+          url: "https://safe.example/artifact",
+          html: `<html><body><main>Visible docs only.</main><div hidden><a href="https://docs.python.org/3/tutorial/">continuity path</a></div></body></html>`
+        }
+      })
+    }).then((response) => response.json());
+
+    expect(artifact.artifactVerdict.decision).not.toBe("ALLOW");
+    expect(artifact.artifactVerdict.safeConstraints.authority_eligible).toBe(false);
   });
 });

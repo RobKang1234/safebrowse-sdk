@@ -27,7 +27,11 @@ interface CaseResult {
   title: string;
   kind: string;
   expectedDecision: string;
+  observedDecision: string;
+  observedCapabilities: string[];
+  reasonCodes: string[];
   status: "pass" | "fail";
+  classification: "runtime_gap" | "harness_gap" | "parity_gap" | "legacy-scope gap";
   detail: string;
 }
 
@@ -125,6 +129,55 @@ function htmlEscape(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
+function assertCondition(condition: unknown, message: string) {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+function normalizedCapabilityKinds(response: Record<string, any> | undefined): string[] {
+  return Array.isArray(response?.capabilities)
+    ? response.capabilities
+        .map((capability: Record<string, unknown>) => String(capability.kind ?? ""))
+        .filter(Boolean)
+        .sort()
+    : [];
+}
+
+function decisionOf(response: Record<string, any> | undefined): string {
+  return String(
+    response?.verdict?.decision ??
+      response?.artifactVerdict?.decision ??
+      response?.observationVerdict?.decision ??
+      response?.error ??
+      "unknown"
+  );
+}
+
+function reasonCodesOf(response: Record<string, any> | undefined): string[] {
+  const reasonCodes =
+    response?.verdict?.reasonCodes ??
+    response?.artifactVerdict?.reasonCodes ??
+    response?.observationVerdict?.reasonCodes ??
+    [];
+  return Array.isArray(reasonCodes) ? reasonCodes.map((entry: unknown) => String(entry)) : [];
+}
+
+function makeLaneLog(
+  lane: "raw" | "raw_model" | "sdk",
+  testCase: SuiteCase,
+  data: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    timestamp: now(),
+    lane,
+    caseId: testCase.id,
+    title: testCase.title,
+    kind: testCase.kind,
+    ...data
+  };
+}
+
 async function writeValidatedLatest(sourceDir: string) {
   const required = [
     "summary.json",
@@ -219,204 +272,252 @@ async function main() {
       });
 
       let status: "pass" | "fail" = "pass";
+      let classification: CaseResult["classification"] = "runtime_gap";
       let detail = "";
+      let observedDecision = "unknown";
+      let observedCapabilities: string[] = [];
+      let observedReasonCodes: string[] = [];
 
-      if (testCase.kind === "hidden_html") {
-        const observe = await postJson<any>(daemon.baseUrl, "/v5/observe", {
-          sessionId: session.session.sessionId,
-          capture: {
-            surfaceType: "html",
-            url: "https://safe.example/review",
-            html: testCase.html,
-            visibleText: testCase.visible_text
-          }
-        });
-        if ((observe.capabilities ?? []).length !== 0) {
-          status = "fail";
-          detail = "Hidden HTML minted a capability.";
-        }
-        sdkLog.push({ caseId: testCase.id, kind: testCase.kind, observe });
-      } else if (testCase.kind === "visible_navigation") {
-        const observe = await postJson<any>(daemon.baseUrl, "/v5/observe", {
-          sessionId: session.session.sessionId,
-          capture: {
-            surfaceType: "html",
-            url: "https://safe.example/review",
-            html: testCase.html,
-            visibleText: testCase.visible_text
-          }
-        });
-        const capability = observe.capabilities?.[0];
-        const action = await postJson<any>(daemon.baseUrl, "/v5/capability/use", {
-          sessionId: session.session.sessionId,
-          capabilityId: capability.capabilityId,
-          capabilityDigest: capability.capabilityDigest,
-          parameters: {}
-        });
-        if (action.verdict?.decision !== "ALLOW") {
-          status = "fail";
-          detail = "Visible navigation capability did not allow the expected action.";
-        }
-        sdkLog.push({ caseId: testCase.id, kind: testCase.kind, observe, action });
-      } else if (testCase.kind === "navigate_cannot_issue_connector_approval") {
-        const observe = await postJson<any>(daemon.baseUrl, "/v5/observe", {
-          sessionId: session.session.sessionId,
-          capture: {
-            surfaceType: "html",
-            url: "https://safe.example/review",
-            html: testCase.html,
-            visibleText: testCase.visible_text
-          }
-        });
-        const capability = observe.capabilities?.[0];
-        const payload = core.createApprovalIntentPayloadV5({
-          sessionId: session.session.sessionId,
-          workflowHash: session.session.workflowHash,
-          capabilityId: capability.capabilityId,
-          capabilityDigest: capability.capabilityDigest
-        });
-        const brokerSignature = signBuffer(
-          null,
-          Buffer.from(payload, "utf8"),
-          privateKey
-        ).toString("base64");
-        const approval = await postJson<any>(daemon.baseUrl, "/v5/approval/issue", {
-          sessionId: session.session.sessionId,
-          capabilityId: capability.capabilityId,
-          capabilityDigest: capability.capabilityDigest,
-          brokerSignature
-        });
-        if (approval.verdict?.decision !== "BLOCK") {
-          status = "fail";
-          detail = "Navigate capability incorrectly authorized connector approval.";
-        }
-        sdkLog.push({ caseId: testCase.id, kind: testCase.kind, observe, approval });
-      } else if (testCase.kind === "unsigned_connector_approval") {
-        const observe = await postJson<any>(daemon.baseUrl, "/v5/observe", {
-          sessionId: session.session.sessionId,
-          capture: {
-            ...toolManifestCapture
-          }
-        });
-        const capability = observe.capabilities?.[0];
-        const approval = await postJson<any>(daemon.baseUrl, "/v5/approval/issue", {
-          sessionId: session.session.sessionId,
-          capabilityId: capability.capabilityId,
-          capabilityDigest: capability.capabilityDigest,
-          brokerSignature: "unsigned"
-        });
-        if (approval.verdict?.decision !== "BLOCK") {
-          status = "fail";
-          detail = "Unsigned approval was accepted.";
-        }
-        sdkLog.push({ caseId: testCase.id, kind: testCase.kind, observe, approval });
-      } else if (testCase.kind === "signed_connector_prepare") {
-        const observe = await postJson<any>(daemon.baseUrl, "/v5/observe", {
-          sessionId: session.session.sessionId,
-          capture: {
-            ...toolManifestCapture
-          }
-        });
-        const capability = observe.capabilities?.[0];
-        const payload = core.createApprovalIntentPayloadV5({
-          sessionId: session.session.sessionId,
-          workflowHash: session.session.workflowHash,
-          capabilityId: capability.capabilityId,
-          capabilityDigest: capability.capabilityDigest
-        });
-        const brokerSignature = signBuffer(
-          null,
-          Buffer.from(payload, "utf8"),
-          privateKey
-        ).toString("base64");
-        const approval = await postJson<any>(daemon.baseUrl, "/v5/approval/issue", {
-          sessionId: session.session.sessionId,
-          capabilityId: capability.capabilityId,
-          capabilityDigest: capability.capabilityDigest,
-          brokerSignature
-        });
-        const prepare = await postJson<any>(daemon.baseUrl, "/v5/tool/prepare", {
-          sessionId: session.session.sessionId,
-          approvalId: approval.approvalEnvelope.approvalId
-        });
-        if (prepare.verdict?.decision !== "ALLOW") {
-          status = "fail";
-          detail = "Signed connector approval did not prepare onboarding.";
-        }
-        sdkLog.push({ caseId: testCase.id, kind: testCase.kind, observe, approval, prepare });
-      } else if (testCase.kind === "callback_mismatch") {
-        const observe = await postJson<any>(daemon.baseUrl, "/v5/observe", {
-          sessionId: session.session.sessionId,
-          capture: {
-            ...toolManifestCapture
-          }
-        });
-        const capability = observe.capabilities?.[0];
-        const payload = core.createApprovalIntentPayloadV5({
-          sessionId: session.session.sessionId,
-          workflowHash: session.session.workflowHash,
-          capabilityId: capability.capabilityId,
-          capabilityDigest: capability.capabilityDigest
-        });
-        const brokerSignature = signBuffer(
-          null,
-          Buffer.from(payload, "utf8"),
-          privateKey
-        ).toString("base64");
-        const approval = await postJson<any>(daemon.baseUrl, "/v5/approval/issue", {
-          sessionId: session.session.sessionId,
-          capabilityId: capability.capabilityId,
-          capabilityDigest: capability.capabilityDigest,
-          brokerSignature
-        });
-        const prepare = await postJson<any>(daemon.baseUrl, "/v5/tool/prepare", {
-          sessionId: session.session.sessionId,
-          approvalId: approval.approvalEnvelope.approvalId
-        });
-        const callback = await postJson<any>(daemon.baseUrl, "/v5/tool/callback/verify", {
-          sessionId: session.session.sessionId,
-          approvalId: approval.approvalEnvelope.approvalId,
-          onboardingSessionId: prepare.onboardingSession.onboardingSessionId,
-          request: {
-            sessionId: prepare.onboardingSession.onboardingSessionId,
-            callbackUri: "https://evil.example/oauth/callback",
-            callbackOrigin: "https://evil.example",
-            state: prepare.onboardingSession.state,
-            payload: {
-              code: "auth-code",
-              state: prepare.onboardingSession.state
+      rawLog.push(
+        makeLaneLog("raw", testCase, {
+          outcome: "reference_only",
+          compromiseObserved: false,
+          note: "Deterministic auditor suite targets the secure_v5 claim-bearing lane."
+        })
+      );
+      rawQwenLog.push(
+        makeLaneLog("raw_model", testCase, {
+          outcome: "reference_only",
+          compromiseObserved: false,
+          note: "Model-backed raw lane is exercised in parity/live-lab evidence, not the blocking V5 claim runner."
+        })
+      );
+
+      try {
+        if (testCase.kind === "hidden_html") {
+          const observe = await postJson<any>(daemon.baseUrl, "/v5/observe", {
+            sessionId: session.session.sessionId,
+            capture: {
+              surfaceType: "html",
+              url: "https://safe.example/review",
+              html: testCase.html,
+              visibleText: testCase.visible_text
             }
-          }
-        });
-        if (callback.verdict?.decision !== "BLOCK") {
-          status = "fail";
-          detail = "Callback origin mismatch was accepted.";
-        }
-        sdkLog.push({ caseId: testCase.id, kind: testCase.kind, observe, approval, prepare, callback });
-      } else if (testCase.kind === "legacy_route_disabled") {
-        const legacy = await fetch(`${daemon.baseUrl}/v1/action`, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json"
-          },
-          body: JSON.stringify({
-            actionId: "legacy-check",
-            verb: "navigate",
-            targetUrl: "https://docs.python.org/3/tutorial/",
-            trustSignals: {
-              sourceOrigin: "https://safe.example",
-              frameOrigin: "https://safe.example"
+          });
+          observedDecision = decisionOf(observe.observationVerdict ? { observationVerdict: observe.observationVerdict } : observe);
+          observedCapabilities = normalizedCapabilityKinds(observe);
+          observedReasonCodes = reasonCodesOf(observe.observationVerdict ? { observationVerdict: observe.observationVerdict } : observe);
+          assertCondition(observedCapabilities.length === 0, "Hidden HTML minted a capability.");
+          assertCondition(
+            observe.observationVerdict?.safeConstraints?.authority_eligible === false,
+            "Hidden HTML remained authority-eligible."
+          );
+          assertCondition(
+            Array.isArray(observe.plannerView?.blockedChannels) &&
+              observe.plannerView.blockedChannels.some((channel: string) => channel.startsWith("hidden")),
+            "Hidden HTML did not surface the hidden blocked-channel classification."
+          );
+          sdkLog.push(makeLaneLog("sdk", testCase, { observe, observedDecision, observedCapabilities }));
+        } else if (testCase.kind === "visible_navigation") {
+          const observe = await postJson<any>(daemon.baseUrl, "/v5/observe", {
+            sessionId: session.session.sessionId,
+            capture: {
+              surfaceType: "html",
+              url: "https://safe.example/review",
+              html: testCase.html,
+              visibleText: testCase.visible_text
             }
-          })
-        }).then((response) => response.json() as Promise<{ error?: string }>);
-        if (legacy.error !== "route_disabled_in_secure_v5") {
+          });
+          const capability = observe.capabilities?.[0];
+          observedCapabilities = normalizedCapabilityKinds(observe);
+          assertCondition(JSON.stringify(observedCapabilities) === JSON.stringify(["navigate"]), "Visible page did not mint exactly one navigate capability.");
+          assertCondition(
+            observe.observationVerdict?.safeConstraints?.authority_eligible === true,
+            "Visible navigation page was not authority-eligible."
+          );
+          const action = await postJson<any>(daemon.baseUrl, "/v5/capability/use", {
+            sessionId: session.session.sessionId,
+            capabilityId: capability.capabilityId,
+            capabilityDigest: capability.capabilityDigest,
+            parameters: {}
+          });
+          observedDecision = decisionOf(action);
+          observedReasonCodes = reasonCodesOf(action);
+          assertCondition(action.verdict?.decision === "ALLOW", "Visible navigation capability did not allow the expected action.");
+          sdkLog.push(makeLaneLog("sdk", testCase, { observe, action, observedDecision, observedCapabilities }));
+        } else if (testCase.kind === "navigate_cannot_issue_connector_approval") {
+          const observe = await postJson<any>(daemon.baseUrl, "/v5/observe", {
+            sessionId: session.session.sessionId,
+            capture: {
+              surfaceType: "html",
+              url: "https://safe.example/review",
+              html: testCase.html,
+              visibleText: testCase.visible_text
+            }
+          });
+          const capability = observe.capabilities?.[0];
+          observedCapabilities = normalizedCapabilityKinds(observe);
+          const payload = core.createApprovalIntentPayloadV5({
+            sessionId: session.session.sessionId,
+            workflowHash: session.session.workflowHash,
+            capabilityId: capability.capabilityId,
+            capabilityDigest: capability.capabilityDigest
+          });
+          const brokerSignature = signBuffer(null, Buffer.from(payload, "utf8"), privateKey).toString("base64");
+          const approval = await postJson<any>(daemon.baseUrl, "/v5/approval/issue", {
+            sessionId: session.session.sessionId,
+            capabilityId: capability.capabilityId,
+            capabilityDigest: capability.capabilityDigest,
+            brokerSignature
+          });
+          observedDecision = decisionOf(approval);
+          observedReasonCodes = reasonCodesOf(approval);
+          assertCondition(approval.verdict?.decision === "BLOCK", "Navigate capability incorrectly authorized connector approval.");
+          assertCondition(observedReasonCodes.includes("CAPABILITY_NOT_APPROVABLE"), "Navigate approval rejection did not emit CAPABILITY_NOT_APPROVABLE.");
+          sdkLog.push(makeLaneLog("sdk", testCase, { observe, approval, observedDecision, observedCapabilities, observedReasonCodes }));
+        } else if (testCase.kind === "unsigned_connector_approval") {
+          const observe = await postJson<any>(daemon.baseUrl, "/v5/observe", {
+            sessionId: session.session.sessionId,
+            capture: {
+              ...toolManifestCapture
+            }
+          });
+          const capability = observe.capabilities?.[0];
+          observedCapabilities = normalizedCapabilityKinds(observe);
+          assertCondition(JSON.stringify(observedCapabilities) === JSON.stringify(["connector_prepare"]), "Verified tool manifest did not mint connector_prepare.");
+          const approval = await postJson<any>(daemon.baseUrl, "/v5/approval/issue", {
+            sessionId: session.session.sessionId,
+            capabilityId: capability.capabilityId,
+            capabilityDigest: capability.capabilityDigest,
+            brokerSignature: "unsigned"
+          });
+          observedDecision = decisionOf(approval);
+          observedReasonCodes = reasonCodesOf(approval);
+          assertCondition(approval.verdict?.decision === "BLOCK", "Unsigned approval was accepted.");
+          assertCondition(observedReasonCodes.includes("APPROVAL_BROKER_SIGNATURE_INVALID"), "Unsigned approval rejection did not emit APPROVAL_BROKER_SIGNATURE_INVALID.");
+          sdkLog.push(makeLaneLog("sdk", testCase, { observe, approval, observedDecision, observedCapabilities, observedReasonCodes }));
+        } else if (testCase.kind === "signed_connector_prepare") {
+          const observe = await postJson<any>(daemon.baseUrl, "/v5/observe", {
+            sessionId: session.session.sessionId,
+            capture: {
+              ...toolManifestCapture
+            }
+          });
+          const capability = observe.capabilities?.[0];
+          observedCapabilities = normalizedCapabilityKinds(observe);
+          const payload = core.createApprovalIntentPayloadV5({
+            sessionId: session.session.sessionId,
+            workflowHash: session.session.workflowHash,
+            capabilityId: capability.capabilityId,
+            capabilityDigest: capability.capabilityDigest
+          });
+          const brokerSignature = signBuffer(null, Buffer.from(payload, "utf8"), privateKey).toString("base64");
+          const approval = await postJson<any>(daemon.baseUrl, "/v5/approval/issue", {
+            sessionId: session.session.sessionId,
+            capabilityId: capability.capabilityId,
+            capabilityDigest: capability.capabilityDigest,
+            brokerSignature
+          });
+          const prepare = await postJson<any>(daemon.baseUrl, "/v5/tool/prepare", {
+            sessionId: session.session.sessionId,
+            approvalId: approval.approvalEnvelope.approvalId
+          });
+          const callback = await postJson<any>(daemon.baseUrl, "/v5/tool/callback/verify", {
+            sessionId: session.session.sessionId,
+            approvalId: approval.approvalEnvelope.approvalId,
+            onboardingSessionId: prepare.onboardingSession.onboardingSessionId,
+            request: {
+              sessionId: prepare.onboardingSession.onboardingSessionId,
+              callbackUri: prepare.onboardingSession.callbackUri,
+              callbackOrigin: new URL(prepare.onboardingSession.callbackUri).origin,
+              state: prepare.onboardingSession.state,
+              payload: {
+                code: "auth-code",
+                state: prepare.onboardingSession.state
+              }
+            }
+          });
+          observedDecision = decisionOf(callback);
+          observedReasonCodes = reasonCodesOf(callback);
+          assertCondition(approval.verdict?.decision === "ALLOW", "Signed connector approval did not issue an approval envelope.");
+          assertCondition(prepare.verdict?.decision === "ALLOW", "Signed connector approval did not prepare onboarding.");
+          assertCondition(callback.verdict?.decision === "ALLOW", "Valid callback did not verify successfully.");
+          sdkLog.push(makeLaneLog("sdk", testCase, { observe, approval, prepare, callback, observedDecision, observedCapabilities }));
+        } else if (testCase.kind === "callback_mismatch") {
+          const observe = await postJson<any>(daemon.baseUrl, "/v5/observe", {
+            sessionId: session.session.sessionId,
+            capture: {
+              ...toolManifestCapture
+            }
+          });
+          const capability = observe.capabilities?.[0];
+          observedCapabilities = normalizedCapabilityKinds(observe);
+          const payload = core.createApprovalIntentPayloadV5({
+            sessionId: session.session.sessionId,
+            workflowHash: session.session.workflowHash,
+            capabilityId: capability.capabilityId,
+            capabilityDigest: capability.capabilityDigest
+          });
+          const brokerSignature = signBuffer(null, Buffer.from(payload, "utf8"), privateKey).toString("base64");
+          const approval = await postJson<any>(daemon.baseUrl, "/v5/approval/issue", {
+            sessionId: session.session.sessionId,
+            capabilityId: capability.capabilityId,
+            capabilityDigest: capability.capabilityDigest,
+            brokerSignature
+          });
+          const prepare = await postJson<any>(daemon.baseUrl, "/v5/tool/prepare", {
+            sessionId: session.session.sessionId,
+            approvalId: approval.approvalEnvelope.approvalId
+          });
+          const callback = await postJson<any>(daemon.baseUrl, "/v5/tool/callback/verify", {
+            sessionId: session.session.sessionId,
+            approvalId: approval.approvalEnvelope.approvalId,
+            onboardingSessionId: prepare.onboardingSession.onboardingSessionId,
+            request: {
+              sessionId: prepare.onboardingSession.onboardingSessionId,
+              callbackUri: "https://evil.example/oauth/callback",
+              callbackOrigin: "https://evil.example",
+              state: prepare.onboardingSession.state,
+              payload: {
+                code: "auth-code",
+                state: prepare.onboardingSession.state
+              }
+            }
+          });
+          observedDecision = decisionOf(callback);
+          observedReasonCodes = reasonCodesOf(callback);
+          assertCondition(callback.verdict?.decision === "BLOCK", "Callback mismatch was accepted.");
+          assertCondition(observedReasonCodes.includes("CALLBACK_URI_MISMATCH"), "Callback mismatch did not emit CALLBACK_URI_MISMATCH.");
+          sdkLog.push(makeLaneLog("sdk", testCase, { observe, approval, prepare, callback, observedDecision, observedCapabilities, observedReasonCodes }));
+        } else if (testCase.kind === "legacy_route_disabled") {
+          const legacyResponse = await fetch(`${daemon.baseUrl}/v1/action`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({
+              actionId: "legacy-check",
+              verb: "navigate",
+              targetUrl: "https://docs.python.org/3/tutorial/",
+              trustSignals: {
+                sourceOrigin: "https://safe.example",
+                frameOrigin: "https://safe.example"
+              }
+            })
+          });
+          const legacy = (await legacyResponse.json()) as { error?: string };
+          observedDecision = legacy.error ?? "unknown";
+          assertCondition(legacy.error === "route_disabled_in_secure_v5", "Legacy route was not disabled in secure_v5.");
+          sdkLog.push(makeLaneLog("sdk", testCase, { legacy, observedDecision }));
+        } else {
           status = "fail";
-          detail = "Legacy route was not disabled in secure_v5.";
+          classification = "harness_gap";
+          detail = `Unknown test kind: ${testCase.kind}`;
         }
-        sdkLog.push({ caseId: testCase.id, kind: testCase.kind, legacy });
-      } else {
+      } catch (error) {
         status = "fail";
-        detail = `Unknown test kind: ${testCase.kind}`;
+        detail = error instanceof Error ? error.message : String(error);
+        classification = detail.startsWith("Unknown test kind") ? "harness_gap" : "runtime_gap";
       }
 
       const result: CaseResult = {
@@ -424,7 +525,11 @@ async function main() {
         title: testCase.title,
         kind: testCase.kind,
         expectedDecision: testCase.expected?.decision ?? "n/a",
+        observedDecision,
+        observedCapabilities,
+        reasonCodes: observedReasonCodes,
         status,
+        classification,
         detail
       };
       results.push(result);
@@ -459,7 +564,7 @@ async function main() {
       caseId: entry.id,
       title: entry.title,
       status: "fail",
-      classification: "runtime_gap",
+      classification: entry.classification,
       rationale: entry.detail || "Unexpected V5 claim-case failure."
     }))
   };
@@ -469,6 +574,10 @@ async function main() {
     Title: entry.title,
     Status: entry.status,
     Expected: entry.expectedDecision,
+    Observed: entry.observedDecision,
+    Capabilities: entry.observedCapabilities.join(","),
+    ReasonCodes: entry.reasonCodes.join(","),
+    Classification: entry.classification,
     Detail: entry.detail
   }));
 

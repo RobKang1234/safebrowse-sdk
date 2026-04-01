@@ -27,6 +27,31 @@ function parameterTypeMatches(expected: unknown, actual: unknown): boolean {
   return true;
 }
 
+function isSubsetSafe(requested: string[] | undefined, allowed: string[]): boolean {
+  const requestedSet = new Set((requested ?? []).map((scope) => scope.trim()).filter(Boolean));
+  const allowedSet = new Set(allowed.map((scope) => scope.trim()).filter(Boolean));
+  for (const scope of requestedSet) {
+    if (!allowedSet.has(scope)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isExactAllowedUri(uri: string | undefined, allowedUris: string[]): boolean {
+  if (!uri) {
+    return false;
+  }
+  return allowedUris.includes(uri);
+}
+
+function registryEntryActive(entry: VerifiedRegistryEntry): boolean {
+  if (!entry.expiresAt) {
+    return true;
+  }
+  return new Date(entry.expiresAt).getTime() > Date.now();
+}
+
 function createCapabilityDigests(
   capability: Omit<CapabilityDescriptorV5, "capabilityDigest" | "semanticDigest">
 ): Pick<CapabilityDescriptorV5, "capabilityDigest" | "semanticDigest"> {
@@ -98,10 +123,12 @@ export function mintCapabilitiesForObservationV5(
   options: {
     ttlSeconds?: number;
     verifiedRegistryEntry?: VerifiedRegistryEntry;
+    registryEntryId?: string;
     connectorId?: string;
     requestedScopes?: string[];
     callbackUri?: string;
     callbackOrigin?: string;
+    manifestAuthType?: "none" | "oauth" | "api_key";
   } = {}
 ): CapabilityDescriptorV5[] {
   if (
@@ -169,8 +196,22 @@ export function mintCapabilitiesForObservationV5(
     ) {
       const entry = options.verifiedRegistryEntry;
       const connectorId = options.connectorId ?? entry.adapterId;
-      const callbackUri = options.callbackUri ?? entry.allowedRedirectUris[0];
-      const callbackOrigin = options.callbackOrigin ?? entry.allowedCallbackOrigins[0];
+      const requestedScopes = uniq(options.requestedScopes ?? []);
+      const callbackUri = options.callbackUri;
+      const callbackOrigin = options.callbackOrigin ?? (callbackUri ? normalizeOrigin(callbackUri) : undefined);
+      const connectorBindingValid =
+        registryEntryActive(entry) &&
+        (!options.registryEntryId || options.registryEntryId === entry.registryEntryId) &&
+        (connectorId === entry.adapterId || connectorId === entry.registryEntryId) &&
+        options.manifestAuthType === entry.authType &&
+        isSubsetSafe(requestedScopes, entry.allowedScopes) &&
+        isExactAllowedUri(callbackUri, entry.allowedRedirectUris) &&
+        Boolean(callbackOrigin) &&
+        entry.allowedCallbackOrigins.includes(normalizeOrigin(callbackOrigin ?? "")) &&
+        normalizeOrigin(callbackUri ?? "") === normalizeOrigin(callbackOrigin ?? "");
+      if (!connectorBindingValid) {
+        return [];
+      }
       const base: Omit<CapabilityDescriptorV5, "capabilityDigest" | "semanticDigest"> = {
         capabilityId: randomUUID(),
         sessionId: session.sessionId,
@@ -197,10 +238,10 @@ export function mintCapabilitiesForObservationV5(
           entry.writeCapability || entry.sinkSensitivity === "external_sensitive_sink"
         ),
         registryEntryId: entry.registryEntryId,
-        connectorId,
-        requestedScopes: options.requestedScopes ?? entry.allowedScopes,
+        connectorId: entry.adapterId,
+        requestedScopes,
         callbackUri,
-        callbackOrigin,
+        callbackOrigin: normalizeOrigin(callbackOrigin ?? ""),
         expiresAt,
         nonReplayable: true,
         title: `Prepare connector: ${connectorId}`
@@ -301,10 +342,15 @@ export function evaluateCapabilityUseV5(
     }
   }
 
-  if (capability) {
-    if (request.capabilityDigest !== capability.capabilityDigest) {
-      decision = "BLOCK";
-      reasonCodes.push("CAPABILITY_DIGEST_MISMATCH");
+    if (capability) {
+      if (capability.consumedAt) {
+        decision = "BLOCK";
+        reasonCodes.push("CAPABILITY_REPLAYED");
+        riskScore = 0.99;
+      }
+      if (request.capabilityDigest !== capability.capabilityDigest) {
+        decision = "BLOCK";
+        reasonCodes.push("CAPABILITY_DIGEST_MISMATCH");
       riskScore = 0.99;
     }
     if (new Date(capability.expiresAt).getTime() <= Date.now()) {

@@ -53,6 +53,18 @@ function requestedScopesHash(scopes: string[]): string {
   return sha256Hex(stableStringify([...scopes].sort()));
 }
 
+function scopesSubsetSafe(requested: string[], allowed: string[]): boolean {
+  const allowedSet = new Set(allowed);
+  return requested.every((scope) => allowedSet.has(scope));
+}
+
+function registryEntryActive(entry: VerifiedRegistryEntry): boolean {
+  if (!entry.expiresAt) {
+    return true;
+  }
+  return new Date(entry.expiresAt).getTime() > Date.now();
+}
+
 export function issueApprovalEnvelopeV5(input: {
   session: TaskSession | undefined;
   capability: CapabilityDescriptorV5 | undefined;
@@ -86,6 +98,11 @@ export function issueApprovalEnvelopeV5(input: {
   }
 
   if (input.capability) {
+    if (input.capability.consumedAt) {
+      decision = "BLOCK";
+      reasonCodes.push("CAPABILITY_REPLAYED");
+      riskScore = 0.99;
+    }
     if (!["connector_prepare", "memory_promote"].includes(input.capability.kind)) {
       decision = "BLOCK";
       reasonCodes.push("CAPABILITY_NOT_APPROVABLE");
@@ -105,6 +122,24 @@ export function issueApprovalEnvelopeV5(input: {
       decision = "BLOCK";
       reasonCodes.push("CALLBACK_BINDING_REQUIRED");
       riskScore = 0.99;
+    }
+
+    if (input.session) {
+      if (input.capability.sessionId !== input.session.sessionId) {
+        decision = "BLOCK";
+        reasonCodes.push("CAPABILITY_OUTSIDE_SESSION");
+        riskScore = 0.99;
+      }
+      if (input.capability.workflowHash !== input.session.workflowHash) {
+        decision = "BLOCK";
+        reasonCodes.push("CAPABILITY_WORKFLOW_HASH_MISMATCH");
+        riskScore = 0.99;
+      }
+      if (input.capability.workflowStep !== input.session.currentStep) {
+        decision = "BLOCK";
+        reasonCodes.push("CAPABILITY_OUTSIDE_WORKFLOW_STEP");
+        riskScore = 0.99;
+      }
     }
   }
 
@@ -147,7 +182,9 @@ export function issueApprovalEnvelopeV5(input: {
     issuedAt,
     expiresAt,
     brokerSignature: input.brokerSignature,
-    signedByBroker: true
+    signedByBroker: true,
+    consumedAt: undefined,
+    onboardingSessionId: undefined
   };
 
   return {
@@ -207,6 +244,11 @@ export function prepareToolOnboardingV5(input: {
       reasonCodes.push("CAPABILITY_KIND_MISMATCH");
       riskScore = 0.99;
     }
+    if (input.capability.consumedAt) {
+      decision = "BLOCK";
+      reasonCodes.push("CAPABILITY_REPLAYED");
+      riskScore = 0.99;
+    }
   }
 
   if (input.approvalEnvelope && input.capability) {
@@ -243,12 +285,32 @@ export function prepareToolOnboardingV5(input: {
       reasonCodes.push("APPROVAL_ENVELOPE_EXPIRED");
       riskScore = 0.99;
     }
+    if (input.approvalEnvelope.consumedAt) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_ENVELOPE_ALREADY_USED");
+      riskScore = 0.99;
+    }
+    if (input.approvalEnvelope.onboardingSessionId) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_ENVELOPE_ALREADY_BOUND");
+      riskScore = 0.99;
+    }
   }
 
   if (input.verifiedRegistryEntry && input.approvalEnvelope) {
+    if (!registryEntryActive(input.verifiedRegistryEntry)) {
+      decision = "BLOCK";
+      reasonCodes.push("REGISTRY_ENTRY_EXPIRED");
+      riskScore = 0.99;
+    }
     if (input.approvalEnvelope.registryEntryId !== input.verifiedRegistryEntry.registryEntryId) {
       decision = "BLOCK";
       reasonCodes.push("APPROVAL_REGISTRY_ENTRY_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (input.approvalEnvelope.connectorId !== input.verifiedRegistryEntry.adapterId) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_CONNECTOR_ID_MISMATCH");
       riskScore = 0.99;
     }
     if (
@@ -257,6 +319,54 @@ export function prepareToolOnboardingV5(input: {
     ) {
       decision = "BLOCK";
       reasonCodes.push("APPROVAL_CALLBACK_ORIGIN_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (
+      !input.approvalEnvelope.callbackUri ||
+      !input.verifiedRegistryEntry.allowedRedirectUris.includes(input.approvalEnvelope.callbackUri)
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_CALLBACK_URI_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (
+      requestedScopesHash(input.approvalEnvelope.requestedScopes) !==
+        input.approvalEnvelope.requestedScopesHash ||
+      !scopesSubsetSafe(input.approvalEnvelope.requestedScopes, input.verifiedRegistryEntry.allowedScopes)
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_SCOPE_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (input.verifiedRegistryEntry.authType !== "oauth") {
+      decision = "BLOCK";
+      reasonCodes.push("REGISTRY_AUTH_TYPE_MISMATCH");
+      riskScore = 0.99;
+    }
+  }
+
+  if (input.capability && input.approvalEnvelope) {
+    if (input.capability.connectorId !== input.approvalEnvelope.connectorId) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_CONNECTOR_ID_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (input.capability.callbackUri !== input.approvalEnvelope.callbackUri) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_CALLBACK_URI_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (input.capability.callbackOrigin !== input.approvalEnvelope.callbackOrigin) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_CALLBACK_ORIGIN_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (
+      requestedScopesHash(input.capability.requestedScopes ?? []) !==
+      input.approvalEnvelope.requestedScopesHash
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_SCOPE_MISMATCH");
       riskScore = 0.99;
     }
   }
@@ -371,6 +481,23 @@ export function verifyToolCallbackV5(input: {
       riskScore = 0.99;
     }
   }
+  if (input.approvalEnvelope && input.capability) {
+    if (input.approvalEnvelope.onboardingSessionId !== input.onboardingSession?.onboardingSessionId) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_ONBOARDING_SESSION_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (!input.approvalEnvelope.consumedAt) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_ENVELOPE_NOT_PREPARED");
+      riskScore = 0.99;
+    }
+    if (input.approvalEnvelope.capabilityDigest !== input.capability.capabilityDigest) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_CAPABILITY_DIGEST_MISMATCH");
+      riskScore = 0.99;
+    }
+  }
   if (input.onboardingSession) {
     if (new Date(input.onboardingSession.expiresAt).getTime() <= Date.now()) {
       decision = "BLOCK";
@@ -387,7 +514,12 @@ export function verifyToolCallbackV5(input: {
       reasonCodes.push("OAUTH_STATE_MISMATCH");
       riskScore = 0.99;
     }
-    if (normalizeOrigin(input.request.callbackUri) !== normalizeOrigin(input.onboardingSession.callbackUri)) {
+    if (input.request.sessionId !== input.onboardingSession.onboardingSessionId) {
+      decision = "BLOCK";
+      reasonCodes.push("CALLBACK_SESSION_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (input.request.callbackUri !== input.onboardingSession.callbackUri) {
       decision = "BLOCK";
       reasonCodes.push("CALLBACK_URI_MISMATCH");
       riskScore = 0.99;
@@ -397,6 +529,33 @@ export function verifyToolCallbackV5(input: {
     ) {
       decision = "BLOCK";
       reasonCodes.push("CALLBACK_ORIGIN_MISMATCH");
+      riskScore = 0.99;
+    }
+  }
+
+  if (input.verifiedRegistryEntry && input.onboardingSession) {
+    if (!registryEntryActive(input.verifiedRegistryEntry)) {
+      decision = "BLOCK";
+      reasonCodes.push("REGISTRY_ENTRY_EXPIRED");
+      riskScore = 0.99;
+    }
+    if (!input.verifiedRegistryEntry.allowedRedirectUris.includes(input.request.callbackUri)) {
+      decision = "BLOCK";
+      reasonCodes.push("CALLBACK_URI_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (!input.verifiedRegistryEntry.allowedCallbackOrigins.includes(input.request.callbackOrigin)) {
+      decision = "BLOCK";
+      reasonCodes.push("CALLBACK_ORIGIN_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (
+      requestedScopesHash(input.onboardingSession.requestedScopes) !==
+        requestedScopesHash(input.approvalEnvelope?.requestedScopes ?? []) ||
+      !scopesSubsetSafe(input.onboardingSession.requestedScopes, input.verifiedRegistryEntry.allowedScopes)
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("CALLBACK_SCOPE_MISMATCH");
       riskScore = 0.99;
     }
   }

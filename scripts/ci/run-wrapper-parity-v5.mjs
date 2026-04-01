@@ -258,6 +258,14 @@ function normalizeMemoryPromote(response) {
   };
 }
 
+function normalizeLegacyRoute(response, status) {
+  return {
+    status,
+    error: response?.error ?? null,
+    claimProfile: response?.claimProfile ?? null
+  };
+}
+
 function assertDeepEqual(label, left, right) {
   if (JSON.stringify(left) !== JSON.stringify(right)) {
     throw new Error(
@@ -274,7 +282,15 @@ async function runV5Cases(baseUrl, makeHtmlCapture, signApproval, subset) {
   const caseIds =
     subset === "packaging"
       ? ["hidden_html", "visible_navigation"]
-      : ["hidden_html", "visible_navigation", "connector_prepare", "memory_write"];
+      : [
+          "hidden_html",
+          "visible_navigation",
+          "navigate_cannot_issue_connector_approval",
+          "unsigned_connector_approval",
+          "signed_connector_prepare",
+          "callback_mismatch",
+          "legacy_route_disabled"
+        ];
 
   const results = {};
 
@@ -327,7 +343,60 @@ async function runV5Cases(baseUrl, makeHtmlCapture, signApproval, subset) {
     };
   }
 
-  if (caseIds.includes("connector_prepare")) {
+  if (caseIds.includes("navigate_cannot_issue_connector_approval")) {
+    const session = await postJson(baseUrl, "/v5/session/start", {
+      taskId: "parity-nav-approval",
+      userGoal: "Reject connector onboarding from plain visible navigation.",
+      allowedOrigins: ["https://safe.example", "https://docs.python.org"],
+      allowedVerbs: ["navigate", "connector_prepare"],
+      forbiddenSinks: []
+    });
+    const observe = await postJson(baseUrl, "/v5/observe", {
+      sessionId: session.session.sessionId,
+      capture: makeHtmlCapture({
+        html: "<main>Visible docs only.</main><a href=\"https://docs.python.org/3/tutorial/\">Docs</a>",
+        visibleText: "Visible docs only. Docs"
+      })
+    });
+    const capability = observe.capabilities[0];
+    const approval = await postJson(baseUrl, "/v5/approval/issue", {
+      sessionId: session.session.sessionId,
+      capabilityId: capability.capabilityId,
+      capabilityDigest: capability.capabilityDigest,
+      brokerSignature: signApproval(session.session, capability)
+    });
+    results.navigate_cannot_issue_connector_approval = {
+      observe: normalizeObserve(observe),
+      approval: normalizeApproval(approval)
+    };
+  }
+
+  if (caseIds.includes("unsigned_connector_approval")) {
+    const session = await postJson(baseUrl, "/v5/session/start", {
+      taskId: "parity-tool-unsigned",
+      userGoal: "Review connector onboarding safely",
+      allowedOrigins: ["https://safe.example"],
+      allowedVerbs: ["connector_prepare"],
+      forbiddenSinks: []
+    });
+    const observe = await postJson(baseUrl, "/v5/observe", {
+      sessionId: session.session.sessionId,
+      capture: toolManifestCapture
+    });
+    const capability = observe.capabilities[0];
+    const approval = await postJson(baseUrl, "/v5/approval/issue", {
+      sessionId: session.session.sessionId,
+      capabilityId: capability.capabilityId,
+      capabilityDigest: capability.capabilityDigest,
+      brokerSignature: "invalid-signature"
+    });
+    results.unsigned_connector_approval = {
+      observe: normalizeObserve(observe),
+      approval: normalizeApproval(approval)
+    };
+  }
+
+  if (caseIds.includes("signed_connector_prepare")) {
     const session = await postJson(baseUrl, "/v5/session/start", {
       taskId: "parity-tool",
       userGoal: "Review connector onboarding safely",
@@ -366,7 +435,7 @@ async function runV5Cases(baseUrl, makeHtmlCapture, signApproval, subset) {
         }
       }
     });
-    results.connector_prepare = {
+    results.signed_connector_prepare = {
       observe: normalizeObserve(observe),
       approval: normalizeApproval(approval),
       prepare: normalizeToolPrepare(prepare),
@@ -374,31 +443,67 @@ async function runV5Cases(baseUrl, makeHtmlCapture, signApproval, subset) {
     };
   }
 
-  if (caseIds.includes("memory_write")) {
+  if (caseIds.includes("callback_mismatch")) {
     const session = await postJson(baseUrl, "/v5/session/start", {
-      taskId: "parity-memory",
-      userGoal: "Store notes safely",
+      taskId: "parity-tool-mismatch",
+      userGoal: "Reject callback mismatches after valid prepare.",
       allowedOrigins: ["https://safe.example"],
-      allowedVerbs: [],
+      allowedVerbs: ["connector_prepare"],
       forbiddenSinks: []
     });
-    const memoryWrite = await postJson(baseUrl, "/v5/memory/write", {
+    const observe = await postJson(baseUrl, "/v5/observe", {
       sessionId: session.session.sessionId,
-      inputKind: "user_note",
-      key: "workflow_hint",
-      value: {
-        note: "review later"
+      capture: toolManifestCapture
+    });
+    const capability = observe.capabilities[0];
+    const approval = await postJson(baseUrl, "/v5/approval/issue", {
+      sessionId: session.session.sessionId,
+      capabilityId: capability.capabilityId,
+      capabilityDigest: capability.capabilityDigest,
+      brokerSignature: signApproval(session.session, capability)
+    });
+    const prepare = await postJson(baseUrl, "/v5/tool/prepare", {
+      sessionId: session.session.sessionId,
+      approvalId: approval.approvalEnvelope.approvalId
+    });
+    const callback = await postJson(baseUrl, "/v5/tool/callback/verify", {
+      sessionId: session.session.sessionId,
+      approvalId: approval.approvalEnvelope.approvalId,
+      onboardingSessionId: prepare.onboardingSession.onboardingSessionId,
+      request: {
+        sessionId: prepare.onboardingSession.onboardingSessionId,
+        callbackUri: "https://safe.example/oauth/callback/unexpected",
+        callbackOrigin: "https://safe.example",
+        state: prepare.onboardingSession.state,
+        payload: {
+          code: "auth-code",
+          state: prepare.onboardingSession.state
+        }
+      }
+    });
+    results.callback_mismatch = {
+      observe: normalizeObserve(observe),
+      approval: normalizeApproval(approval),
+      prepare: normalizeToolPrepare(prepare),
+      callback: normalizeCallback(callback)
+    };
+  }
+
+  if (caseIds.includes("legacy_route_disabled")) {
+    const response = await fetch(`${baseUrl}/v1/action`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
       },
-      durable: true
+      body: JSON.stringify({
+        actionId: "legacy-test",
+        verb: "navigate",
+        targetUrl: "https://docs.python.org/3/tutorial/"
+      })
     });
-    const memoryPromote = await postJson(baseUrl, "/v5/memory/promote", {
-      sessionId: session.session.sessionId,
-      recordId: memoryWrite.record.recordId,
-      validationEvidence: ["validated by reviewer"]
-    });
-    results.memory_write = {
-      write: normalizeMemoryWrite(memoryWrite),
-      promote: normalizeMemoryPromote(memoryPromote)
+    const payload = await response.json();
+    results.legacy_route_disabled = {
+      legacy: normalizeLegacyRoute(payload, response.status)
     };
   }
 
@@ -450,7 +555,143 @@ async function runPythonLane(baseUrl, wheelPath, tempDir, subset, nodePath, priv
     }
   );
 
-  const script = `import json, os, subprocess, sys\nfrom pathlib import Path\nsys.path.insert(0, ${JSON.stringify(pythonTarget)})\nfrom safebrowse_client import SafeBrowseClient, build_html_surface_capture\nclient = SafeBrowseClient(${JSON.stringify(baseUrl)})\nresults = {}\nsubset = ${JSON.stringify(subset)}\nnode_path = ${JSON.stringify(nodePath)}\nprivate_key_pem = ${JSON.stringify(privateKeyPem)}\ndef sign_payload(payload: str) -> str:\n    code = \"import { createPrivateKey, sign } from 'node:crypto'; const key = createPrivateKey(process.env.SAFEBROWSE_V5_PRIVATE_KEY_PEM); const signature = sign(null, Buffer.from(process.env.SAFEBROWSE_V5_PAYLOAD, 'utf8'), key).toString('base64'); process.stdout.write(signature);\"\n    env = dict(os.environ)\n    env['SAFEBROWSE_V5_PRIVATE_KEY_PEM'] = private_key_pem\n    env['SAFEBROWSE_V5_PAYLOAD'] = payload\n    completed = subprocess.run([node_path, '--input-type=module', '-e', code], check=True, capture_output=True, text=True, env=env)\n    return completed.stdout\nif subset in ('full', 'packaging'):\n    session = client.start_session_v5({'taskId': 'py-hidden', 'userGoal': 'Review docs safely', 'allowedOrigins': ['https://safe.example', 'https://docs.python.org'], 'allowedVerbs': ['navigate'], 'forbiddenSinks': []})['session']\n    observe = client.observe_v5({'sessionId': session['sessionId'], 'capture': build_html_surface_capture(url='https://safe.example/review', visible_text='Visible docs only.', html='<main>Visible docs only.</main><div hidden><a href=\"https://docs.python.org/3/tutorial/\">continuity path</a></div>', hidden_text=['continuity path'])})\n    results['hidden_html'] = {'observe': {'parseStatus': observe['compiledObservation']['parseStatus'], 'authorityEligible': observe['observationVerdict']['safeConstraints'].get('authority_eligible'), 'blockedChannels': sorted(observe['plannerView']['blockedChannels']), 'capabilityKinds': sorted([entry['kind'] for entry in observe['capabilities']]), 'riskMarkers': sorted(observe['plannerView']['riskMarkers'])}}\n    session = client.start_session_v5({'taskId': 'py-visible', 'userGoal': 'Review docs safely', 'allowedOrigins': ['https://safe.example', 'https://docs.python.org'], 'allowedVerbs': ['navigate'], 'forbiddenSinks': []})['session']\n    observe = client.observe_v5({'sessionId': session['sessionId'], 'capture': build_html_surface_capture(url='https://safe.example/review', visible_text='Visible docs only. Docs', html='<main>Visible docs only.</main><a href=\"https://docs.python.org/3/tutorial/\">Docs</a>')})\n    capability = observe['capabilities'][0]\n    action = client.action_v5({'sessionId': session['sessionId'], 'capabilityId': capability['capabilityId'], 'capabilityDigest': capability['capabilityDigest'], 'parameters': {}})\n    results['visible_navigation'] = {'observe': {'parseStatus': observe['compiledObservation']['parseStatus'], 'authorityEligible': observe['observationVerdict']['safeConstraints'].get('authority_eligible'), 'blockedChannels': sorted(observe['plannerView']['blockedChannels']), 'capabilityKinds': sorted([entry['kind'] for entry in observe['capabilities']]), 'riskMarkers': sorted(observe['plannerView']['riskMarkers'])}, 'action': {'decision': action['verdict']['decision'], 'reasonCodes': sorted(action['verdict']['reasonCodes']), 'derivedSinkClass': action.get('executionPlan', {}).get('derivedSinkClass'), 'targetOrigin': action.get('executionPlan', {}).get('targetOrigin')}}\nif subset == 'full':\n    session = client.start_session_v5({'taskId': 'py-tool', 'userGoal': 'Review connector onboarding safely', 'allowedOrigins': ['https://safe.example'], 'allowedVerbs': ['connector_prepare'], 'forbiddenSinks': []})['session']\n    observe = client.observe_v5({'sessionId': session['sessionId'], 'capture': ${JSON.stringify(toolManifestCapture)}})\n    capability = observe['capabilities'][0]\n    payload = json.dumps({'capabilityDigest': capability['capabilityDigest'], 'capabilityId': capability['capabilityId'], 'expiresInSeconds': 600, 'sessionId': session['sessionId'], 'workflowHash': session['workflowHash']}, separators=(',', ':'), sort_keys=True)\n    approval = client.issue_approval_envelope_v5({'sessionId': session['sessionId'], 'capabilityId': capability['capabilityId'], 'capabilityDigest': capability['capabilityDigest'], 'brokerSignature': sign_payload(payload)})\n    prepare = client.tool_prepare_v5({'sessionId': session['sessionId'], 'approvalId': approval['approvalEnvelope']['approvalId']})\n    callback = client.tool_callback_verify_v5({'sessionId': session['sessionId'], 'approvalId': approval['approvalEnvelope']['approvalId'], 'onboardingSessionId': prepare['onboardingSession']['onboardingSessionId'], 'request': {'sessionId': prepare['onboardingSession']['onboardingSessionId'], 'callbackUri': 'https://safe.example/oauth/callback', 'callbackOrigin': 'https://safe.example', 'state': prepare['onboardingSession']['state'], 'payload': {'code': 'auth-code', 'state': prepare['onboardingSession']['state']}}})\n    results['connector_prepare'] = {'observe': {'parseStatus': observe['compiledObservation']['parseStatus'], 'authorityEligible': observe['observationVerdict']['safeConstraints'].get('authority_eligible'), 'blockedChannels': sorted(observe['plannerView']['blockedChannels']), 'capabilityKinds': sorted([entry['kind'] for entry in observe['capabilities']]), 'riskMarkers': sorted(observe['plannerView']['riskMarkers'])}, 'approval': {'decision': approval['verdict']['decision'], 'reasonCodes': sorted(approval['verdict']['reasonCodes']), 'sinkClass': approval.get('approvalEnvelope', {}).get('sinkClass'), 'connectorId': approval.get('approvalEnvelope', {}).get('connectorId')}, 'prepare': {'decision': prepare['verdict']['decision'], 'reasonCodes': sorted(prepare['verdict']['reasonCodes']), 'connectorId': prepare.get('onboardingSession', {}).get('connectorId')}, 'callback': {'decision': callback['verdict']['decision'], 'reasonCodes': sorted(callback['verdict']['reasonCodes']), 'connectorId': callback.get('connectorHandle', {}).get('connectorId')}}\n    session = client.start_session_v5({'taskId': 'py-memory', 'userGoal': 'Store notes safely', 'allowedOrigins': ['https://safe.example'], 'allowedVerbs': [], 'forbiddenSinks': []})['session']\n    memory = client.memory_write_v5({'sessionId': session['sessionId'], 'inputKind': 'user_note', 'key': 'workflow_hint', 'value': {'note': 'review later'}, 'durable': True})\n    promote = client.memory_promote_v5({'sessionId': session['sessionId'], 'recordId': memory['record']['recordId'], 'validationEvidence': ['validated by reviewer']})\n    results['memory_write'] = {'write': {'decision': memory['verdict']['decision'], 'reasonCodes': sorted(memory['verdict']['reasonCodes']), 'tier': memory['record']['tier'], 'promotionKind': memory.get('promotionCapability', {}).get('kind')}, 'promote': {'decision': promote['verdict']['decision'], 'reasonCodes': sorted(promote['verdict']['reasonCodes']), 'tier': promote.get('promotedRecord', {}).get('tier')}}\nPath(${JSON.stringify(resultsPath)}).write_text(json.dumps(results, indent=2), encoding='utf-8')\n`;
+  const script = `import json, os, subprocess, sys
+from pathlib import Path
+from urllib import error, request
+
+sys.path.insert(0, ${JSON.stringify(pythonTarget)})
+from safebrowse_client import SafeBrowseClient, build_html_surface_capture
+
+client = SafeBrowseClient(${JSON.stringify(baseUrl)})
+results = {}
+subset = ${JSON.stringify(subset)}
+node_path = ${JSON.stringify(nodePath)}
+private_key_pem = ${JSON.stringify(privateKeyPem)}
+tool_manifest_capture = ${JSON.stringify(toolManifestCapture)}
+
+
+def sign_payload(payload: str) -> str:
+    code = "import { createPrivateKey, sign } from 'node:crypto'; const key = createPrivateKey(process.env.SAFEBROWSE_V5_PRIVATE_KEY_PEM); const signature = sign(null, Buffer.from(process.env.SAFEBROWSE_V5_PAYLOAD, 'utf8'), key).toString('base64'); process.stdout.write(signature);"
+    env = dict(os.environ)
+    env["SAFEBROWSE_V5_PRIVATE_KEY_PEM"] = private_key_pem
+    env["SAFEBROWSE_V5_PAYLOAD"] = payload
+    completed = subprocess.run([node_path, "--input-type=module", "-e", code], check=True, capture_output=True, text=True, env=env)
+    return completed.stdout
+
+
+def normalize_observe(response: dict) -> dict:
+    return {
+        "parseStatus": response.get("compiledObservation", {}).get("parseStatus"),
+        "authorityEligible": response.get("observationVerdict", {}).get("safeConstraints", {}).get("authority_eligible"),
+        "blockedChannels": sorted(response.get("plannerView", {}).get("blockedChannels", [])),
+        "capabilityKinds": sorted([entry["kind"] for entry in response.get("capabilities", [])]),
+        "riskMarkers": sorted(response.get("plannerView", {}).get("riskMarkers", [])),
+    }
+
+
+def normalize_action(response: dict) -> dict:
+    return {
+        "decision": response.get("verdict", {}).get("decision"),
+        "reasonCodes": sorted(response.get("verdict", {}).get("reasonCodes", [])),
+        "derivedSinkClass": response.get("executionPlan", {}).get("derivedSinkClass"),
+        "targetOrigin": response.get("executionPlan", {}).get("targetOrigin"),
+    }
+
+
+def normalize_approval(response: dict) -> dict:
+    return {
+        "decision": response.get("verdict", {}).get("decision"),
+        "reasonCodes": sorted(response.get("verdict", {}).get("reasonCodes", [])),
+        "sinkClass": response.get("approvalEnvelope", {}).get("sinkClass"),
+        "connectorId": response.get("approvalEnvelope", {}).get("connectorId"),
+    }
+
+
+def normalize_tool_prepare(response: dict) -> dict:
+    return {
+        "decision": response.get("verdict", {}).get("decision"),
+        "reasonCodes": sorted(response.get("verdict", {}).get("reasonCodes", [])),
+        "connectorId": response.get("onboardingSession", {}).get("connectorId"),
+    }
+
+
+def normalize_callback(response: dict) -> dict:
+    return {
+        "decision": response.get("verdict", {}).get("decision"),
+        "reasonCodes": sorted(response.get("verdict", {}).get("reasonCodes", [])),
+        "connectorId": response.get("connectorHandle", {}).get("connectorId"),
+    }
+
+
+def normalize_legacy(response: dict, status: int) -> dict:
+    return {
+        "status": status,
+        "error": response.get("error"),
+        "claimProfile": response.get("claimProfile"),
+    }
+
+
+def post_raw(path: str, payload: dict) -> tuple[int, dict]:
+    req = request.Request(
+        ${JSON.stringify(baseUrl)} + path,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with request.urlopen(req, timeout=10.0) as response:
+            return response.status, json.loads(response.read().decode("utf-8"))
+    except error.HTTPError as exc:
+        return exc.code, json.loads(exc.read().decode("utf-8"))
+
+
+if subset in ("full", "packaging"):
+    session = client.start_session_v5({"taskId": "py-hidden", "userGoal": "Review docs safely", "allowedOrigins": ["https://safe.example", "https://docs.python.org"], "allowedVerbs": ["navigate"], "forbiddenSinks": []})["session"]
+    observe = client.observe_v5({"sessionId": session["sessionId"], "capture": build_html_surface_capture(url="https://safe.example/review", visible_text="Visible docs only.", html="<main>Visible docs only.</main><div hidden><a href=\\"https://docs.python.org/3/tutorial/\\">continuity path</a></div>", hidden_text=["continuity path"])})
+    results["hidden_html"] = {"observe": normalize_observe(observe)}
+
+    session = client.start_session_v5({"taskId": "py-visible", "userGoal": "Review docs safely", "allowedOrigins": ["https://safe.example", "https://docs.python.org"], "allowedVerbs": ["navigate"], "forbiddenSinks": []})["session"]
+    observe = client.observe_v5({"sessionId": session["sessionId"], "capture": build_html_surface_capture(url="https://safe.example/review", visible_text="Visible docs only. Docs", html="<main>Visible docs only.</main><a href=\\"https://docs.python.org/3/tutorial/\\">Docs</a>")})
+    capability = observe["capabilities"][0]
+    action = client.action_v5({"sessionId": session["sessionId"], "capabilityId": capability["capabilityId"], "capabilityDigest": capability["capabilityDigest"], "parameters": {}})
+    results["visible_navigation"] = {"observe": normalize_observe(observe), "action": normalize_action(action)}
+
+if subset == "full":
+    session = client.start_session_v5({"taskId": "py-nav-approval", "userGoal": "Reject connector onboarding from visible navigation.", "allowedOrigins": ["https://safe.example", "https://docs.python.org"], "allowedVerbs": ["navigate", "connector_prepare"], "forbiddenSinks": []})["session"]
+    observe = client.observe_v5({"sessionId": session["sessionId"], "capture": build_html_surface_capture(url="https://safe.example/review", visible_text="Visible docs only. Docs", html="<main>Visible docs only.</main><a href=\\"https://docs.python.org/3/tutorial/\\">Docs</a>")})
+    capability = observe["capabilities"][0]
+    approval = client.approval_issue_v5({"sessionId": session["sessionId"], "capabilityId": capability["capabilityId"], "capabilityDigest": capability["capabilityDigest"], "brokerSignature": sign_payload(json.dumps({"capabilityDigest": capability["capabilityDigest"], "capabilityId": capability["capabilityId"], "expiresInSeconds": 600, "sessionId": session["sessionId"], "workflowHash": session["workflowHash"]}, separators=(",", ":"), sort_keys=True))})
+    results["navigate_cannot_issue_connector_approval"] = {"observe": normalize_observe(observe), "approval": normalize_approval(approval)}
+
+    session = client.start_session_v5({"taskId": "py-tool-unsigned", "userGoal": "Reject unsigned connector approval.", "allowedOrigins": ["https://safe.example"], "allowedVerbs": ["connector_prepare"], "forbiddenSinks": []})["session"]
+    observe = client.observe_v5({"sessionId": session["sessionId"], "capture": tool_manifest_capture})
+    capability = observe["capabilities"][0]
+    approval = client.approval_issue_v5({"sessionId": session["sessionId"], "capabilityId": capability["capabilityId"], "capabilityDigest": capability["capabilityDigest"], "brokerSignature": "invalid-signature"})
+    results["unsigned_connector_approval"] = {"observe": normalize_observe(observe), "approval": normalize_approval(approval)}
+
+    session = client.start_session_v5({"taskId": "py-tool", "userGoal": "Review connector onboarding safely", "allowedOrigins": ["https://safe.example"], "allowedVerbs": ["connector_prepare"], "forbiddenSinks": []})["session"]
+    observe = client.observe_v5({"sessionId": session["sessionId"], "capture": tool_manifest_capture})
+    capability = observe["capabilities"][0]
+    payload = json.dumps({"capabilityDigest": capability["capabilityDigest"], "capabilityId": capability["capabilityId"], "expiresInSeconds": 600, "sessionId": session["sessionId"], "workflowHash": session["workflowHash"]}, separators=(",", ":"), sort_keys=True)
+    approval = client.approval_issue_v5({"sessionId": session["sessionId"], "capabilityId": capability["capabilityId"], "capabilityDigest": capability["capabilityDigest"], "brokerSignature": sign_payload(payload)})
+    prepare = client.tool_prepare_v5({"sessionId": session["sessionId"], "approvalId": approval["approvalEnvelope"]["approvalId"]})
+    callback = client.tool_callback_verify_v5({"sessionId": session["sessionId"], "approvalId": approval["approvalEnvelope"]["approvalId"], "onboardingSessionId": prepare["onboardingSession"]["onboardingSessionId"], "request": {"sessionId": prepare["onboardingSession"]["onboardingSessionId"], "callbackUri": "https://safe.example/oauth/callback", "callbackOrigin": "https://safe.example", "state": prepare["onboardingSession"]["state"], "payload": {"code": "auth-code", "state": prepare["onboardingSession"]["state"]}}})
+    results["signed_connector_prepare"] = {"observe": normalize_observe(observe), "approval": normalize_approval(approval), "prepare": normalize_tool_prepare(prepare), "callback": normalize_callback(callback)}
+
+    session = client.start_session_v5({"taskId": "py-callback-mismatch", "userGoal": "Reject callback mismatch after prepare.", "allowedOrigins": ["https://safe.example"], "allowedVerbs": ["connector_prepare"], "forbiddenSinks": []})["session"]
+    observe = client.observe_v5({"sessionId": session["sessionId"], "capture": tool_manifest_capture})
+    capability = observe["capabilities"][0]
+    payload = json.dumps({"capabilityDigest": capability["capabilityDigest"], "capabilityId": capability["capabilityId"], "expiresInSeconds": 600, "sessionId": session["sessionId"], "workflowHash": session["workflowHash"]}, separators=(",", ":"), sort_keys=True)
+    approval = client.approval_issue_v5({"sessionId": session["sessionId"], "capabilityId": capability["capabilityId"], "capabilityDigest": capability["capabilityDigest"], "brokerSignature": sign_payload(payload)})
+    prepare = client.tool_prepare_v5({"sessionId": session["sessionId"], "approvalId": approval["approvalEnvelope"]["approvalId"]})
+    callback = client.tool_callback_verify_v5({"sessionId": session["sessionId"], "approvalId": approval["approvalEnvelope"]["approvalId"], "onboardingSessionId": prepare["onboardingSession"]["onboardingSessionId"], "request": {"sessionId": prepare["onboardingSession"]["onboardingSessionId"], "callbackUri": "https://safe.example/oauth/callback/unexpected", "callbackOrigin": "https://safe.example", "state": prepare["onboardingSession"]["state"], "payload": {"code": "auth-code", "state": prepare["onboardingSession"]["state"]}}})
+    results["callback_mismatch"] = {"observe": normalize_observe(observe), "approval": normalize_approval(approval), "prepare": normalize_tool_prepare(prepare), "callback": normalize_callback(callback)}
+
+    legacy_status, legacy = post_raw("/v1/action", {"actionId": "legacy-test", "verb": "navigate", "targetUrl": "https://docs.python.org/3/tutorial/"})
+    results["legacy_route_disabled"] = {"legacy": normalize_legacy(legacy, legacy_status)}
+
+Path(${JSON.stringify(resultsPath)}).write_text(json.dumps(results, indent=2), encoding="utf-8")
+`;
   await writeFile(scriptPath, script, "utf8");
   await execFileAsync(process.platform === "win32" ? "py" : "python3", [scriptPath], {
     cwd: repoRoot,

@@ -113,6 +113,107 @@ class SafeBrowseClientTest(unittest.TestCase):
         self.assertIn("/v5/observe", args[0].full_url)
 
     @patch("safebrowse_client.client.request.urlopen")
+    def test_start_session_v5_posts_to_v5_route(self, mock_urlopen) -> None:
+        mock_urlopen.return_value = _FakeResponse({"session": {"sessionId": "v5-abc"}})
+        client = SafeBrowseClient()
+
+        result = client.start_session_v5({"taskId": "task-5", "userGoal": "demo"})
+
+        self.assertEqual(result["session"]["sessionId"], "v5-abc")
+        args, _kwargs = mock_urlopen.call_args
+        self.assertIn("/v5/session/start", args[0].full_url)
+
+    @patch("safebrowse_client.client.request.urlopen")
+    def test_action_v5_posts_to_v5_route(self, mock_urlopen) -> None:
+        mock_urlopen.return_value = _FakeResponse({"verdict": {"decision": "ALLOW"}})
+        client = SafeBrowseClient()
+
+        result = client.action_v5(
+            {
+                "sessionId": "session-5",
+                "capabilityId": "cap-1",
+                "capabilityDigest": "digest-1",
+                "parameters": {},
+            }
+        )
+
+        self.assertEqual(result["verdict"]["decision"], "ALLOW")
+        args, _kwargs = mock_urlopen.call_args
+        self.assertIn("/v5/capability/use", args[0].full_url)
+
+    @patch("safebrowse_client.client.request.urlopen")
+    def test_approval_issue_v5_posts_to_v5_route(self, mock_urlopen) -> None:
+        mock_urlopen.return_value = _FakeResponse({"verdict": {"decision": "ALLOW"}})
+        client = SafeBrowseClient()
+
+        result = client.approval_issue_v5(
+            {
+                "sessionId": "session-5",
+                "capabilityId": "cap-1",
+                "capabilityDigest": "digest-1",
+                "brokerSignature": "sig",
+            }
+        )
+
+        self.assertEqual(result["verdict"]["decision"], "ALLOW")
+        args, _kwargs = mock_urlopen.call_args
+        self.assertIn("/v5/approval/issue", args[0].full_url)
+
+    @patch("safebrowse_client.client.request.urlopen")
+    def test_tool_prepare_v5_posts_to_v5_route(self, mock_urlopen) -> None:
+        mock_urlopen.return_value = _FakeResponse({"verdict": {"decision": "ALLOW"}})
+        client = SafeBrowseClient()
+
+        result = client.tool_prepare_v5({"sessionId": "session-5", "approvalId": "approval-1"})
+
+        self.assertEqual(result["verdict"]["decision"], "ALLOW")
+        args, _kwargs = mock_urlopen.call_args
+        self.assertIn("/v5/tool/prepare", args[0].full_url)
+
+    @patch("safebrowse_client.client.request.urlopen")
+    def test_tool_callback_verify_v5_posts_to_v5_route(self, mock_urlopen) -> None:
+        mock_urlopen.return_value = _FakeResponse({"verdict": {"decision": "ALLOW"}})
+        client = SafeBrowseClient()
+
+        result = client.tool_callback_verify_v5(
+            {
+                "sessionId": "session-5",
+                "approvalId": "approval-1",
+                "onboardingSessionId": "onboarding-1",
+                "request": {
+                    "sessionId": "onboarding-1",
+                    "callbackUri": "https://safe.example/oauth/callback",
+                    "callbackOrigin": "https://safe.example",
+                    "state": "state-1",
+                    "payload": {"code": "auth-code", "state": "state-1"},
+                },
+            }
+        )
+
+        self.assertEqual(result["verdict"]["decision"], "ALLOW")
+        args, _kwargs = mock_urlopen.call_args
+        self.assertIn("/v5/tool/callback/verify", args[0].full_url)
+
+    @patch("safebrowse_client.client.request.urlopen")
+    def test_memory_promote_v5_posts_to_v5_route(self, mock_urlopen) -> None:
+        mock_urlopen.return_value = _FakeResponse({"verdict": {"decision": "ALLOW"}})
+        client = SafeBrowseClient()
+
+        result = client.memory_promote_v5(
+            {
+                "sessionId": "session-1",
+                "recordId": "mem-1",
+                "capabilityId": "cap-1",
+                "capabilityDigest": "digest-1",
+                "approvalId": "approval-1",
+            }
+        )
+
+        self.assertEqual(result["verdict"]["decision"], "ALLOW")
+        args, _kwargs = mock_urlopen.call_args
+        self.assertIn("/v5/memory/promote", args[0].full_url)
+
+    @patch("safebrowse_client.client.request.urlopen")
     def test_memory_rollback_v4_posts_to_v4_route(self, mock_urlopen) -> None:
         mock_urlopen.return_value = _FakeResponse({"verdict": {"decision": "ALLOW"}})
         client = SafeBrowseClient()

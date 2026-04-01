@@ -113,7 +113,8 @@ def run_agent():
                 )
                 print(f"[step {step}] verdict:", json.dumps(verdict, indent=2))
 
-                if verdict["decision"] != "ALLOW":
+                verdict_payload = verdict.get("verdict", {})
+                if verdict_payload.get("decision") != "ALLOW":
                     print("[agent] navigation blocked by SafeBrowse")
                     break
 

@@ -86,8 +86,11 @@ class SafeBrowseClient:
     def issue_approval_grant(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v4/approval/grant", payload)
 
-    def issue_approval_envelope_v5(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def approval_issue_v5(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v5/approval/issue", payload)
+
+    def issue_approval_envelope_v5(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.approval_issue_v5(payload)
 
     def memory(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v1/memory", payload)

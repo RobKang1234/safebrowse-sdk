@@ -609,8 +609,9 @@ export function compileObservationV5(
     parserIsolation:
       options.parserIsolation ?? {
         processIsolated: false,
-        secretAccess: false,
-        arbitraryEgress: false,
+        envScrubbed: false,
+        egressDenied: false,
+        envKeys: [],
         allowlistedEgress: []
       },
     spans: parsed.spans,

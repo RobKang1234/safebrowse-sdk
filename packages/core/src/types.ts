@@ -435,8 +435,9 @@ export interface ExtractedTarget {
 
 export interface ParserIsolationReport {
   processIsolated: boolean;
-  secretAccess: false;
-  arbitraryEgress: false;
+  envScrubbed: boolean;
+  egressDenied: boolean;
+  envKeys: string[];
   allowlistedEgress: string[];
 }
 
@@ -588,6 +589,7 @@ export interface CapabilityDescriptorV5 {
   memoryRecordId?: string;
   expiresAt: string;
   nonReplayable: true;
+  consumedAt?: string;
   title: string;
 }
 
@@ -618,6 +620,8 @@ export interface ApprovalEnvelopeV5 {
   expiresAt: string;
   brokerSignature: string;
   signedByBroker: true;
+  consumedAt?: string;
+  onboardingSessionId?: string;
 }
 
 export interface ConnectorHandle {
@@ -731,8 +735,9 @@ export interface MemoryWriteRequestV5 {
 export interface MemoryPromotionRequestV5 {
   sessionId: string;
   recordId: string;
-  approvalId?: string;
-  validationEvidence?: string[];
+  capabilityId: string;
+  capabilityDigest: string;
+  approvalId: string;
 }
 
 export interface MemoryRollbackRequest {
