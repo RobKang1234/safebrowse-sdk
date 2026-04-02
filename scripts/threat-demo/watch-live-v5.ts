@@ -2,10 +2,10 @@ import { access, appendFile, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { createServer as createNetServer } from "node:net";
-import { generateKeyPairSync, randomUUID, sign as signBuffer, type KeyObject } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   brokerArtifactV2,
@@ -13,12 +13,10 @@ import {
   compilePolicy,
   computeToolManifestHash,
   computeToolSchemaHash,
-  createApprovalIntentPayloadV5,
   evaluateAction,
   evaluateCapabilityUseV5,
   evaluateMemoryWrite,
   evaluateMemoryWriteV5,
-  issueApprovalEnvelopeV5,
   mintCapabilitiesForObservationV5,
   prepareToolOnboardingV5,
   verifyToolCallbackV5,
@@ -34,6 +32,10 @@ import {
 import { buildRegistryDefaults, loadVerifiedRegistryBundle } from "../../packages/kb-tools/dist/index.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+async function loadApprovalBrokerRuntime() {
+  return import(pathToFileURL(resolve(REPO_ROOT, "packages/approval-broker/dist/index.js")).href);
+}
 
 type AgentMode = "raw" | "raw_model" | "sdk";
 type ThreatKind =
@@ -240,13 +242,19 @@ interface ModelBackendConfig {
   endpoint: string;
 }
 
-interface SecureDaemonConfig {
+interface ApprovalBrokerConfig {
   baseUrl: string;
+  authToken: string;
   publicKeyPath: string;
-  publicKeyPem: string;
-  privateKey: KeyObject;
   process: ChildProcess;
   workDir: string;
+}
+
+interface SecureDaemonConfig {
+  baseUrl: string;
+  process: ChildProcess;
+  workDir: string;
+  approvalBroker: ApprovalBrokerConfig;
 }
 
 interface SuiteSeedRecord {
@@ -1350,12 +1358,53 @@ async function postJson<T>(baseUrl: string, path: string, payload: unknown): Pro
   return (await response.json()) as T;
 }
 
+async function startApprovalBrokerProcess(workDir: string): Promise<ApprovalBrokerConfig> {
+  const authToken = "live-watch-broker-token";
+  const brokerRuntime = await loadApprovalBrokerRuntime();
+  const keypair = await brokerRuntime.ensureApprovalBrokerKeypair(workDir);
+  const port = await getFreePort();
+  const child = spawn(
+    process.execPath,
+    [
+      resolve(REPO_ROOT, "packages/approval-broker/dist/index.js"),
+      "--port",
+      String(port),
+      "--private-key-path",
+      keypair.privateKeyPath,
+      "--auth-token",
+      authToken
+    ],
+    {
+      cwd: REPO_ROOT,
+      stdio: "pipe",
+      windowsHide: true
+    }
+  );
+  const baseUrl = `http://127.0.0.1:${port}`;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    try {
+      const response = await fetch(`${baseUrl}/health`);
+      if (response.ok) {
+        return {
+          baseUrl,
+          authToken,
+          publicKeyPath: keypair.publicKeyPath,
+          process: child,
+          workDir
+        };
+      }
+    } catch {
+      // retry
+    }
+    await sleep(250);
+  }
+  await stopChildProcess(child);
+  throw new Error("Approval broker failed to become healthy.");
+}
+
 async function startSecureDaemon(): Promise<SecureDaemonConfig> {
   const workDir = await mkdtemp(resolve(tmpdir(), "safebrowse-live-v5-"));
-  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
-  const publicKeyPem = publicKey.export({ format: "pem", type: "spki" }).toString();
-  const publicKeyPath = join(workDir, "approval-broker-public.pem");
-  await writeFile(publicKeyPath, publicKeyPem, "utf8");
+  const approvalBroker = await startApprovalBrokerProcess(workDir);
   const port = await getFreePort();
   const child = spawn(
     process.execPath,
@@ -1367,8 +1416,12 @@ async function startSecureDaemon(): Promise<SecureDaemonConfig> {
       REPO_ROOT,
       "--deployment-profile",
       "secure_v5",
+      "--approval-broker-mode",
+      "external_service",
       "--approval-broker-public-key-path",
-      publicKeyPath
+      approvalBroker.publicKeyPath,
+      "--parser-isolation-mode",
+      "node_permission_process"
     ],
     {
       cwd: REPO_ROOT,
@@ -1377,14 +1430,18 @@ async function startSecureDaemon(): Promise<SecureDaemonConfig> {
     }
   );
   const baseUrl = `http://127.0.0.1:${port}`;
-  await waitForDaemonHealth(baseUrl);
+  const health = await waitForDaemonHealth(baseUrl);
+  if (health?.claimBearingReady !== true) {
+    await stopChildProcess(child);
+    await stopChildProcess(approvalBroker.process);
+    await rm(workDir, { recursive: true, force: true });
+    throw new Error("secure_v5 live daemon did not report a claim-bearing secure posture.");
+  }
   return {
     baseUrl,
-    publicKeyPath,
-    publicKeyPem,
-    privateKey,
     process: child,
-    workDir
+    workDir,
+    approvalBroker
   };
 }
 
@@ -1393,10 +1450,11 @@ async function stopSecureDaemon(daemon: SecureDaemonConfig | undefined): Promise
     return;
   }
   await stopChildProcess(daemon.process);
+  await stopChildProcess(daemon.approvalBroker.process);
   await rm(daemon.workDir, { recursive: true, force: true });
 }
 
-function signApprovalIntent(
+async function signApprovalIntent(
   daemon: SecureDaemonConfig,
   input: {
     sessionId: string;
@@ -1405,9 +1463,15 @@ function signApprovalIntent(
     capabilityDigest: string;
     expiresInSeconds?: number;
   }
-): string {
-  const payload = createApprovalIntentPayloadV5(input);
-  return signBuffer(null, Buffer.from(payload, "utf8"), daemon.privateKey).toString("base64");
+): Promise<string> {
+  const brokerRuntime = await loadApprovalBrokerRuntime();
+  return (
+    await brokerRuntime.issueApprovalSignature(
+      daemon.approvalBroker.baseUrl,
+      daemon.approvalBroker.authToken,
+      input
+    )
+  ).brokerSignature;
 }
 
 function enqueueModelCall<T>(store: RuntimeStore, task: () => Promise<T>): Promise<T> {
@@ -4544,7 +4608,7 @@ async function sdkAgentExecuteV5(store: RuntimeStore, threat: ThreatRecord): Pro
   ) as Record<string, unknown> | undefined;
 
   if (threat.suiteCaseId === "V5-03" && navigateCapability) {
-    const brokerSignature = signApprovalIntent(store.secureDaemon, {
+    const brokerSignature = await signApprovalIntent(store.secureDaemon, {
       sessionId: session.session.sessionId,
       workflowHash: session.session.workflowHash,
       capabilityId: String(navigateCapability.capabilityId),
@@ -4737,7 +4801,7 @@ async function sdkToolFlowV5(
   const brokerSignature =
     threat.suiteCaseId === "V5-04"
       ? "invalid-signature"
-      : signApprovalIntent(store.secureDaemon, {
+      : await signApprovalIntent(store.secureDaemon, {
           sessionId: session.sessionId,
           workflowHash: session.workflowHash,
           capabilityId: String(connectorCapability.capabilityId),
@@ -4896,7 +4960,7 @@ async function sdkMemoryFlowV5(
     const promotionCapability = written.promotionCapability;
     const brokerSignature =
       promotionCapability
-        ? signApprovalIntent(store.secureDaemon, {
+        ? await signApprovalIntent(store.secureDaemon, {
             sessionId: session.sessionId,
             workflowHash: session.workflowHash,
             capabilityId: String(promotionCapability.capabilityId),

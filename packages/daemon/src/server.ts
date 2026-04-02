@@ -57,6 +57,8 @@ import {
   type MemoryRollbackRequest,
   type MemoryWriteRequestV5,
   type MemoryWriteRequest,
+  type ParserIsolationMode,
+  type ParserWorkerProbe,
   type PolicyPack,
   type PlannerViewV5,
   type ReplayEvent,
@@ -87,9 +89,11 @@ export interface SafeBrowseDaemonOptions {
   knowledgeBase?: KnowledgeBaseContext;
   verifiedRegistry?: VerifiedRegistryBundle;
   parserAllowlistedEgress?: string[];
+  parserIsolationMode?: ParserIsolationMode;
   deploymentProfile?: "development" | "secure_v5";
   approvalBrokerPublicKeyPath?: string;
   approvalBrokerPublicKeyPem?: string;
+  approvalBrokerMode?: "signature_verification" | "external_service";
 }
 
 interface SessionState {
@@ -255,9 +259,12 @@ async function buildRuntimeContext(
     knowledgeBase: KnowledgeBaseContext;
     verifiedRegistry?: VerifiedRegistryBundle;
     parserAllowlistedEgress: string[];
+    parserIsolationMode: ParserIsolationMode;
     deploymentProfile: "development" | "secure_v5";
     approvalBrokerPublicKey?: KeyObject;
     approvalBrokerConfigured: boolean;
+    approvalBrokerMode: "signature_verification" | "external_service";
+    claimBearingReady: boolean;
   }
 > {
   const rootDir = options.rootDir ?? (await resolveDefaultRootDir());
@@ -288,11 +295,14 @@ async function buildRuntimeContext(
     knowledgeBase,
     verifiedRegistry,
     parserAllowlistedEgress: options.parserAllowlistedEgress ?? [],
+    parserIsolationMode: options.parserIsolationMode ?? "scrubbed_process",
     deploymentProfile: options.deploymentProfile ?? "development",
     approvalBrokerPublicKey: approvalBrokerPublicKeyPem
       ? createPublicKey(approvalBrokerPublicKeyPem)
       : undefined,
-    approvalBrokerConfigured: Boolean(approvalBrokerPublicKeyPem)
+    approvalBrokerConfigured: Boolean(approvalBrokerPublicKeyPem),
+    approvalBrokerMode: options.approvalBrokerMode ?? "signature_verification",
+    claimBearingReady: false
   };
 }
 
@@ -323,6 +333,7 @@ function createSessionState(
   runtime: RuntimeContext & {
     deploymentProfile?: "development" | "secure_v5";
     approvalBrokerConfigured?: boolean;
+    claimBearingReady?: boolean;
   }
 ): SessionState {
   const createdAt = new Date().toISOString();
@@ -350,7 +361,7 @@ function createSessionState(
     currentStep: 0,
     createdAt,
     expiresAt: plusSeconds(createdAt, request.expiresInSeconds ?? 1800),
-    claimProfile: runtime.deploymentProfile === "secure_v5" ? "secure_v5" : undefined,
+    claimProfile: runtime.claimBearingReady ? "secure_v5" : undefined,
     approvalBrokerRequired: runtime.deploymentProfile === "secure_v5",
     legacyRoutesDisabled: runtime.deploymentProfile === "secure_v5"
   };
@@ -374,6 +385,40 @@ function createSessionState(
     onboardingSessionsV5: new Map(),
     connectorHandlesV5: new Map()
   };
+}
+
+function secureParserIsolationSatisfied(probe: ParserWorkerProbe): boolean {
+  return (
+    probe.mode === "node_permission_process" &&
+    probe.processIsolated &&
+    probe.egressDenied &&
+    probe.permissionModelEnabled &&
+    probe.childProcessDenied &&
+    probe.workerThreadsDenied &&
+    probe.envKeys.length === 0
+  );
+}
+
+function claimBearingReady(
+  runtime: {
+    deploymentProfile: "development" | "secure_v5";
+    approvalBrokerConfigured: boolean;
+    approvalBrokerMode: "signature_verification" | "external_service";
+    approvalBrokerPublicKey?: KeyObject;
+    verifiedRegistry?: VerifiedRegistryBundle;
+    parserIsolationMode: ParserIsolationMode;
+  },
+  probe: ParserWorkerProbe
+): boolean {
+  return (
+    runtime.deploymentProfile === "secure_v5" &&
+    runtime.approvalBrokerConfigured &&
+    Boolean(runtime.approvalBrokerPublicKey) &&
+    runtime.approvalBrokerMode === "external_service" &&
+    runtime.verifiedRegistry?.signatureVerified === true &&
+    runtime.parserIsolationMode === "node_permission_process" &&
+    secureParserIsolationSatisfied(probe)
+  );
 }
 
 function shouldReduceAuthority(
@@ -718,6 +763,8 @@ export async function createSafeBrowseServer(
   options: SafeBrowseDaemonOptions = {}
 ): Promise<Server> {
   const runtime = await buildRuntimeContext(options);
+  const initialParserProbe = await probeParserIsolation(runtime.parserIsolationMode);
+  runtime.claimBearingReady = claimBearingReady(runtime, initialParserProbe);
   if (runtime.deploymentProfile === "secure_v5") {
     if (!runtime.verifiedRegistry?.signatureVerified) {
       throw new Error("secure_v5 requires a signature-verified registry bundle");
@@ -725,9 +772,16 @@ export async function createSafeBrowseServer(
     if (!runtime.approvalBrokerConfigured || !runtime.approvalBrokerPublicKey) {
       throw new Error("secure_v5 requires an approval broker public key");
     }
-    const parserProbe = await probeParserIsolation();
-    if (!parserProbe.processIsolated || !parserProbe.egressDenied || parserProbe.envKeys.length) {
-      throw new Error("secure_v5 requires isolated parsers with denied egress and scrubbed env");
+    if (runtime.approvalBrokerMode !== "external_service") {
+      throw new Error("secure_v5 requires approvalBrokerMode=external_service");
+    }
+    if (runtime.parserIsolationMode !== "node_permission_process") {
+      throw new Error("secure_v5 requires parserIsolationMode=node_permission_process");
+    }
+    if (!secureParserIsolationSatisfied(initialParserProbe)) {
+      throw new Error(
+        "secure_v5 requires a permission-constrained parser process with denied egress and scrubbed env"
+      );
     }
   }
   const onboardingSessions = new Map<string, ToolOnboardingSession>();
@@ -741,11 +795,13 @@ export async function createSafeBrowseServer(
 
     try {
       if (request.method === "GET" && request.url === "/health") {
-        const parserProbe = await probeParserIsolation();
+        const parserProbe = await probeParserIsolation(runtime.parserIsolationMode);
+        const claimReady = claimBearingReady(runtime, parserProbe);
         writeJson(response, 200, {
           status: "ok",
           profile: runtime.policy.profile,
           deploymentProfile: runtime.deploymentProfile,
+          claimBearingReady: claimReady,
           version: runtime.policy.version,
           policyLayers: runtime.policy.layerProvenance,
           legacyRoutesEnabled: !legacyRoutesDisabled(runtime),
@@ -760,11 +816,13 @@ export async function createSafeBrowseServer(
             : undefined,
           parserIsolation: {
             ...parserProbe,
+            configuredMode: runtime.parserIsolationMode,
             enforced: runtime.deploymentProfile === "secure_v5"
           },
           approvalBroker: {
             required: runtime.deploymentProfile === "secure_v5",
-            configured: runtime.approvalBrokerConfigured
+            configured: runtime.approvalBrokerConfigured,
+            mode: runtime.approvalBrokerMode
           }
         });
         return;
@@ -935,6 +993,7 @@ export async function createSafeBrowseServer(
           capture,
           workflowHash: sessionState.session.workflowHash,
           allowlistedEgress: runtime.parserAllowlistedEgress,
+          parserIsolationMode: runtime.parserIsolationMode,
           compilerVersion: "v5",
           runtime: {
             knowledgeBase: runtime.knowledgeBase
@@ -1209,6 +1268,7 @@ export async function createSafeBrowseServer(
           capture,
           workflowHash: sessionState.session.workflowHash,
           allowlistedEgress: runtime.parserAllowlistedEgress,
+          parserIsolationMode: runtime.parserIsolationMode,
           compilerVersion: "v5",
           runtime: {
             knowledgeBase: runtime.knowledgeBase
@@ -1422,6 +1482,7 @@ export async function createSafeBrowseServer(
           capture,
           workflowHash: sessionState.session.workflowHash,
           allowlistedEgress: runtime.parserAllowlistedEgress,
+          parserIsolationMode: runtime.parserIsolationMode,
           runtime: {
             knowledgeBase: runtime.knowledgeBase
           }
@@ -1621,6 +1682,7 @@ export async function createSafeBrowseServer(
           capture,
           workflowHash: sessionState.session.workflowHash,
           allowlistedEgress: runtime.parserAllowlistedEgress,
+          parserIsolationMode: runtime.parserIsolationMode,
           runtime: {
             knowledgeBase: runtime.knowledgeBase
           }

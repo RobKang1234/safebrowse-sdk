@@ -1,11 +1,15 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
+    "baseUrl": ".",
     "rootDir": "scripts",
     "outDir": "scripts-dist",
     "declaration": false,
     "declarationMap": false,
-    "sourceMap": false
+    "sourceMap": false,
+    "paths": {
+      "@safebrowse/approval-broker": ["packages/approval-broker/dist/index.d.ts"]
+    }
   },
   "include": ["scripts/threat-demo/**/*.ts"]
 }

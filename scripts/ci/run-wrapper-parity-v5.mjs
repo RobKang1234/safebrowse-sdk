@@ -1,6 +1,5 @@
 import { createServer } from "node:net";
 import { execFile, spawn } from "node:child_process";
-import { generateKeyPairSync, sign as signBuffer } from "node:crypto";
 import { cp, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -165,7 +164,7 @@ async function waitForHealth(baseUrl) {
     try {
       const response = await fetch(`${baseUrl}/health`);
       if (response.ok) {
-        return;
+        return response.json();
       }
     } catch {
       // ignore and retry
@@ -195,6 +194,45 @@ async function postJson(baseUrl, path, payload) {
     throw new Error(`Unexpected ${response.status} from ${path}: ${body}`);
   }
   return response.json();
+}
+
+async function loadApprovalBrokerDist() {
+  return import(pathToFileURL(resolve(repoRoot, "packages/approval-broker/dist/index.js")).href);
+}
+
+async function startApprovalBrokerService(workspace) {
+  const authToken = "wrapper-parity-broker-token";
+  const brokerRuntime = await loadApprovalBrokerDist();
+  const keypair = await brokerRuntime.ensureApprovalBrokerKeypair(workspace);
+  const broker = await brokerRuntime.startApprovalBroker({
+    host: "127.0.0.1",
+    port: 0,
+    privateKeyPath: keypair.privateKeyPath,
+    authToken
+  });
+
+  return {
+    baseUrl: `http://127.0.0.1:${broker.port}`,
+    authToken,
+    publicKeyPath: keypair.publicKeyPath,
+    issueSignature: async (session, capability) =>
+      (
+        await brokerRuntime.issueApprovalSignature(
+          `http://127.0.0.1:${broker.port}`,
+          authToken,
+          {
+            sessionId: session.sessionId,
+            workflowHash: session.workflowHash,
+            capabilityId: capability.capabilityId,
+            capabilityDigest: capability.capabilityDigest
+          }
+        )
+      ).brokerSignature,
+    stop: () =>
+      new Promise((resolvePromise) => {
+        broker.server.close(() => resolvePromise());
+      })
+  };
 }
 
 function normalizeObserve(response) {
@@ -272,10 +310,6 @@ function assertDeepEqual(label, left, right) {
       `${label} mismatch.\nLEFT=${JSON.stringify(left, null, 2)}\nRIGHT=${JSON.stringify(right, null, 2)}`
     );
   }
-}
-
-async function loadCoreDist() {
-  return import(pathToFileURL(resolve(repoRoot, "packages/core/dist/index.js")).href);
 }
 
 async function runV5Cases(baseUrl, makeHtmlCapture, signApproval, subset) {
@@ -363,7 +397,7 @@ async function runV5Cases(baseUrl, makeHtmlCapture, signApproval, subset) {
       sessionId: session.session.sessionId,
       capabilityId: capability.capabilityId,
       capabilityDigest: capability.capabilityDigest,
-      brokerSignature: signApproval(session.session, capability)
+      brokerSignature: await signApproval(session.session, capability)
     });
     results.navigate_cannot_issue_connector_approval = {
       observe: normalizeObserve(observe),
@@ -409,7 +443,7 @@ async function runV5Cases(baseUrl, makeHtmlCapture, signApproval, subset) {
       capture: toolManifestCapture
     });
     const capability = observe.capabilities[0];
-    const brokerSignature = signApproval(session.session, capability);
+    const brokerSignature = await signApproval(session.session, capability);
     const approval = await postJson(baseUrl, "/v5/approval/issue", {
       sessionId: session.session.sessionId,
       capabilityId: capability.capabilityId,
@@ -460,7 +494,7 @@ async function runV5Cases(baseUrl, makeHtmlCapture, signApproval, subset) {
       sessionId: session.session.sessionId,
       capabilityId: capability.capabilityId,
       capabilityDigest: capability.capabilityDigest,
-      brokerSignature: signApproval(session.session, capability)
+      brokerSignature: await signApproval(session.session, capability)
     });
     const prepare = await postJson(baseUrl, "/v5/tool/prepare", {
       sessionId: session.session.sessionId,
@@ -522,8 +556,12 @@ async function startWorkspaceDaemon(publicKeyPath) {
       repoRoot,
       "--deployment-profile",
       "secure_v5",
+      "--approval-broker-mode",
+      "external_service",
       "--approval-broker-public-key-path",
-      publicKeyPath
+      publicKeyPath,
+      "--parser-isolation-mode",
+      "node_permission_process"
     ],
     {
       cwd: repoRoot,
@@ -532,7 +570,10 @@ async function startWorkspaceDaemon(publicKeyPath) {
   );
   const daemonLog = attachProcessLogBuffer(daemonProcess, "workspace secure_v5 daemon");
   const baseUrl = `http://127.0.0.1:${port}`;
-  await waitForHealth(baseUrl);
+  const health = await waitForHealth(baseUrl);
+  if (health?.claimBearingReady !== true) {
+    throw new Error(`workspace daemon did not report claimBearingReady=true: ${JSON.stringify(health)}`);
+  }
   return {
     baseUrl,
     daemonLog,
@@ -540,7 +581,7 @@ async function startWorkspaceDaemon(publicKeyPath) {
   };
 }
 
-async function runPythonLane(baseUrl, wheelPath, tempDir, subset, nodePath, privateKeyPem) {
+async function runPythonLane(baseUrl, wheelPath, tempDir, subset, brokerBaseUrl, brokerAuthToken) {
   const pythonTarget = resolve(tempDir, "python-target");
   const resultsPath = resolve(tempDir, "python-results.json");
   const scriptPath = resolve(tempDir, "python-parity.py");
@@ -565,18 +606,23 @@ from safebrowse_client import SafeBrowseClient, build_html_surface_capture
 client = SafeBrowseClient(${JSON.stringify(baseUrl)})
 results = {}
 subset = ${JSON.stringify(subset)}
-node_path = ${JSON.stringify(nodePath)}
-private_key_pem = ${JSON.stringify(privateKeyPem)}
+broker_base_url = ${JSON.stringify(brokerBaseUrl)}
+broker_auth_token = ${JSON.stringify(brokerAuthToken)}
 tool_manifest_capture = ${JSON.stringify(toolManifestCapture)}
 
 
 def sign_payload(payload: str) -> str:
-    code = "import { createPrivateKey, sign } from 'node:crypto'; const key = createPrivateKey(process.env.SAFEBROWSE_V5_PRIVATE_KEY_PEM); const signature = sign(null, Buffer.from(process.env.SAFEBROWSE_V5_PAYLOAD, 'utf8'), key).toString('base64'); process.stdout.write(signature);"
-    env = dict(os.environ)
-    env["SAFEBROWSE_V5_PRIVATE_KEY_PEM"] = private_key_pem
-    env["SAFEBROWSE_V5_PAYLOAD"] = payload
-    completed = subprocess.run([node_path, "--input-type=module", "-e", code], check=True, capture_output=True, text=True, env=env)
-    return completed.stdout
+    req = request.Request(
+        broker_base_url + "/v5/approval/sign",
+        data=payload.encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + broker_auth_token,
+        },
+        method="POST",
+    )
+    with request.urlopen(req, timeout=10.0) as response:
+        return json.loads(response.read().decode("utf-8"))["brokerSignature"]
 
 
 def normalize_observe(response: dict) -> dict:
@@ -660,7 +706,7 @@ if subset == "full":
     session = client.start_session_v5({"taskId": "py-nav-approval", "userGoal": "Reject connector onboarding from visible navigation.", "allowedOrigins": ["https://safe.example", "https://docs.python.org"], "allowedVerbs": ["navigate", "connector_prepare"], "forbiddenSinks": []})["session"]
     observe = client.observe_v5({"sessionId": session["sessionId"], "capture": build_html_surface_capture(url="https://safe.example/review", visible_text="Visible docs only. Docs", html="<main>Visible docs only.</main><a href=\\"https://docs.python.org/3/tutorial/\\">Docs</a>")})
     capability = observe["capabilities"][0]
-    approval = client.approval_issue_v5({"sessionId": session["sessionId"], "capabilityId": capability["capabilityId"], "capabilityDigest": capability["capabilityDigest"], "brokerSignature": sign_payload(json.dumps({"capabilityDigest": capability["capabilityDigest"], "capabilityId": capability["capabilityId"], "expiresInSeconds": 600, "sessionId": session["sessionId"], "workflowHash": session["workflowHash"]}, separators=(",", ":"), sort_keys=True))})
+    approval = client.approval_issue_v5({"sessionId": session["sessionId"], "capabilityId": capability["capabilityId"], "capabilityDigest": capability["capabilityDigest"], "brokerSignature": sign_payload(json.dumps({"capabilityDigest": capability["capabilityDigest"], "capabilityId": capability["capabilityId"], "expiresInSeconds": 600, "sessionId": session["sessionId"], "workflowHash": session["workflowHash"]}))})
     results["navigate_cannot_issue_connector_approval"] = {"observe": normalize_observe(observe), "approval": normalize_approval(approval)}
 
     session = client.start_session_v5({"taskId": "py-tool-unsigned", "userGoal": "Reject unsigned connector approval.", "allowedOrigins": ["https://safe.example"], "allowedVerbs": ["connector_prepare"], "forbiddenSinks": []})["session"]
@@ -672,7 +718,7 @@ if subset == "full":
     session = client.start_session_v5({"taskId": "py-tool", "userGoal": "Review connector onboarding safely", "allowedOrigins": ["https://safe.example"], "allowedVerbs": ["connector_prepare"], "forbiddenSinks": []})["session"]
     observe = client.observe_v5({"sessionId": session["sessionId"], "capture": tool_manifest_capture})
     capability = observe["capabilities"][0]
-    payload = json.dumps({"capabilityDigest": capability["capabilityDigest"], "capabilityId": capability["capabilityId"], "expiresInSeconds": 600, "sessionId": session["sessionId"], "workflowHash": session["workflowHash"]}, separators=(",", ":"), sort_keys=True)
+    payload = json.dumps({"capabilityDigest": capability["capabilityDigest"], "capabilityId": capability["capabilityId"], "expiresInSeconds": 600, "sessionId": session["sessionId"], "workflowHash": session["workflowHash"]})
     approval = client.approval_issue_v5({"sessionId": session["sessionId"], "capabilityId": capability["capabilityId"], "capabilityDigest": capability["capabilityDigest"], "brokerSignature": sign_payload(payload)})
     prepare = client.tool_prepare_v5({"sessionId": session["sessionId"], "approvalId": approval["approvalEnvelope"]["approvalId"]})
     callback = client.tool_callback_verify_v5({"sessionId": session["sessionId"], "approvalId": approval["approvalEnvelope"]["approvalId"], "onboardingSessionId": prepare["onboardingSession"]["onboardingSessionId"], "request": {"sessionId": prepare["onboardingSession"]["onboardingSessionId"], "callbackUri": "https://safe.example/oauth/callback", "callbackOrigin": "https://safe.example", "state": prepare["onboardingSession"]["state"], "payload": {"code": "auth-code", "state": prepare["onboardingSession"]["state"]}}})
@@ -681,7 +727,7 @@ if subset == "full":
     session = client.start_session_v5({"taskId": "py-callback-mismatch", "userGoal": "Reject callback mismatch after prepare.", "allowedOrigins": ["https://safe.example"], "allowedVerbs": ["connector_prepare"], "forbiddenSinks": []})["session"]
     observe = client.observe_v5({"sessionId": session["sessionId"], "capture": tool_manifest_capture})
     capability = observe["capabilities"][0]
-    payload = json.dumps({"capabilityDigest": capability["capabilityDigest"], "capabilityId": capability["capabilityId"], "expiresInSeconds": 600, "sessionId": session["sessionId"], "workflowHash": session["workflowHash"]}, separators=(",", ":"), sort_keys=True)
+    payload = json.dumps({"capabilityDigest": capability["capabilityDigest"], "capabilityId": capability["capabilityId"], "expiresInSeconds": 600, "sessionId": session["sessionId"], "workflowHash": session["workflowHash"]})
     approval = client.approval_issue_v5({"sessionId": session["sessionId"], "capabilityId": capability["capabilityId"], "capabilityDigest": capability["capabilityDigest"], "brokerSignature": sign_payload(payload)})
     prepare = client.tool_prepare_v5({"sessionId": session["sessionId"], "approvalId": approval["approvalEnvelope"]["approvalId"]})
     callback = client.tool_callback_verify_v5({"sessionId": session["sessionId"], "approvalId": approval["approvalEnvelope"]["approvalId"], "onboardingSessionId": prepare["onboardingSession"]["onboardingSessionId"], "request": {"sessionId": prepare["onboardingSession"]["onboardingSessionId"], "callbackUri": "https://safe.example/oauth/callback/unexpected", "callbackOrigin": "https://safe.example", "state": prepare["onboardingSession"]["state"], "payload": {"code": "auth-code", "state": prepare["onboardingSession"]["state"]}}})
@@ -726,8 +772,12 @@ async function runNpmLane(packDir, publicKeyPath, signApproval, subset) {
       String(port),
       "--deployment-profile",
       "secure_v5",
+      "--approval-broker-mode",
+      "external_service",
       "--approval-broker-public-key-path",
-      publicKeyPath
+      publicKeyPath,
+      "--parser-isolation-mode",
+      "node_permission_process"
     ],
     {
       cwd: installDir,
@@ -738,7 +788,10 @@ async function runNpmLane(packDir, publicKeyPath, signApproval, subset) {
 
   try {
     const baseUrl = `http://127.0.0.1:${port}`;
-    await waitForHealth(baseUrl);
+    const health = await waitForHealth(baseUrl);
+    if (health?.claimBearingReady !== true) {
+      throw new Error(`npm-installed daemon did not report claimBearingReady=true: ${JSON.stringify(health)}`);
+    }
     const adapter = await import(
       pathToFileURL(resolve(installDir, "node_modules/@safebrowse/playwright-adapter/dist/index.js")).href
     );
@@ -766,24 +819,8 @@ async function main() {
   const workspace = await mkdtemp(resolve(tmpdir(), "safebrowse-v5-parity-"));
 
   try {
-    const core = await loadCoreDist();
-    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
-    const publicKeyPem = publicKey.export({ format: "pem", type: "spki" }).toString();
-    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs8" }).toString();
-    const publicKeyPath = resolve(workspace, "approval-broker-public.pem");
-    await writeFile(publicKeyPath, publicKeyPem, "utf8");
-
-    const signApproval = (session, capability) => {
-      const payload = core.createApprovalIntentPayloadV5({
-        sessionId: session.sessionId,
-        workflowHash: session.workflowHash,
-        capabilityId: capability.capabilityId,
-        capabilityDigest: capability.capabilityDigest
-      });
-      return signBuffer(null, Buffer.from(payload, "utf8"), privateKey).toString("base64");
-    };
-
-    const directDaemon = await startWorkspaceDaemon(publicKeyPath);
+    const broker = await startApprovalBrokerService(workspace);
+    const directDaemon = await startWorkspaceDaemon(broker.publicKeyPath);
     try {
       console.error("Running direct V5 parity lane...");
       const directResults = await runV5Cases(
@@ -796,7 +833,7 @@ async function main() {
           visibleText,
           hiddenText
         }),
-        signApproval,
+        (session, capability) => broker.issueSignature(session, capability),
         options.subset
       ).catch((error) => {
         throw new Error(
@@ -811,11 +848,16 @@ async function main() {
         wheelPath,
         workspace,
         options.subset,
-        process.execPath,
-        privateKeyPem
+        broker.baseUrl,
+        broker.authToken
       );
       console.error("Running npm V5 parity lane...");
-      const npmResults = await runNpmLane(workspace, publicKeyPath, signApproval, options.subset);
+      const npmResults = await runNpmLane(
+        workspace,
+        broker.publicKeyPath,
+        (session, capability) => broker.issueSignature(session, capability),
+        options.subset
+      );
 
       assertDeepEqual("python/direct wrapper parity", pythonResults, directResults);
       assertDeepEqual("npm/direct wrapper parity", npmResults, directResults);
@@ -836,6 +878,7 @@ async function main() {
       console.log(JSON.stringify(summary, null, 2));
     } finally {
       await directDaemon.stop();
+      await broker.stop();
     }
   } finally {
     await rm(workspace, { recursive: true, force: true });

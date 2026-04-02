@@ -433,10 +433,17 @@ export interface ExtractedTarget {
   visibleOnlyFlag?: boolean;
 }
 
+export type ParserIsolationMode = "scrubbed_process" | "node_permission_process";
+
 export interface ParserIsolationReport {
+  mode: ParserIsolationMode;
   processIsolated: boolean;
   envScrubbed: boolean;
   egressDenied: boolean;
+  permissionModelEnabled: boolean;
+  fsReadRestricted: boolean;
+  childProcessDenied: boolean;
+  workerThreadsDenied: boolean;
   envKeys: string[];
   allowlistedEgress: string[];
 }
@@ -752,9 +759,14 @@ export interface MemoryRollbackResult {
 }
 
 export interface ParserWorkerProbe {
+  mode: ParserIsolationMode;
   envKeys: string[];
   egressDenied: boolean;
   processIsolated: boolean;
+  permissionModelEnabled: boolean;
+  fsReadRestricted: boolean;
+  childProcessDenied: boolean;
+  workerThreadsDenied: boolean;
 }
 
 export interface ArtifactV2Input extends ArtifactInput {

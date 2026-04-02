@@ -5,6 +5,7 @@ import { resolve, dirname } from "node:path";
 
 import type {
   CompiledObservation,
+  ParserIsolationMode,
   ParserWorkerProbe,
   RuntimeContext,
   StructuredPlannerInput,
@@ -23,6 +24,7 @@ type WorkerPayload =
   | {
       kind: "parse";
       compilerVersion?: "v4" | "v5";
+      parserIsolationMode?: ParserIsolationMode;
       capture: SurfaceCapture;
       workflowHash?: string;
       allowlistedEgress?: string[];
@@ -43,14 +45,36 @@ type WorkerResponse =
       error: string;
     };
 
-function runWorker<T>(payload: WorkerPayload): Promise<T> {
+function parserReadRoots(): string[] {
+  return [...new Set([resolve(process.cwd()), resolve(dirname(workerPath), "..", "..")])];
+}
+
+function buildExecArgv(mode: ParserIsolationMode): string[] {
+  const baseArgs = workerPath.endsWith(".ts")
+    ? mode === "node_permission_process"
+      ? ["--experimental-strip-types"]
+      : ["--import", "tsx"]
+    : [];
+  if (mode !== "node_permission_process") {
+    return baseArgs;
+  }
+
+  return [
+    "--permission",
+    ...parserReadRoots().map((root) => `--allow-fs-read=${root}`),
+    ...baseArgs
+  ];
+}
+
+function runWorker<T>(payload: WorkerPayload, mode: ParserIsolationMode): Promise<T> {
   return new Promise<T>((resolvePromise, rejectPromise) => {
     const child = fork(workerPath, [], {
-      env: {},
+      env:
+        workerPath.endsWith(".ts") && mode !== "node_permission_process"
+          ? { TSX_DISABLE_CACHE: "1" }
+          : {},
       stdio: ["ignore", "ignore", "ignore", "ipc"],
-      execArgv: workerPath.endsWith(".ts")
-        ? [...process.execArgv, "--import", "tsx"]
-        : process.execArgv
+      execArgv: buildExecArgv(mode)
     });
 
     const finish = (error?: Error, value?: T) => {
@@ -88,23 +112,34 @@ export function compileObservationInIsolation(input: {
   allowlistedEgress?: string[];
   runtime?: Partial<RuntimeContext>;
   compilerVersion?: "v4" | "v5";
+  parserIsolationMode?: ParserIsolationMode;
 }): Promise<{
   compiledObservation: CompiledObservation;
   plannerInput?: StructuredPlannerInput;
   plannerView?: unknown;
 }> {
-  return runWorker({
-    kind: "parse",
-    compilerVersion: input.compilerVersion,
-    capture: input.capture,
-    workflowHash: input.workflowHash,
-    allowlistedEgress: input.allowlistedEgress,
-    runtime: input.runtime
-  });
+  const mode = input.parserIsolationMode ?? "scrubbed_process";
+  return runWorker(
+    {
+      kind: "parse",
+      compilerVersion: input.compilerVersion,
+      parserIsolationMode: mode,
+      capture: input.capture,
+      workflowHash: input.workflowHash,
+      allowlistedEgress: input.allowlistedEgress,
+      runtime: input.runtime
+    },
+    mode
+  );
 }
 
-export function probeParserIsolation(): Promise<ParserWorkerProbe> {
-  return runWorker({
-    kind: "probe"
-  });
+export function probeParserIsolation(
+  parserIsolationMode: ParserIsolationMode = "scrubbed_process"
+): Promise<ParserWorkerProbe> {
+  return runWorker(
+    {
+      kind: "probe"
+    },
+    parserIsolationMode
+  );
 }

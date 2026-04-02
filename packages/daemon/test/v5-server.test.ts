@@ -1,12 +1,15 @@
-import { generateKeyPairSync, sign as signBuffer } from "node:crypto";
+import { generateKeyPairSync } from "node:crypto";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  createApprovalIntentPayloadV5,
   type PolicyPack,
   type VerifiedRegistryBundle
 } from "@safebrowse/core";
+import {
+  issueApprovalSignature,
+  startApprovalBroker
+} from "@safebrowse/approval-broker";
 import { createSafeBrowseServer } from "@safebrowse/daemon";
 
 const policyPack: PolicyPack = {
@@ -88,15 +91,42 @@ const verifiedRegistry: VerifiedRegistryBundle = {
 };
 
 const servers: Array<{ close: () => Promise<void> }> = [];
+const brokers: Array<{ close: () => Promise<void> }> = [];
+
+async function startTestBroker() {
+  const { privateKey } = generateKeyPairSync("ed25519");
+  const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+  const authToken = "test-approval-broker-token";
+  const broker = await startApprovalBroker({
+    host: "127.0.0.1",
+    port: 0,
+    privateKeyPem,
+    authToken
+  });
+
+  brokers.push({
+    close: () =>
+      new Promise<void>((resolvePromise) => {
+        broker.server.close(() => resolvePromise());
+      })
+  });
+
+  return {
+    baseUrl: `http://127.0.0.1:${broker.port}`,
+    authToken,
+    publicKeyPem: broker.publicKeyPem
+  };
+}
 
 async function startTestServer(deploymentProfile: "development" | "secure_v5" = "secure_v5") {
-  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
-  const publicKeyPem = publicKey.export({ format: "pem", type: "spki" }).toString();
+  const broker = await startTestBroker();
   const server = await createSafeBrowseServer({
     policyPack,
     verifiedRegistry,
     deploymentProfile,
-    approvalBrokerPublicKeyPem: publicKeyPem,
+    approvalBrokerPublicKeyPem: broker.publicKeyPem,
+    approvalBrokerMode: "external_service",
+    parserIsolationMode: "node_permission_process",
     knowledgeBase: {
       promptInjectionPatterns: [],
       actionIntegrityPatterns: [],
@@ -129,22 +159,28 @@ async function startTestServer(deploymentProfile: "development" | "secure_v5" = 
 
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
-    privateKey
+    broker
   };
 }
 
-function signApproval(session: Record<string, any>, capability: Record<string, any>, privateKey: ReturnType<typeof generateKeyPairSync>["privateKey"]) {
-  const approvalPayload = createApprovalIntentPayloadV5({
-    sessionId: session.sessionId,
-    workflowHash: session.workflowHash,
-    capabilityId: capability.capabilityId,
-    capabilityDigest: capability.capabilityDigest
-  });
-  return signBuffer(null, Buffer.from(approvalPayload, "utf8"), privateKey).toString("base64");
+async function signApproval(
+  session: Record<string, any>,
+  capability: Record<string, any>,
+  broker: Awaited<ReturnType<typeof startTestBroker>>
+) {
+  return (
+    await issueApprovalSignature(broker.baseUrl, broker.authToken, {
+      sessionId: session.sessionId,
+      workflowHash: session.workflowHash,
+      capabilityId: capability.capabilityId,
+      capabilityDigest: capability.capabilityDigest
+    })
+  ).brokerSignature;
 }
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((entry) => entry.close()));
+  await Promise.all(brokers.splice(0).map((entry) => entry.close()));
 });
 
 describe("safebrowse daemon v5 routes", () => {
@@ -153,9 +189,13 @@ describe("safebrowse daemon v5 routes", () => {
     const health = await fetch(`${baseUrl}/health`).then((response) => response.json());
 
     expect(health.deploymentProfile).toBe("secure_v5");
+    expect(health.claimBearingReady).toBe(true);
     expect(health.legacyRoutesEnabled).toBe(false);
     expect(health.approvalBroker.required).toBe(true);
+    expect(health.approvalBroker.mode).toBe("external_service");
     expect(health.parserIsolation.enforced).toBe(true);
+    expect(health.parserIsolation.mode).toBe("node_permission_process");
+    expect(health.parserIsolation.permissionModelEnabled).toBe(true);
 
     const legacy = await fetch(`${baseUrl}/v1/action`, {
       method: "POST",
@@ -214,7 +254,7 @@ describe("safebrowse daemon v5 routes", () => {
   });
 
   it("requires a broker-signed approval envelope for connector onboarding", async () => {
-    const { baseUrl, privateKey } = await startTestServer();
+    const { baseUrl, broker } = await startTestServer();
     const session = await fetch(`${baseUrl}/v5/session/start`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -246,17 +286,7 @@ describe("safebrowse daemon v5 routes", () => {
     }).then((response) => response.json());
 
     const capability = observe.capabilities[0];
-    const approvalPayload = createApprovalIntentPayloadV5({
-      sessionId: session.session.sessionId,
-      workflowHash: session.session.workflowHash,
-      capabilityId: capability.capabilityId,
-      capabilityDigest: capability.capabilityDigest
-    });
-    const brokerSignature = signBuffer(
-      null,
-      Buffer.from(approvalPayload, "utf8"),
-      privateKey
-    ).toString("base64");
+    const brokerSignature = await signApproval(session.session, capability, broker);
 
     const issued = await fetch(`${baseUrl}/v5/approval/issue`, {
       method: "POST",
@@ -369,7 +399,7 @@ describe("safebrowse daemon v5 routes", () => {
   });
 
   it("requires approval-bound memory promotion and restores the prior trusted baseline on rollback", async () => {
-    const { baseUrl, privateKey } = await startTestServer();
+    const { baseUrl, broker } = await startTestServer();
     const session = await fetch(`${baseUrl}/v5/session/start`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -406,7 +436,7 @@ describe("safebrowse daemon v5 routes", () => {
     expect(firstPromoteBlocked.verdict.decision).toBe("BLOCK");
     expect(firstPromoteBlocked.verdict.reasonCodes).toContain("MEMORY_PROMOTION_CAPABILITY_REQUIRED");
 
-    const firstSignature = signApproval(session.session, firstWrite.promotionCapability, privateKey);
+    const firstSignature = await signApproval(session.session, firstWrite.promotionCapability, broker);
     const firstApproval = await fetch(`${baseUrl}/v5/approval/issue`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -444,7 +474,7 @@ describe("safebrowse daemon v5 routes", () => {
       })
     }).then((response) => response.json());
 
-    const secondSignature = signApproval(session.session, secondWrite.promotionCapability, privateKey);
+    const secondSignature = await signApproval(session.session, secondWrite.promotionCapability, broker);
     const secondApproval = await fetch(`${baseUrl}/v5/approval/issue`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -485,7 +515,7 @@ describe("safebrowse daemon v5 routes", () => {
   });
 
   it("blocks scope escalation, exact callback-path mismatch, approval reuse, and callback mismatch after a valid prepare", async () => {
-    const { baseUrl, privateKey } = await startTestServer();
+    const { baseUrl, broker } = await startTestServer();
     const session = await fetch(`${baseUrl}/v5/session/start`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -547,7 +577,7 @@ describe("safebrowse daemon v5 routes", () => {
     }).then((response) => response.json());
 
     const capability = observe.capabilities[0];
-    const brokerSignature = signApproval(session.session, capability, privateKey);
+    const brokerSignature = await signApproval(session.session, capability, broker);
     const approval = await fetch(`${baseUrl}/v5/approval/issue`, {
       method: "POST",
       headers: { "content-type": "application/json" },

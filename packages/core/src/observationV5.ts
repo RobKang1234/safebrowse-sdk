@@ -606,14 +606,19 @@ export function compileObservationV5(
     sourceDigest,
     workflowHash: options.workflowHash,
     parseStatus: parsed.parseStatus,
-    parserIsolation:
-      options.parserIsolation ?? {
-        processIsolated: false,
-        envScrubbed: false,
-        egressDenied: false,
-        envKeys: [],
-        allowlistedEgress: []
-      },
+      parserIsolation:
+        options.parserIsolation ?? {
+          mode: "scrubbed_process",
+          processIsolated: false,
+          envScrubbed: false,
+          egressDenied: false,
+          permissionModelEnabled: false,
+          fsReadRestricted: false,
+          childProcessDenied: false,
+          workerThreadsDenied: false,
+          envKeys: [],
+          allowlistedEgress: []
+        },
     spans: parsed.spans,
     extractedFacts: parsed.extractedFacts.map((fact) => redactSecretsInText(fact).text),
     extractedTargets: parsed.extractedTargets,

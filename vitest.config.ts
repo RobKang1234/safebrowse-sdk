@@ -8,6 +8,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "@safebrowse/approval-broker": resolve(__dirname, "packages/approval-broker/src/index.ts"),
       "@safebrowse/core": resolve(__dirname, "packages/core/src/index.ts"),
       "@safebrowse/kb-tools": resolve(__dirname, "packages/kb-tools/src/index.ts"),
       "@safebrowse/daemon": resolve(__dirname, "packages/daemon/src/index.ts"),

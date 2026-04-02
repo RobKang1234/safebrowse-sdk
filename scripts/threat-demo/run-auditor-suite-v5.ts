@@ -1,6 +1,5 @@
 import { createServer } from "node:net";
-import { generateKeyPairSync, sign as signBuffer } from "node:crypto";
-import { copyFile, cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { resolve, join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
@@ -9,6 +8,10 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const suitePath = join(repoRoot, "config", "auditor", "v5_secure_claim_suite.json");
 const latestDir = join(repoRoot, "demo-output", "latest");
 const compatLatestDir = join(repoRoot, "demo-output", "latest-auditor-suite");
+
+async function loadApprovalBrokerRuntime() {
+  return import(pathToFileURL(resolve(repoRoot, "packages/approval-broker/dist/index.js")).href);
+}
 
 interface SuiteCase {
   id: string;
@@ -73,12 +76,12 @@ async function stopProcess(child: ReturnType<typeof spawn>) {
   });
 }
 
-async function waitForHealth(baseUrl: string) {
+async function waitForHealth(baseUrl: string): Promise<Record<string, any>> {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     try {
       const response = await fetch(`${baseUrl}/health`);
       if (response.ok) {
-        return response.json();
+        return (await response.json()) as Record<string, any>;
       }
     } catch {
       // retry
@@ -220,8 +223,12 @@ async function startSecureDaemon(publicKeyPath: string) {
       repoRoot,
       "--deployment-profile",
       "secure_v5",
+      "--approval-broker-mode",
+      "external_service",
       "--approval-broker-public-key-path",
-      publicKeyPath
+      publicKeyPath,
+      "--parser-isolation-mode",
+      "node_permission_process"
     ],
     {
       cwd: repoRoot,
@@ -237,6 +244,44 @@ async function startSecureDaemon(publicKeyPath: string) {
   };
 }
 
+async function startApprovalBrokerService(outputDir: string) {
+  const authToken = "auditor-review-broker-token";
+  const brokerRuntime = await loadApprovalBrokerRuntime();
+  const keypair = await brokerRuntime.ensureApprovalBrokerKeypair(outputDir);
+  const broker = await brokerRuntime.startApprovalBroker({
+    host: "127.0.0.1",
+    port: 0,
+    privateKeyPath: keypair.privateKeyPath,
+    authToken
+  });
+
+  return {
+    baseUrl: `http://127.0.0.1:${broker.port}`,
+    authToken,
+    publicKeyPath: keypair.publicKeyPath,
+    stop: () =>
+      new Promise<void>((resolvePromise) => {
+        broker.server.close(() => resolvePromise());
+      })
+  };
+}
+
+async function signApprovalViaBroker(
+  broker: Awaited<ReturnType<typeof startApprovalBrokerService>>,
+  session: Record<string, any>,
+  capability: Record<string, any>
+) {
+  const brokerRuntime = await loadApprovalBrokerRuntime();
+  return (
+    await brokerRuntime.issueApprovalSignature(broker.baseUrl, broker.authToken, {
+      sessionId: session.sessionId,
+      workflowHash: session.workflowHash,
+      capabilityId: capability.capabilityId,
+      capabilityDigest: capability.capabilityDigest
+    })
+  ).brokerSignature;
+}
+
 async function main() {
   const suite = JSON.parse(await readFile(suitePath, "utf8")) as {
     suite_id: string;
@@ -247,12 +292,6 @@ async function main() {
   const archiveDir = join(repoRoot, "demo-output", `auditor-suite-${timestamp}`);
   await mkdir(archiveDir, { recursive: true });
 
-  const core = await import(pathToFileURL(resolve(repoRoot, "packages/core/dist/index.js")).href);
-  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
-  const publicKeyPem = publicKey.export({ format: "pem", type: "spki" }).toString();
-  const publicKeyPath = join(archiveDir, "approval-broker-public.pem");
-  await writeFile(publicKeyPath, publicKeyPem, "utf8");
-
   const systemLog: Array<Record<string, unknown>> = [];
   const sdkLog: Array<Record<string, unknown>> = [];
   const rawLog: Array<Record<string, unknown>> = [];
@@ -260,8 +299,13 @@ async function main() {
   const sinkHits: Array<Record<string, unknown>> = [];
   const results: CaseResult[] = [];
 
-  const daemon = await startSecureDaemon(publicKeyPath);
+  const broker = await startApprovalBrokerService(archiveDir);
+  const daemon = await startSecureDaemon(broker.publicKeyPath);
   try {
+    assertCondition(
+      daemon.health?.claimBearingReady === true,
+      "secure_v5 daemon did not report a claim-bearing secure posture."
+    );
     for (const testCase of suite.cases) {
       const session = await postJson<{ session: Record<string, any> }>(daemon.baseUrl, "/v5/session/start", {
         taskId: `audit-${testCase.id}`,
@@ -357,13 +401,11 @@ async function main() {
           });
           const capability = observe.capabilities?.[0];
           observedCapabilities = normalizedCapabilityKinds(observe);
-          const payload = core.createApprovalIntentPayloadV5({
-            sessionId: session.session.sessionId,
-            workflowHash: session.session.workflowHash,
-            capabilityId: capability.capabilityId,
-            capabilityDigest: capability.capabilityDigest
-          });
-          const brokerSignature = signBuffer(null, Buffer.from(payload, "utf8"), privateKey).toString("base64");
+          const brokerSignature = await signApprovalViaBroker(
+            broker,
+            session.session,
+            capability
+          );
           const approval = await postJson<any>(daemon.baseUrl, "/v5/approval/issue", {
             sessionId: session.session.sessionId,
             capabilityId: capability.capabilityId,
@@ -405,13 +447,11 @@ async function main() {
           });
           const capability = observe.capabilities?.[0];
           observedCapabilities = normalizedCapabilityKinds(observe);
-          const payload = core.createApprovalIntentPayloadV5({
-            sessionId: session.session.sessionId,
-            workflowHash: session.session.workflowHash,
-            capabilityId: capability.capabilityId,
-            capabilityDigest: capability.capabilityDigest
-          });
-          const brokerSignature = signBuffer(null, Buffer.from(payload, "utf8"), privateKey).toString("base64");
+          const brokerSignature = await signApprovalViaBroker(
+            broker,
+            session.session,
+            capability
+          );
           const approval = await postJson<any>(daemon.baseUrl, "/v5/approval/issue", {
             sessionId: session.session.sessionId,
             capabilityId: capability.capabilityId,
@@ -452,13 +492,11 @@ async function main() {
           });
           const capability = observe.capabilities?.[0];
           observedCapabilities = normalizedCapabilityKinds(observe);
-          const payload = core.createApprovalIntentPayloadV5({
-            sessionId: session.session.sessionId,
-            workflowHash: session.session.workflowHash,
-            capabilityId: capability.capabilityId,
-            capabilityDigest: capability.capabilityDigest
-          });
-          const brokerSignature = signBuffer(null, Buffer.from(payload, "utf8"), privateKey).toString("base64");
+          const brokerSignature = await signApprovalViaBroker(
+            broker,
+            session.session,
+            capability
+          );
           const approval = await postJson<any>(daemon.baseUrl, "/v5/approval/issue", {
             sessionId: session.session.sessionId,
             capabilityId: capability.capabilityId,
@@ -542,6 +580,7 @@ async function main() {
     }
   } finally {
     await daemon.stop();
+    await broker.stop();
   }
 
   const passed = results.filter((entry) => entry.status === "pass").length;
