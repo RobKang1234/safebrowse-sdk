@@ -7,8 +7,10 @@ import {
   brokerArtifact,
   buildReplayBundle,
   compilePolicy,
+  extractTextFromHtml,
   evaluateAction,
   evaluateMemoryWrite,
+  parseThreatPageHtml,
   evaluateToolRequest,
   sanitizeObservation,
   type JsonValue,
@@ -178,57 +180,40 @@ function buildThreatPage(
 </html>`;
 }
 
-function extractBetweenAll(html: string, pattern: RegExp): string[] {
-  const values: string[] = [];
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(html))) {
-    values.push(match[1]);
-  }
-  return values;
+function textContentFromHtml(html: string): string {
+  return extractTextFromHtml(html);
 }
 
-function textContentFromHtml(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+function parseJsonValue<T>(value: string | undefined, fallback: T): T {
+  if (!value) {
+    return fallback;
+  }
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
 }
 
 function parsePage(html: string): PageData {
-  const title = extractBetweenAll(html, /<title>([\s\S]*?)<\/title>/gi)[0] ?? "Untitled";
-  const visibleText =
-    extractBetweenAll(html, /<div data-channel="visible">([\s\S]*?)<\/div>/gi)[0] ?? "";
-  const hiddenText = extractBetweenAll(
-    html,
-    /<div data-channel="hidden"[^>]*>([\s\S]*?)<\/div>/gi
+  const parsed = parseThreatPageHtml(html);
+  const toolJson = parseJsonValue<Record<string, unknown> | undefined>(
+    parsed.jsonScripts["tool-manifest"],
+    undefined
   );
-  const metadataText = extractBetweenAll(
-    html,
-    /<meta name="agent-note" content="([\s\S]*?)"\s*\/?>/gi
-  );
-  const links = extractBetweenAll(html, /<a href="([^"]+)"/gi);
-  const toolJson = extractBetweenAll(
-    html,
-    /<script id="tool-manifest" type="application\/json">([\s\S]*?)<\/script>/gi
-  )[0];
-  const memoryJson = extractBetweenAll(
-    html,
-    /<script id="memory-directive" type="application\/json">([\s\S]*?)<\/script>/gi
-  )[0];
+  const memoryJson = parseJsonValue<
+    { key: string; value: string; durable: boolean } | undefined
+  >(parsed.jsonScripts["memory-directive"], undefined);
 
   return {
-    title,
-    visibleText,
-    hiddenText,
-    metadataText,
-    links,
-    toolManifest: toolJson ? (JSON.parse(toolJson) as Record<string, unknown>) : undefined,
-    memoryDirective: memoryJson
-      ? (JSON.parse(memoryJson) as { key: string; value: string; durable: boolean })
-      : undefined,
-    artifactUrl: links.find((href) => href.includes("/artifact/"))
+    title: parsed.title,
+    visibleText: parsed.visibleText,
+    hiddenText: parsed.hiddenText,
+    metadataText: parsed.metadataText,
+    links: parsed.links,
+    toolManifest: toolJson,
+    memoryDirective: memoryJson,
+    artifactUrl: parsed.links.find((href) => href.includes("/artifact/"))
   };
 }
 

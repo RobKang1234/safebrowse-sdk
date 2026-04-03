@@ -3,11 +3,19 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { formatDaemonHelp, parseDaemonOptions, runDaemonCli } from "./cli.js";
-import { compileObservationInIsolation, probeParserIsolation } from "./parserIsolation.js";
+import {
+  compileObservationInIsolation,
+  createParserIsolationService,
+  probeParserIsolation
+} from "./parserIsolation.js";
 import { createSafeBrowseServer, startSafeBrowseDaemon } from "./server.js";
 
 export { formatDaemonHelp, parseDaemonOptions, runDaemonCli } from "./cli.js";
-export { compileObservationInIsolation, probeParserIsolation } from "./parserIsolation.js";
+export {
+  compileObservationInIsolation,
+  createParserIsolationService,
+  probeParserIsolation
+} from "./parserIsolation.js";
 export { createSafeBrowseServer, startSafeBrowseDaemon } from "./server.js";
 
 function isDirectExecution(): boolean {
@@ -19,9 +27,14 @@ function isDirectExecution(): boolean {
 }
 
 if (isDirectExecution()) {
-  runDaemonCli().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    console.error(formatDaemonHelp());
-    process.exitCode = 1;
-  });
+  const startupKeepalive = setInterval(() => undefined, 1 << 30);
+  runDaemonCli()
+    .catch((error) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      console.error(formatDaemonHelp());
+      process.exitCode = 1;
+    })
+    .finally(() => {
+      clearInterval(startupKeepalive);
+    });
 }

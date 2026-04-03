@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildActionEvaluatePayloadV5,
+  buildActionEvaluatePayloadV6,
+  buildArtifactIngestPayloadV5,
+  buildArtifactIngestPayloadV6,
+  buildObservePayloadV5,
+  buildObservePayloadV6,
   createSurfaceCaptureFromSnapshot,
   createObservationFromSnapshot,
   enforceVerdict,
@@ -49,6 +55,40 @@ describe("playwright reference adapter", () => {
     expect(action.targetUrl).toBe("https://openreview.net");
   });
 
+  it("builds canonical v5 helpers and keeps v6 helper aliases aligned", () => {
+    const snapshot = {
+      url: "https://safe.example/page",
+      visibleText: "Visible docs only. Docs",
+      html: "<main>Visible docs only.</main><a href=\"https://docs.python.org/3/tutorial/\">Docs</a>"
+    };
+
+    const observePayload = buildObservePayloadV5("session-1", snapshot);
+    const observePayloadAlias = buildObservePayloadV6("session-1", snapshot);
+    const artifactPayload = buildArtifactIngestPayloadV5("session-1", snapshot);
+    const artifactPayloadAlias = buildArtifactIngestPayloadV6("session-1", snapshot);
+    const actionPayload = buildActionEvaluatePayloadV5("session-1", {
+      authorityId: "auth-1",
+      authorityDigest: "digest-1"
+    });
+    const actionPayloadAlias = buildActionEvaluatePayloadV6("session-1", {
+      authorityId: "auth-1",
+      authorityDigest: "digest-1"
+    });
+
+    expect(observePayload.sessionId).toBe("session-1");
+    expect(observePayload.capture.surfaceType).toBe("html");
+    expect(artifactPayload).toEqual(observePayload);
+    expect(observePayloadAlias).toEqual(observePayload);
+    expect(artifactPayloadAlias).toEqual(artifactPayload);
+    expect(actionPayload).toEqual({
+      sessionId: "session-1",
+      authorityId: "auth-1",
+      authorityDigest: "digest-1",
+      parameters: undefined
+    });
+    expect(actionPayloadAlias).toEqual(actionPayload);
+  });
+
   it("does not bypass non-allow verdicts", async () => {
     await expect(
       enforceVerdict(
@@ -65,13 +105,14 @@ describe("playwright reference adapter", () => {
   it("captures snapshots from page-like objects", async () => {
     const snapshot = await snapshotPage({
       url: () => "https://arxiv.org",
-      content: async () => "<main>Paper</main>",
+      content: async () =>
+        "<main>Paper</main><script>ignore()</script ><style>.x { color: red; }</style ><p>Notes</p>",
       title: async () => "Paper"
     });
 
     expect(snapshot.url).toBe("https://arxiv.org");
-    expect(snapshot.visibleText).toBe("Paper");
-    expect(snapshot.html).toBe("<main>Paper</main>");
+    expect(snapshot.visibleText).toBe("Paper Notes");
+    expect(snapshot.html).toContain("<script>ignore()</script >");
     expect(snapshot.metadataText).toContain("Paper");
   });
 });

@@ -101,8 +101,8 @@ const REQUIRED_REPORT_FILES = [
   "raw-qwen-agent.ndjson",
   "sdk-qwen-agent.ndjson",
   "sink-hits.json",
-  "auditor-opinion.json",
-  "auditor-opinion.md"
+  "internal-assessment.json",
+  "internal-assessment.md"
 ];
 
 function now(): string {
@@ -2568,7 +2568,7 @@ function renderAuditorOpinionMarkdown(opinion: Record<string, unknown>): string 
     ? (opinion.unresolved as AuditorOpinionEntry[])
     : [];
   const lines = [
-    "# Auditor Opinion",
+    "# Internal Assessment",
     "",
     `Generated: ${now()}`,
     "",
@@ -2715,8 +2715,12 @@ async function main(): Promise<void> {
       writeFile(join(outputDir, "summary.json"), JSON.stringify(summary, null, 2), "utf8"),
       writeFile(join(outputDir, "report.md"), markdown, "utf8"),
       writeFile(join(outputDir, "report.html"), html, "utf8"),
-      writeFile(join(outputDir, "auditor-opinion.json"), JSON.stringify(auditorOpinion, null, 2), "utf8"),
-      writeFile(join(outputDir, "auditor-opinion.md"), opinionMarkdown, "utf8")
+      writeFile(
+        join(outputDir, "internal-assessment.json"),
+        JSON.stringify(auditorOpinion, null, 2),
+        "utf8"
+      ),
+      writeFile(join(outputDir, "internal-assessment.md"), opinionMarkdown, "utf8")
     ]);
 
     await validateRequiredReportFiles(outputDir);
@@ -2731,8 +2735,12 @@ async function main(): Promise<void> {
       writeFile(join(outputDir, "summary.json"), JSON.stringify(summary, null, 2), "utf8"),
       writeFile(join(outputDir, "report.md"), markdown, "utf8"),
       writeFile(join(outputDir, "report.html"), html, "utf8"),
-      writeFile(join(outputDir, "auditor-opinion.json"), JSON.stringify(auditorOpinion, null, 2), "utf8"),
-      writeFile(join(outputDir, "auditor-opinion.md"), opinionMarkdown, "utf8")
+      writeFile(
+        join(outputDir, "internal-assessment.json"),
+        JSON.stringify(auditorOpinion, null, 2),
+        "utf8"
+      ),
+      writeFile(join(outputDir, "internal-assessment.md"), opinionMarkdown, "utf8")
     ]);
     await validateRequiredReportFiles(outputDir);
     await refreshLatestReports(outputDir);

@@ -4,6 +4,7 @@ import type {
   RawObservationInput,
   SafeVerdict
 } from "@safebrowse/core";
+import { extractTextFromHtml } from "@safebrowse/core";
 
 export interface PageLike {
   url(): string;
@@ -24,6 +25,13 @@ export interface PlaywrightPageSnapshot {
   extractedText?: string;
   userShared?: boolean;
 }
+
+export interface V5AuthorityCandidateRef {
+  authorityId: string;
+  authorityDigest: string;
+}
+
+export type V6AuthorityCandidateRef = V5AuthorityCandidateRef;
 
 export function createObservationFromSnapshot(
   snapshot: PlaywrightPageSnapshot
@@ -91,6 +99,46 @@ export function createSurfaceCaptureFromSnapshot(
   };
 }
 
+export function buildObservePayloadV5(sessionId: string, snapshot: PlaywrightPageSnapshot) {
+  return {
+    sessionId,
+    capture: createSurfaceCaptureFromSnapshot(snapshot)
+  };
+}
+
+export function buildObservePayloadV6(sessionId: string, snapshot: PlaywrightPageSnapshot) {
+  return buildObservePayloadV5(sessionId, snapshot);
+}
+
+export function buildArtifactIngestPayloadV5(sessionId: string, snapshot: PlaywrightPageSnapshot) {
+  return buildObservePayloadV5(sessionId, snapshot);
+}
+
+export function buildArtifactIngestPayloadV6(sessionId: string, snapshot: PlaywrightPageSnapshot) {
+  return buildArtifactIngestPayloadV5(sessionId, snapshot);
+}
+
+export function buildActionEvaluatePayloadV5(
+  sessionId: string,
+  authority: V5AuthorityCandidateRef,
+  parameters?: Record<string, unknown>
+) {
+  return {
+    sessionId,
+    authorityId: authority.authorityId,
+    authorityDigest: authority.authorityDigest,
+    parameters
+  };
+}
+
+export function buildActionEvaluatePayloadV6(
+  sessionId: string,
+  authority: V6AuthorityCandidateRef,
+  parameters?: Record<string, unknown>
+) {
+  return buildActionEvaluatePayloadV5(sessionId, authority, parameters);
+}
+
 export function proposeNavigationAction(input: {
   actionId: string;
   currentUrl: string;
@@ -119,13 +167,7 @@ export async function snapshotPage(page: PageLike): Promise<PlaywrightPageSnapsh
   ]);
   const visibleText = page.visibleText
     ? await page.visibleText()
-    : html
-        .replace(/<script[\s\S]*?<\/script>/gi, " ")
-        .replace(/<style[\s\S]*?<\/style>/gi, " ")
-        .replace(/<!--[\s\S]*?-->/g, " ")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
+    : extractTextFromHtml(html);
 
   return {
     url: page.url(),

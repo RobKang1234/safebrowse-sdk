@@ -23,6 +23,7 @@ jobs:
       - run: node scripts/run-python-module.mjs -m pip install build twine
       - run: pnpm build
       - run: pnpm test
+      - run: pnpm perf:daemon:gate -- --json-out perf-daemon-routes.json
       - name: Optional BrowserGym / AgentDojo hooks
         run: |
           echo "BrowserGym runner: ${BROWSERGYM_RUNNER:-disabled}"
@@ -34,3 +35,8 @@ jobs:
       - run: pnpm release:audit
       - run: pnpm auditor:parity
       - run: pnpm auditor:review
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: daemon-perf-nightly
+          path: perf-daemon-routes.json
