@@ -25,6 +25,11 @@ export interface PlaywrightPageSnapshot {
   userShared?: boolean;
 }
 
+export interface V6AuthorityCandidateRef {
+  authorityId: string;
+  authorityDigest: string;
+}
+
 export function createObservationFromSnapshot(
   snapshot: PlaywrightPageSnapshot
 ): RawObservationInput {
@@ -88,6 +93,30 @@ export function createSurfaceCaptureFromSnapshot(
     metadataText: snapshot.metadataText,
     annotations: snapshot.annotations,
     userShared: snapshot.userShared
+  };
+}
+
+export function buildObservePayloadV6(sessionId: string, snapshot: PlaywrightPageSnapshot) {
+  return {
+    sessionId,
+    capture: createSurfaceCaptureFromSnapshot(snapshot)
+  };
+}
+
+export function buildArtifactIngestPayloadV6(sessionId: string, snapshot: PlaywrightPageSnapshot) {
+  return buildObservePayloadV6(sessionId, snapshot);
+}
+
+export function buildActionEvaluatePayloadV6(
+  sessionId: string,
+  authority: V6AuthorityCandidateRef,
+  parameters?: Record<string, unknown>
+) {
+  return {
+    sessionId,
+    authorityId: authority.authorityId,
+    authorityDigest: authority.authorityDigest,
+    parameters
   };
 }
 

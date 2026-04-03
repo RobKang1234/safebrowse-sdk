@@ -413,6 +413,9 @@ export interface ProvenanceSpan {
   lineageChain: string[];
   selector?: string;
   supportingDigest?: string;
+  sourceNodePathHash?: string;
+  blockedForAuthority?: boolean;
+  visibleOnlyFlag?: boolean;
 }
 
 export interface ExtractedTarget {
@@ -425,12 +428,23 @@ export interface ExtractedTarget {
   frameOrigin: string;
   targetOrigin: string;
   displayText: string;
+  sourceNodePathHash?: string;
+  sourceChannelSet?: ProvenanceChannel[];
+  visibleOnlyFlag?: boolean;
 }
 
+export type ParserIsolationMode = "scrubbed_process" | "node_permission_process";
+
 export interface ParserIsolationReport {
+  mode: ParserIsolationMode;
   processIsolated: boolean;
-  secretAccess: false;
-  arbitraryEgress: false;
+  envScrubbed: boolean;
+  egressDenied: boolean;
+  permissionModelEnabled: boolean;
+  fsReadRestricted: boolean;
+  childProcessDenied: boolean;
+  workerThreadsDenied: boolean;
+  envKeys: string[];
   allowlistedEgress: string[];
 }
 
@@ -493,6 +507,9 @@ export interface TaskSession {
   currentStep: number;
   createdAt: string;
   expiresAt: string;
+  claimProfile?: "legacy_compatibility" | "secure_v5" | "secure_v6";
+  approvalBrokerRequired?: boolean;
+  legacyRoutesDisabled?: boolean;
 }
 
 export interface CapabilityDescriptor {
@@ -525,6 +542,157 @@ export interface CapabilityDescriptor {
   nonReplayable: true;
   workflowHash: string;
   title: string;
+}
+
+export interface PlannerViewV5 {
+  observationId: string;
+  sessionId?: string;
+  surfaceType: V4SurfaceType;
+  visibleExcerpt: string;
+  facts: string[];
+  quotedTaintedBlocks: Array<{
+    channel: ProvenanceChannel;
+    text: string;
+    spanId: string;
+  }>;
+  blockedChannels: ProvenanceChannel[];
+  riskMarkers: string[];
+  secretRedactionsApplied: boolean;
+}
+
+export interface CompiledObservationV5 extends CompiledObservation {
+  authorityEligible: boolean;
+  provenanceDigest: string;
+}
+
+export interface CapabilityDescriptorV5 {
+  capabilityId: string;
+  capabilityDigest: string;
+  semanticDigest: string;
+  sessionId: string;
+  workflowHash: string;
+  workflowStep: number;
+  kind: "navigate" | "connector_prepare" | "memory_promote";
+  targetClass: "browser_navigation" | "connector" | "memory_promotion";
+  originBoundTo: string;
+  targetOrigin: string;
+  targetUrl?: string;
+  selector?: string;
+  sourceObservationId: string;
+  sourceDigest: string;
+  frameOrigins: string[];
+  sourceSpanIds: string[];
+  sourceNodePathHash?: string;
+  mintedFromChannels: ProvenanceChannel[];
+  visibleOnlyFlag: boolean;
+  parameterSchema: Record<string, JsonValue>;
+  derivedSinkClass: "browser_navigation" | "connector_oauth" | "memory_promotion";
+  derivedSensitiveSink: boolean;
+  registryEntryId?: string;
+  registryBundleId?: string;
+  registryBundleVersion?: string;
+  registrySigner?: string;
+  connectorId?: string;
+  requestedScopes?: string[];
+  callbackUri?: string;
+  callbackOrigin?: string;
+  manifestHash?: string;
+  schemaHash?: string;
+  memoryRecordId?: string;
+  expiresAt: string;
+  nonReplayable: true;
+  consumedAt?: string;
+  title: string;
+}
+
+export interface CapabilityUseRequestV5 {
+  sessionId: string;
+  capabilityId: string;
+  capabilityDigest: string;
+  parameters?: Record<string, JsonValue>;
+}
+
+export interface ApprovalEnvelopeV5 {
+  approvalId: string;
+  sessionId: string;
+  workflowHash: string;
+  workflowStep: number;
+  capabilityId: string;
+  capabilityDigest: string;
+  semanticDigest: string;
+  sinkClass: "connector_oauth" | "memory_promotion";
+  connectorId?: string;
+  registryEntryId?: string;
+  registryBundleId?: string;
+  registryBundleVersion?: string;
+  registrySigner?: string;
+  requestedScopes: string[];
+  requestedScopesHash: string;
+  callbackUri?: string;
+  callbackOrigin?: string;
+  manifestHash?: string;
+  schemaHash?: string;
+  targetOrigin: string;
+  issuedAt: string;
+  expiresAt: string;
+  brokerSignature: string;
+  signedByBroker: true;
+  consumedAt?: string;
+  onboardingSessionId?: string;
+}
+
+export interface ConnectorHandle {
+  handleId: string;
+  sessionId: string;
+  approvalId: string;
+  connectorId: string;
+  registryEntryId: string;
+  registryBundleId?: string;
+  registryBundleVersion?: string;
+  registrySigner?: string;
+  manifestHash?: string;
+  schemaHash?: string;
+  scopeSet: string[];
+  issuedAt: string;
+  expiresAt: string;
+  status: "active" | "expired";
+}
+
+export interface ToolOnboardingSessionV5 {
+  onboardingSessionId: string;
+  sessionId: string;
+  approvalId: string;
+  capabilityDigest: string;
+  connectorId: string;
+  registryEntryId: string;
+  registryBundleId?: string;
+  registryBundleVersion?: string;
+  registrySigner?: string;
+  callbackUri: string;
+  callbackOrigin: string;
+  requestedScopes: string[];
+  manifestHash?: string;
+  schemaHash?: string;
+  state: string;
+  pkceMethod: "S256";
+  createdAt: string;
+  expiresAt: string;
+  status: "prepared" | "used" | "expired";
+}
+
+export interface V5ObservationResponse {
+  compiledObservation: CompiledObservationV5;
+  plannerView: PlannerViewV5;
+  capabilities: Array<{
+    capabilityId: string;
+    capabilityDigest: string;
+    semanticDigest: string;
+    title: string;
+    kind: CapabilityDescriptorV5["kind"];
+    parameterSchema: Record<string, JsonValue>;
+    expiresAt: string;
+  }>;
+  observationVerdict: SafeVerdict;
 }
 
 export interface CapabilityUseRequest {
@@ -568,12 +736,16 @@ export interface MemoryRecord {
   sourceClass: MemorySourceClass;
   sourceObservationId?: string;
   sourceDigest?: string;
+  corroboration?: MemoryCorroborationV6[];
   secretFindings: string[];
   summaryOnly: boolean;
   createdAt: string;
   expiresAt?: string;
   snapshotId?: string;
   rollbackPointId?: string;
+  lineageChain?: string[];
+  delayedTriggerIndicators?: string[];
+  priorTrustedRecordId?: string;
 }
 
 export interface MemoryPromotionRequest {
@@ -581,6 +753,22 @@ export interface MemoryPromotionRequest {
   recordId: string;
   approvalGrantId?: string;
   validationEvidence?: string[];
+}
+
+export interface MemoryWriteRequestV5 {
+  sessionId: string;
+  inputKind: "user_note";
+  key: string;
+  value: JsonValue;
+  durable: boolean;
+}
+
+export interface MemoryPromotionRequestV5 {
+  sessionId: string;
+  recordId: string;
+  capabilityId: string;
+  capabilityDigest: string;
+  approvalId: string;
 }
 
 export interface MemoryRollbackRequest {
@@ -594,10 +782,115 @@ export interface MemoryRollbackResult {
   restoredRecord?: MemoryRecord;
 }
 
+export type MemorySourceClassV6 =
+  | "user_note"
+  | "web_observation"
+  | "model_summary"
+  | "retrieval_fact"
+  | "system_validation";
+
+export interface MemoryCorroborationV6 {
+  source: string;
+  digest?: string;
+  note?: string;
+}
+
+export interface MemoryStageRequestV6 {
+  sessionId: string;
+  key: string;
+  value: JsonValue;
+  sourceClass: MemorySourceClassV6;
+  durable: boolean;
+  sourceObservationId?: string;
+  sourceDigest?: string;
+  corroboration?: MemoryCorroborationV6[];
+  lineageChain?: string[];
+  delayedTriggerIndicators?: string[];
+}
+
+export interface MemoryPromotionTicketV6 {
+  ticketId: string;
+  ticketDigest: string;
+  semanticDigest: string;
+  recordId: string;
+  sourceClass: MemorySourceClassV6;
+  expiresAt: string;
+}
+
+export interface MemoryPromotionRequestV6 {
+  sessionId: string;
+  recordId: string;
+  ticketId: string;
+  ticketDigest: string;
+  approvalId: string;
+}
+
+export interface V6AuthorityCandidate {
+  authorityId: string;
+  authorityDigest: string;
+  semanticDigest: string;
+  title: string;
+  kind: CapabilityDescriptorV5["kind"];
+  parameterSchema: Record<string, JsonValue>;
+  expiresAt: string;
+}
+
+export interface V6ArtifactRef {
+  artifactId: string;
+  surfaceKind: ArtifactKind;
+  sourceOrigin: string;
+  viewerOrigin?: string;
+  mismatchSignals: string[];
+  metadataSignals: string[];
+  provenance: {
+    extractionMethod: ExtractionMethod;
+    lineageChain: string[];
+    derivedTaintClass?: TaintClass;
+  };
+  authorityEligible: boolean;
+}
+
+export interface V6ObserveResponse {
+  compiledObservation: CompiledObservationV5;
+  plannerView: PlannerViewV5;
+  authorityCandidates: V6AuthorityCandidate[];
+  artifactRefs: V6ArtifactRef[];
+  observationVerdict: SafeVerdict;
+  replayEventId: string;
+}
+
+export interface V6ActionEvaluateRequest {
+  sessionId: string;
+  authorityId: string;
+  authorityDigest: string;
+  parameters?: Record<string, JsonValue>;
+}
+
+export interface V6ActionEvaluateResponse {
+  observationDecision: SafeVerdict;
+  authorityDecision: SafeVerdict;
+  effectDecision: SafeVerdict;
+  executionPlan?: Record<string, JsonValue>;
+}
+
+export interface V6ArtifactIngestResponse {
+  compiledObservation: CompiledObservationV5;
+  plannerView: PlannerViewV5;
+  artifactRef: V6ArtifactRef;
+  mismatchSignals: string[];
+  artifactVerdict: SafeVerdict;
+  replayEventId: string;
+}
+
 export interface ParserWorkerProbe {
+  mode: ParserIsolationMode;
   envKeys: string[];
   egressDenied: boolean;
   processIsolated: boolean;
+  permissionModelEnabled: boolean;
+  fsReadRestricted: boolean;
+  childProcessDenied: boolean;
+  workerThreadsDenied: boolean;
 }
 
 export interface ArtifactV2Input extends ArtifactInput {
@@ -621,11 +914,14 @@ export interface MemoryWriteRequest {
   trustSignals?: Partial<TrustSignalSet>;
 }
 
+export type ReplayActor = "raw" | "raw_model" | "sdk" | "system" | "user";
+
 export interface ReplayEvent {
   eventId: string;
   kind: "observation" | "action" | "artifact" | "tool" | "memory" | "verdict";
   payload: JsonValue;
   trustSignals?: Partial<TrustSignalSet>;
+  actor?: ReplayActor;
   timestamp?: string;
 }
 
@@ -641,6 +937,7 @@ export interface ReplayBundle {
     totalEvents: number;
     blockingDecisions: number;
     reviewDecisions: number;
+    actorCounts?: Partial<Record<ReplayActor, number>>;
   };
 }
 
