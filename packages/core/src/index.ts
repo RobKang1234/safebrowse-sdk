@@ -25,6 +25,10 @@ export {
   promoteMemoryRecordV5,
   rollbackMemoryRecordV5
 } from "./memoryV5.js";
+export {
+  promoteMemoryRecordV6,
+  stageMemoryRecordV6
+} from "./memoryV6.js";
 export { runPromptInjectionGuard } from "./promptInjection.js";
 export { buildReplayBundle } from "./replay.js";
 export { sanitizeObservation } from "./sanitize.js";

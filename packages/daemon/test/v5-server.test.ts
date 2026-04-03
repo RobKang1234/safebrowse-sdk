@@ -3,6 +3,8 @@ import { generateKeyPairSync } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  computeToolManifestHash,
+  computeToolSchemaHash,
   type PolicyPack,
   type VerifiedRegistryBundle
 } from "@safebrowse/core";
@@ -63,7 +65,8 @@ const manifest = {
   description: "Citation sync connector for scholarly cross-reference enrichment.",
   authType: "oauth" as const,
   requestedScopes: ["citation:read"],
-  callbackUri: "https://safe.example/oauth/callback"
+  callbackUri: "https://safe.example/oauth/callback",
+  schemaDescriptions: [] as string[]
 };
 
 const verifiedRegistry: VerifiedRegistryBundle = {
@@ -85,7 +88,9 @@ const verifiedRegistry: VerifiedRegistryBundle = {
       allowedTransports: ["https"],
       allowedRedirectUris: ["https://safe.example/oauth/callback"],
       allowedCallbackOrigins: ["https://safe.example"],
-      allowedScopes: ["citation:read"]
+      allowedScopes: ["citation:read"],
+      manifestHash: computeToolManifestHash(manifest),
+      schemaHash: computeToolSchemaHash(manifest.schemaDescriptions)
     }
   ]
 };
@@ -125,8 +130,6 @@ async function startTestServer(deploymentProfile: "development" | "secure_v5" = 
     verifiedRegistry,
     deploymentProfile,
     approvalBrokerPublicKeyPem: broker.publicKeyPem,
-    approvalBrokerMode: "external_service",
-    parserIsolationMode: "node_permission_process",
     knowledgeBase: {
       promptInjectionPatterns: [],
       actionIntegrityPatterns: [],
@@ -196,6 +199,7 @@ describe("safebrowse daemon v5 routes", () => {
     expect(health.parserIsolation.enforced).toBe(true);
     expect(health.parserIsolation.mode).toBe("node_permission_process");
     expect(health.parserIsolation.permissionModelEnabled).toBe(true);
+    expect(health.parserIsolation.lastCheckedAt).toBeTruthy();
 
     const legacy = await fetch(`${baseUrl}/v1/action`, {
       method: "POST",
@@ -212,6 +216,15 @@ describe("safebrowse daemon v5 routes", () => {
     }).then((response) => response.json());
 
     expect(legacy.error).toBe("route_disabled_in_secure_v5");
+  });
+
+  it("reuses cached parser isolation state across repeated health checks", async () => {
+    const { baseUrl } = await startTestServer();
+    const first = await fetch(`${baseUrl}/health`).then((response) => response.json());
+    const second = await fetch(`${baseUrl}/health`).then((response) => response.json());
+
+    expect(first.parserIsolation.lastCheckedAt).toBeTruthy();
+    expect(second.parserIsolation.lastCheckedAt).toBe(first.parserIsolation.lastCheckedAt);
   });
 
   it("does not mint capabilities from hidden anchors on first observation", async () => {
@@ -277,6 +290,7 @@ describe("safebrowse daemon v5 routes", () => {
           url: "https://safe.example/connectors/citation-sync-safe",
           toolId: manifest.toolId,
           description: manifest.description,
+          schemaDescriptions: manifest.schemaDescriptions,
           authType: "oauth",
           requestedScopes: ["citation:read"],
           callbackUri: manifest.callbackUri,

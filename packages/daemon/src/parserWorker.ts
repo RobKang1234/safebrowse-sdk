@@ -79,56 +79,152 @@ async function probeIsolation(): Promise<{
 
 lockDownEnvironment();
 
+let cachedProbePromise: Promise<Awaited<ReturnType<typeof probeIsolation>>> | undefined;
+let cachedCoreRuntimePromise:
+  | Promise<{
+      compileObservation: typeof import("@safebrowse/core").compileObservation;
+      compileObservationV5: typeof import("@safebrowse/core").compileObservationV5;
+      computeToolManifestHash: typeof import("@safebrowse/core").computeToolManifestHash;
+      computeToolSchemaHash: typeof import("@safebrowse/core").computeToolSchemaHash;
+    }>
+  | undefined;
+let workerRuntimeDefaults: Partial<RuntimeContext> | undefined;
+let workerAllowlistedEgress: string[] = [];
+let workerParserIsolationMode: "scrubbed_process" | "node_permission_process" | undefined;
+
+async function getCachedProbe() {
+  if (!cachedProbePromise) {
+    cachedProbePromise = probeIsolation();
+  }
+  return cachedProbePromise;
+}
+
 async function loadCoreRuntime(
   parserIsolationMode?: "scrubbed_process" | "node_permission_process"
 ): Promise<{
   compileObservation: typeof import("@safebrowse/core").compileObservation;
   compileObservationV5: typeof import("@safebrowse/core").compileObservationV5;
+  computeToolManifestHash: typeof import("@safebrowse/core").computeToolManifestHash;
+  computeToolSchemaHash: typeof import("@safebrowse/core").computeToolSchemaHash;
 }> {
-  if (import.meta.url.endsWith(".ts")) {
-    if (parserIsolationMode === "node_permission_process") {
-      const distEntryUrl = new URL("../../core/dist/index.js", import.meta.url);
-      if (existsSync(distEntryUrl)) {
-        return import(distEntryUrl.href);
-      }
-      throw new Error("secure_v5 parser worker requires a built @safebrowse/core dist runtime");
-    }
-    const sourceEntryUrl = new URL("../../core/src/index.ts", import.meta.url).href;
-    return import(sourceEntryUrl);
+  if (cachedCoreRuntimePromise) {
+    return cachedCoreRuntimePromise;
   }
 
-  return import("@safebrowse/core");
+  cachedCoreRuntimePromise = (async () => {
+    if (import.meta.url.endsWith(".ts")) {
+      if (parserIsolationMode === "node_permission_process") {
+        const distEntryUrl = new URL("../../core/dist/index.js", import.meta.url);
+        if (existsSync(distEntryUrl)) {
+          return import(distEntryUrl.href);
+        }
+        throw new Error("secure profile parser worker requires a built @safebrowse/core dist runtime");
+      }
+      const sourceEntryUrl = new URL("../../core/src/index.ts", import.meta.url).href;
+      return import(sourceEntryUrl);
+    }
+
+    return import("@safebrowse/core");
+  })();
+
+  return cachedCoreRuntimePromise;
 }
 
 type ParserWorkerMessage =
   | {
-      kind: "probe";
+      requestId: string;
+      payload: {
+        kind: "configure";
+        parserIsolationMode?: "scrubbed_process" | "node_permission_process";
+        allowlistedEgress?: string[];
+        runtime?: Partial<RuntimeContext>;
+      };
     }
   | {
-      kind: "parse";
-      compilerVersion?: "v4" | "v5";
-      parserIsolationMode?: "scrubbed_process" | "node_permission_process";
-      capture: SurfaceCapture;
-      workflowHash?: string;
-      allowlistedEgress?: string[];
-      runtime?: Partial<RuntimeContext>;
+      requestId: string;
+      payload: {
+        kind: "probe";
+      };
+    }
+  | {
+      requestId: string;
+      payload: {
+        kind: "parse";
+        compilerVersion?: "v4" | "v5";
+        parserIsolationMode?: "scrubbed_process" | "node_permission_process";
+        capture: SurfaceCapture;
+        workflowHash?: string;
+        allowlistedEgress?: string[];
+        runtime?: Partial<RuntimeContext>;
+      };
     };
+
+function sendResponse(
+  requestId: string,
+  message:
+    | {
+        ok: true;
+        probe?: Awaited<ReturnType<typeof probeIsolation>>;
+        result?: {
+          compiledObservation: ReturnType<typeof import("@safebrowse/core").compileObservation>["compiledObservation"];
+          plannerInput?: ReturnType<typeof import("@safebrowse/core").compileObservation>["plannerInput"];
+          plannerView?: ReturnType<typeof import("@safebrowse/core").compileObservationV5>["plannerView"];
+          toolManifestDigests?: {
+            manifestHash?: string;
+            schemaHash?: string;
+          };
+        };
+      }
+    | {
+        ok: false;
+        error: string;
+      }
+): void {
+  process.send?.({
+    requestId,
+    ...message
+  });
+}
 
 process.on("message", async (message: ParserWorkerMessage) => {
   try {
-    if (message.kind === "probe") {
-      process.send?.({
-        ok: true,
-        probe: await probeIsolation()
+    const payload = message.payload;
+    if (payload.kind === "configure") {
+      workerRuntimeDefaults = payload.runtime;
+      workerAllowlistedEgress = payload.allowlistedEgress ?? [];
+      workerParserIsolationMode = payload.parserIsolationMode;
+      await loadCoreRuntime(workerParserIsolationMode);
+      sendResponse(message.requestId, {
+        ok: true
       });
       return;
     }
 
-    const { compileObservation, compileObservationV5 } = await loadCoreRuntime(message.parserIsolationMode);
-    const compiler = message.compilerVersion === "v5" ? compileObservationV5 : compileObservation;
-    const probe = await probeIsolation();
-    const result = compiler(message.capture, message.runtime ?? {}, {
-      workflowHash: message.workflowHash,
+    if (payload.kind === "probe") {
+      sendResponse(message.requestId, {
+        ok: true,
+        probe: await getCachedProbe()
+      });
+      return;
+    }
+
+    const parserIsolationMode =
+      payload.parserIsolationMode ??
+      workerParserIsolationMode ??
+      (await getCachedProbe()).mode;
+    const {
+      compileObservation,
+      compileObservationV5,
+      computeToolManifestHash,
+      computeToolSchemaHash
+    } =
+      await loadCoreRuntime(parserIsolationMode);
+    const compiler = payload.compilerVersion === "v5" ? compileObservationV5 : compileObservation;
+    const probe = await getCachedProbe();
+    const runtime = payload.runtime ?? workerRuntimeDefaults ?? {};
+    const allowlistedEgress = payload.allowlistedEgress ?? workerAllowlistedEgress;
+    const result = compiler(payload.capture, runtime, {
+      workflowHash: payload.workflowHash,
       parserIsolation: {
         mode: probe.mode,
         processIsolated: probe.processIsolated,
@@ -139,16 +235,32 @@ process.on("message", async (message: ParserWorkerMessage) => {
         childProcessDenied: probe.childProcessDenied,
         workerThreadsDenied: probe.workerThreadsDenied,
         envKeys: probe.envKeys,
-        allowlistedEgress: message.allowlistedEgress ?? []
+        allowlistedEgress
       }
     });
+    const toolManifestDigests =
+      payload.capture.surfaceType === "tool_manifest"
+        ? {
+            manifestHash: computeToolManifestHash({
+              toolId: payload.capture.toolId,
+              description: payload.capture.description,
+              authType: payload.capture.authType,
+              requestedScopes: payload.capture.requestedScopes,
+              callbackUri: payload.capture.callbackUri
+            }),
+            schemaHash: computeToolSchemaHash(payload.capture.schemaDescriptions)
+          }
+        : undefined;
 
-    process.send?.({
+    sendResponse(message.requestId, {
       ok: true,
-      result
+      result: {
+        ...result,
+        toolManifestDigests
+      }
     });
   } catch (error) {
-    process.send?.({
+    sendResponse(message.requestId, {
       ok: false,
       error: error instanceof Error ? error.message : String(error)
     });

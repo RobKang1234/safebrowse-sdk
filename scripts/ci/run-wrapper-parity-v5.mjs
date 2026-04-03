@@ -22,6 +22,60 @@ const packageDirs = [
   resolve(repoRoot, "packages/playwright-adapter")
 ];
 
+const policyPack = {
+  packId: "daemon-test-pack-v5",
+  profile: "research",
+  version: "0.5.0",
+  layers: [
+    {
+      name: "base",
+      version: "0.5.0",
+      profile: "research",
+      origins: {
+        readOnlyAllow: ["https://safe.example", "https://docs.python.org"],
+        writableAllow: []
+      },
+      actions: {
+        allow: ["navigate", "connector_prepare"],
+        requireApproval: ["download"],
+        deny: ["exfiltrate"]
+      },
+      artifacts: {
+        enableDocumentHandoff: true,
+        quarantineOnHiddenTextMismatch: true,
+        allowMimeTypes: ["application/pdf", "text/html"]
+      },
+      memory: {
+        durableWrites: "deny",
+        protectedKeys: ["user_identity", "credential_scope", "payment_context"]
+      },
+      toolProtocol: {
+        forbidTokenPassthrough: true,
+        enforceExactRedirectUri: true,
+        allowedRegistrySigners: ["safebrowse-dev"],
+        requireVerifiedRegistry: true,
+        requireApprovalBinding: true,
+        requireOauthStateBinding: true,
+        taintedConnectorFlowDecision: "block",
+        allowLoopbackCallbacksInDev: false
+      },
+      telemetry: {
+        replayBundle: true,
+        redactSensitiveValues: true,
+        sampling: "full"
+      }
+    }
+  ]
+};
+
+const emptyKnowledgeBase = {
+  promptInjectionPatterns: [],
+  actionIntegrityPatterns: [],
+  artifactRiskPatterns: [],
+  secrets: [],
+  version: "test"
+};
+
 const toolManifestCapture = {
   surfaceType: "tool_manifest",
   url: "https://safe.example/connectors/citation-sync-safe",
@@ -196,6 +250,24 @@ async function postJson(baseUrl, path, payload) {
   return response.json();
 }
 
+async function listen(server) {
+  await new Promise((resolvePromise, rejectPromise) => {
+    server.once("error", rejectPromise);
+    server.listen(0, "127.0.0.1", () => resolvePromise());
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Missing server address");
+  }
+  return `http://127.0.0.1:${address.port}`;
+}
+
+async function closeServer(server) {
+  await new Promise((resolvePromise) => {
+    server.close(() => resolvePromise());
+  });
+}
+
 async function loadApprovalBrokerDist() {
   return import(pathToFileURL(resolve(repoRoot, "packages/approval-broker/dist/index.js")).href);
 }
@@ -310,6 +382,34 @@ function assertDeepEqual(label, left, right) {
       `${label} mismatch.\nLEFT=${JSON.stringify(left, null, 2)}\nRIGHT=${JSON.stringify(right, null, 2)}`
     );
   }
+}
+
+async function buildVerifiedRegistry(runtime) {
+  return {
+    bundleId: "safebrowse-local-registry",
+    version: "5",
+    signer: "safebrowse-dev",
+    generatedAt: "2026-03-30T00:00:00.000Z",
+    publicKeyId: "safebrowse_vf_ed25519_public.pem",
+    signatureVerified: true,
+    entries: [
+      {
+        registryEntryId: "citation-sync-safe",
+        adapterId: "citation-sync-safe",
+        bundleId: "safebrowse-local-registry",
+        bundleVersion: "5",
+        signer: "safebrowse-dev",
+        authType: "oauth",
+        capabilities: ["citation_sync"],
+        allowedTransports: ["https"],
+        allowedRedirectUris: ["https://safe.example/oauth/callback"],
+        allowedCallbackOrigins: ["https://safe.example"],
+        allowedScopes: ["citation:read"],
+        manifestHash: runtime.computeToolManifestHash(toolManifestCapture),
+        schemaHash: runtime.computeToolSchemaHash(toolManifestCapture.schemaDescriptions)
+      }
+    ]
+  };
 }
 
 async function runV5Cases(baseUrl, makeHtmlCapture, signApproval, subset) {
@@ -545,39 +645,25 @@ async function runV5Cases(baseUrl, makeHtmlCapture, signApproval, subset) {
 }
 
 async function startWorkspaceDaemon(publicKeyPath) {
-  const port = await getFreePort();
-  const daemonProcess = spawn(
-    process.execPath,
-    [
-      resolve(repoRoot, "packages/daemon/dist/index.js"),
-      "--port",
-      String(port),
-      "--root-dir",
-      repoRoot,
-      "--deployment-profile",
-      "secure_v5",
-      "--approval-broker-mode",
-      "external_service",
-      "--approval-broker-public-key-path",
-      publicKeyPath,
-      "--parser-isolation-mode",
-      "node_permission_process"
-    ],
-    {
-      cwd: repoRoot,
-      stdio: "pipe"
-    }
-  );
-  const daemonLog = attachProcessLogBuffer(daemonProcess, "workspace secure_v5 daemon");
-  const baseUrl = `http://127.0.0.1:${port}`;
+  const coreRuntime = await import(pathToFileURL(resolve(repoRoot, "packages/core/dist/index.js")).href);
+  const daemonRuntime = await import(pathToFileURL(resolve(repoRoot, "packages/daemon/dist/index.js")).href);
+  const verifiedRegistry = await buildVerifiedRegistry(coreRuntime);
+  const approvalBrokerPublicKeyPem = await readFile(publicKeyPath, "utf8");
+  const server = await daemonRuntime.createSafeBrowseServer({
+    policyPack,
+    verifiedRegistry,
+    deploymentProfile: "secure_v5",
+    approvalBrokerPublicKeyPem,
+    knowledgeBase: emptyKnowledgeBase
+  });
+  const baseUrl = await listen(server);
   const health = await waitForHealth(baseUrl);
   if (health?.claimBearingReady !== true) {
     throw new Error(`workspace daemon did not report claimBearingReady=true: ${JSON.stringify(health)}`);
   }
   return {
     baseUrl,
-    daemonLog,
-    stop: () => stopProcess(daemonProcess)
+    stop: () => closeServer(server)
   };
 }
 
@@ -762,32 +848,31 @@ async function runNpmLane(packDir, publicKeyPath, signApproval, subset) {
   await npm(["install", "--no-package-lock", "--ignore-scripts", ...tarballs], {
     cwd: installDir
   });
-
-  const port = await getFreePort();
-  const daemonProcess = spawn(
-    process.execPath,
-    [
-      resolve(installDir, "node_modules/@safebrowse/daemon/dist/index.js"),
-      "--port",
-      String(port),
-      "--deployment-profile",
-      "secure_v5",
-      "--approval-broker-mode",
-      "external_service",
-      "--approval-broker-public-key-path",
-      publicKeyPath,
-      "--parser-isolation-mode",
-      "node_permission_process"
-    ],
-    {
-      cwd: installDir,
-      stdio: "pipe"
-    }
+  const coreRuntime = await import(
+    pathToFileURL(resolve(installDir, "node_modules/@safebrowse/core/dist/index.js")).href
   );
-  const daemonLog = attachProcessLogBuffer(daemonProcess, "npm-installed secure_v5 daemon");
+  const daemonRuntime = await import(
+    pathToFileURL(resolve(installDir, "node_modules/@safebrowse/daemon/dist/index.js")).href
+  );
+  const verifiedRegistry = await buildVerifiedRegistry(coreRuntime);
+  const originalCwd = process.cwd();
+  let server;
+  try {
+    process.chdir(installDir);
+    const approvalBrokerPublicKeyPem = await readFile(publicKeyPath, "utf8");
+    server = await daemonRuntime.createSafeBrowseServer({
+      policyPack,
+      verifiedRegistry,
+      deploymentProfile: "secure_v5",
+      approvalBrokerPublicKeyPem,
+      knowledgeBase: emptyKnowledgeBase
+    });
+  } finally {
+    process.chdir(originalCwd);
+  }
 
   try {
-    const baseUrl = `http://127.0.0.1:${port}`;
+    const baseUrl = await listen(server);
     const health = await waitForHealth(baseUrl);
     if (health?.claimBearingReady !== true) {
       throw new Error(`npm-installed daemon did not report claimBearingReady=true: ${JSON.stringify(health)}`);
@@ -805,12 +890,10 @@ async function runNpmLane(packDir, publicKeyPath, signApproval, subset) {
     try {
       return await runV5Cases(baseUrl, makeHtmlCapture, signApproval, subset);
     } catch (error) {
-      throw new Error(
-        `npm lane failed: ${error instanceof Error ? error.message : String(error)}\nSTDERR:\n${daemonLog.stderr || "<empty>"}\nSTDOUT:\n${daemonLog.stdout || "<empty>"}`
-      );
+      throw new Error(`npm lane failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   } finally {
-    await stopProcess(daemonProcess);
+    await closeServer(server);
   }
 }
 
@@ -835,11 +918,7 @@ async function main() {
         }),
         (session, capability) => broker.issueSignature(session, capability),
         options.subset
-      ).catch((error) => {
-        throw new Error(
-          `direct lane failed: ${error instanceof Error ? error.message : String(error)}\nSTDERR:\n${directDaemon.daemonLog.stderr || "<empty>"}\nSTDOUT:\n${directDaemon.daemonLog.stdout || "<empty>"}`
-        );
-      });
+      );
 
       console.error("Running Python V5 parity lane...");
       const wheelPath = await buildPythonWheelIfNeeded();

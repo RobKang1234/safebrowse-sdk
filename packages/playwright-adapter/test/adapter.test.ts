@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildActionEvaluatePayloadV6,
+  buildArtifactIngestPayloadV6,
+  buildObservePayloadV6,
   createSurfaceCaptureFromSnapshot,
   createObservationFromSnapshot,
   enforceVerdict,
@@ -47,6 +50,31 @@ describe("playwright reference adapter", () => {
 
     expect(action.verb).toBe("navigate");
     expect(action.targetUrl).toBe("https://openreview.net");
+  });
+
+  it("builds v6 observe, artifact, and action payload helpers", () => {
+    const snapshot = {
+      url: "https://safe.example/page",
+      visibleText: "Visible docs only. Docs",
+      html: "<main>Visible docs only.</main><a href=\"https://docs.python.org/3/tutorial/\">Docs</a>"
+    };
+
+    const observePayload = buildObservePayloadV6("session-1", snapshot);
+    const artifactPayload = buildArtifactIngestPayloadV6("session-1", snapshot);
+    const actionPayload = buildActionEvaluatePayloadV6("session-1", {
+      authorityId: "auth-1",
+      authorityDigest: "digest-1"
+    });
+
+    expect(observePayload.sessionId).toBe("session-1");
+    expect(observePayload.capture.surfaceType).toBe("html");
+    expect(artifactPayload).toEqual(observePayload);
+    expect(actionPayload).toEqual({
+      sessionId: "session-1",
+      authorityId: "auth-1",
+      authorityDigest: "digest-1",
+      parameters: undefined
+    });
   });
 
   it("does not bypass non-allow verdicts", async () => {

@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import {
   compileObservationV5,
   compilePolicy,
+  computeToolManifestHash,
+  computeToolSchemaHash,
   createApprovalIntentPayloadV5,
   evaluateCapabilityUseV5,
   evaluateMemoryWriteV5,
@@ -72,7 +74,8 @@ const manifest = {
   description: "Citation sync connector for scholarly cross-reference enrichment.",
   authType: "oauth" as const,
   requestedScopes: ["citation:read"],
-  callbackUri: "https://safe.example/oauth/callback"
+  callbackUri: "https://safe.example/oauth/callback",
+  schemaDescriptions: [] as string[]
 };
 
 const verifiedRegistry: VerifiedRegistryBundle = {
@@ -94,7 +97,9 @@ const verifiedRegistry: VerifiedRegistryBundle = {
       allowedTransports: ["https"],
       allowedRedirectUris: ["https://safe.example/oauth/callback"],
       allowedCallbackOrigins: ["https://safe.example"],
-      allowedScopes: ["citation:read"]
+      allowedScopes: ["citation:read"],
+      manifestHash: computeToolManifestHash(manifest),
+      schemaHash: computeToolSchemaHash(manifest.schemaDescriptions)
     }
   ]
 };
@@ -224,6 +229,7 @@ describe("safebrowse core runtime v5", () => {
         url: "https://safe.example/connectors/citation-sync-safe",
         toolId: manifest.toolId,
         description: manifest.description,
+        schemaDescriptions: manifest.schemaDescriptions,
         authType: "oauth",
         requestedScopes: ["citation:read"],
         callbackUri: manifest.callbackUri,
@@ -243,7 +249,9 @@ describe("safebrowse core runtime v5", () => {
         requestedScopes: ["citation:read"],
         callbackUri: manifest.callbackUri,
         callbackOrigin: "https://safe.example",
-        manifestAuthType: "oauth"
+        manifestAuthType: "oauth",
+        manifestHash: computeToolManifestHash(manifest),
+        schemaHash: computeToolSchemaHash(manifest.schemaDescriptions)
       }
     );
     expect(capability.kind).toBe("connector_prepare");

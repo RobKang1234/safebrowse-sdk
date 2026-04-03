@@ -12,7 +12,6 @@ import {
   brokerArtifactV2,
   buildReplayBundle,
   compilePolicy,
-  compileObservationV5,
   createApprovalGrantHash,
   createApprovalIntentPayloadV5,
   evaluateAction,
@@ -30,9 +29,11 @@ import {
   prepareToolOnboardingV5,
   promoteMemoryRecordV4,
   promoteMemoryRecordV5,
+  promoteMemoryRecordV6,
   rollbackMemoryRecordV4,
   rollbackMemoryRecordV5,
   sanitizeObservation,
+  stageMemoryRecordV6,
   issueApprovalEnvelopeV5,
   verifyApprovalIntentSignatureV5,
   verifyToolCallback,
@@ -53,8 +54,11 @@ import {
   type KnowledgeBaseContext,
   type MemoryPromotionRequest,
   type MemoryPromotionRequestV5,
+  type MemoryPromotionRequestV6,
   type MemoryRecord,
   type MemoryRollbackRequest,
+  type MemorySourceClassV6,
+  type MemoryStageRequestV6,
   type MemoryWriteRequestV5,
   type MemoryWriteRequest,
   type ParserIsolationMode,
@@ -78,7 +82,9 @@ import {
   loadPolicyPackFromPaths,
   resolvePolicyLayerFiles
 } from "./loaders.js";
-import { compileObservationInIsolation, probeParserIsolation } from "./parserIsolation.js";
+import {
+  createParserIsolationService
+} from "./parserIsolation.js";
 import type { VerifiedRegistryBundle, VerifiedRegistryEntry } from "@safebrowse/core";
 
 export interface SafeBrowseDaemonOptions {
@@ -90,7 +96,7 @@ export interface SafeBrowseDaemonOptions {
   verifiedRegistry?: VerifiedRegistryBundle;
   parserAllowlistedEgress?: string[];
   parserIsolationMode?: ParserIsolationMode;
-  deploymentProfile?: "development" | "secure_v5";
+  deploymentProfile?: "development" | "secure_v5" | "secure_v6";
   approvalBrokerPublicKeyPath?: string;
   approvalBrokerPublicKeyPem?: string;
   approvalBrokerMode?: "signature_verification" | "external_service";
@@ -116,7 +122,11 @@ interface SessionState {
   approvalEnvelopesV5: Map<string, ApprovalEnvelopeV5>;
   onboardingSessionsV5: Map<string, ToolOnboardingSessionV5>;
   connectorHandlesV5: Map<string, ConnectorHandle>;
+  memorySourceClassesV6: Map<string, MemorySourceClassV6>;
+  replayEvents: ReplayEvent[];
 }
+
+const PARSER_HEALTH_REFRESH_INTERVAL_MS = 30_000;
 
 interface SessionStartRequest {
   taskId: string;
@@ -191,6 +201,17 @@ interface V5ToolCallbackPayload {
   request: ToolCallbackVerificationRequest;
 }
 
+interface V6ActionPayload {
+  sessionId: string;
+  authorityId: string;
+  authorityDigest: string;
+  parameters?: Record<string, unknown>;
+}
+
+interface V6ReplayPayload {
+  sessionId: string;
+}
+
 interface MemorySnapshotState {
   snapshotId: string;
   sessionId: string;
@@ -260,7 +281,7 @@ async function buildRuntimeContext(
     verifiedRegistry?: VerifiedRegistryBundle;
     parserAllowlistedEgress: string[];
     parserIsolationMode: ParserIsolationMode;
-    deploymentProfile: "development" | "secure_v5";
+    deploymentProfile: "development" | "secure_v5" | "secure_v6";
     approvalBrokerPublicKey?: KeyObject;
     approvalBrokerConfigured: boolean;
     approvalBrokerMode: "signature_verification" | "external_service";
@@ -268,6 +289,9 @@ async function buildRuntimeContext(
   }
 > {
   const rootDir = options.rootDir ?? (await resolveDefaultRootDir());
+  const deploymentProfile = options.deploymentProfile ?? "development";
+  const secureDeployment =
+    deploymentProfile === "secure_v5" || deploymentProfile === "secure_v6";
   const policyPack =
     options.policyPack ??
     (await loadPolicyPackFromPaths(resolvePolicyLayerFiles(resolve(rootDir))));
@@ -295,13 +319,17 @@ async function buildRuntimeContext(
     knowledgeBase,
     verifiedRegistry,
     parserAllowlistedEgress: options.parserAllowlistedEgress ?? [],
-    parserIsolationMode: options.parserIsolationMode ?? "scrubbed_process",
-    deploymentProfile: options.deploymentProfile ?? "development",
+    parserIsolationMode:
+      secureDeployment
+        ? "node_permission_process"
+        : options.parserIsolationMode ?? "scrubbed_process",
+    deploymentProfile,
     approvalBrokerPublicKey: approvalBrokerPublicKeyPem
       ? createPublicKey(approvalBrokerPublicKeyPem)
       : undefined,
     approvalBrokerConfigured: Boolean(approvalBrokerPublicKeyPem),
-    approvalBrokerMode: options.approvalBrokerMode ?? "signature_verification",
+    approvalBrokerMode:
+      secureDeployment ? "external_service" : options.approvalBrokerMode ?? "signature_verification",
     claimBearingReady: false
   };
 }
@@ -331,7 +359,7 @@ function createWorkflowHash(payload: Pick<
 function createSessionState(
   request: SessionStartRequest,
   runtime: RuntimeContext & {
-    deploymentProfile?: "development" | "secure_v5";
+    deploymentProfile?: "development" | "secure_v5" | "secure_v6";
     approvalBrokerConfigured?: boolean;
     claimBearingReady?: boolean;
   }
@@ -361,9 +389,9 @@ function createSessionState(
     currentStep: 0,
     createdAt,
     expiresAt: plusSeconds(createdAt, request.expiresInSeconds ?? 1800),
-    claimProfile: runtime.claimBearingReady ? "secure_v5" : undefined,
-    approvalBrokerRequired: runtime.deploymentProfile === "secure_v5",
-    legacyRoutesDisabled: runtime.deploymentProfile === "secure_v5"
+    claimProfile: runtime.claimBearingReady ? secureClaimProfile(runtime) : undefined,
+    approvalBrokerRequired: isSecureDeploymentProfile(runtime.deploymentProfile),
+    legacyRoutesDisabled: isSecureDeploymentProfile(runtime.deploymentProfile)
   };
 
   return {
@@ -383,7 +411,9 @@ function createSessionState(
     usedCapabilitiesV5: new Set(),
     approvalEnvelopesV5: new Map(),
     onboardingSessionsV5: new Map(),
-    connectorHandlesV5: new Map()
+    connectorHandlesV5: new Map(),
+    memorySourceClassesV6: new Map(),
+    replayEvents: []
   };
 }
 
@@ -399,9 +429,21 @@ function secureParserIsolationSatisfied(probe: ParserWorkerProbe): boolean {
   );
 }
 
+function isSecureDeploymentProfile(
+  deploymentProfile: "development" | "secure_v5" | "secure_v6" | undefined
+): deploymentProfile is "secure_v5" | "secure_v6" {
+  return deploymentProfile === "secure_v5" || deploymentProfile === "secure_v6";
+}
+
+function secureClaimProfile(runtime: {
+  deploymentProfile?: "development" | "secure_v5" | "secure_v6";
+}): "secure_v5" | "secure_v6" {
+  return runtime.deploymentProfile === "secure_v6" ? "secure_v6" : "secure_v5";
+}
+
 function claimBearingReady(
   runtime: {
-    deploymentProfile: "development" | "secure_v5";
+    deploymentProfile: "development" | "secure_v5" | "secure_v6";
     approvalBrokerConfigured: boolean;
     approvalBrokerMode: "signature_verification" | "external_service";
     approvalBrokerPublicKey?: KeyObject;
@@ -411,7 +453,7 @@ function claimBearingReady(
   probe: ParserWorkerProbe
 ): boolean {
   return (
-    runtime.deploymentProfile === "secure_v5" &&
+    isSecureDeploymentProfile(runtime.deploymentProfile) &&
     runtime.approvalBrokerConfigured &&
     Boolean(runtime.approvalBrokerPublicKey) &&
     runtime.approvalBrokerMode === "external_service" &&
@@ -554,8 +596,10 @@ function findSessionState(
   return sessionState;
 }
 
-function legacyRoutesDisabled(runtime: { deploymentProfile: "development" | "secure_v5" }): boolean {
-  return runtime.deploymentProfile === "secure_v5";
+function legacyRoutesDisabled(runtime: {
+  deploymentProfile: "development" | "secure_v5" | "secure_v6";
+}): boolean {
+  return isSecureDeploymentProfile(runtime.deploymentProfile);
 }
 
 function isLegacyRoute(url: string): boolean {
@@ -715,7 +759,86 @@ function buildV5ExecutionPlan(capability: CapabilityDescriptorV5 | undefined) {
   };
 }
 
+function relabelClaimProfile(
+  verdict: {
+    decision: string;
+    reasonCodes: string[];
+    riskScore: number;
+    safeConstraints?: Record<string, unknown>;
+    telemetryTags?: string[];
+    matchedPatternIds?: string[];
+    incidentPlaybookId?: string;
+  },
+  claimProfile: "secure_v5" | "secure_v6"
+) {
+  return {
+    ...verdict,
+    safeConstraints: {
+      ...(verdict.safeConstraints ?? {}),
+      claim_profile: claimProfile
+    }
+  };
+}
+
+function appendReplayEvent(
+  sessionState: SessionState | undefined,
+  event: Omit<ReplayEvent, "eventId" | "timestamp">
+): ReplayEvent {
+  const replayEvent: ReplayEvent = {
+    eventId: randomUUID(),
+    timestamp: new Date().toISOString(),
+    ...event
+  };
+  sessionState?.replayEvents.push(replayEvent);
+  return replayEvent;
+}
+
+function buildV6ObservationDecision(compiledObservation: CompiledObservationV5) {
+  if (compiledObservation.parseStatus !== "compiled") {
+    return {
+      decision: "BLOCK",
+      reasonCodes: [
+        compiledObservation.parseStatus === "partial"
+          ? "PARSE_STATUS_PARTIAL"
+          : "PARSE_STATUS_UNSUPPORTED"
+      ],
+      riskScore: 0.98,
+      safeConstraints: {
+        authority_eligible: false
+      },
+      telemetryTags: ["v6_observation", "block"]
+    };
+  }
+
+  return {
+    decision: compiledObservation.authorityEligible ? "ALLOW" : "REPLAN_READ_ONLY",
+    reasonCodes: compiledObservation.authorityEligible ? [] : ["AUTHORITY_REDUCED_TO_FACTS_ONLY"],
+    riskScore: compiledObservation.riskScore,
+    safeConstraints: {
+      authority_eligible: compiledObservation.authorityEligible
+    },
+    telemetryTags: [
+      "v6_observation",
+      compiledObservation.authorityEligible ? "authority_eligible" : "facts_only"
+    ]
+  };
+}
+
 function buildLegacyObservationCapture(payload: SurfaceCapture): ArtifactInput | undefined {
+  if (payload.surfaceType === "html") {
+    return {
+      mimeType: "text/html",
+      sourceOrigin: payload.url,
+      viewerOrigin: payload.frameUrl ?? payload.url,
+      renderedText: payload.visibleText,
+      extractedText: payload.visibleText,
+      metadataText: payload.metadataText,
+      annotations: payload.annotations,
+      extractionMethod: "dom",
+      trustSignals: payload.trustSignals
+    };
+  }
+
   if (payload.surfaceType === "pdf") {
     return {
       mimeType: "application/pdf",
@@ -759,35 +882,74 @@ function buildLegacyObservationCapture(payload: SurfaceCapture): ArtifactInput |
   return undefined;
 }
 
+function buildV6ArtifactRef(
+  artifact: ReturnType<typeof brokerArtifact>["artifact"],
+  authorityEligible: boolean
+) {
+  return {
+    artifactId: artifact.artifactId,
+    surfaceKind: artifact.surfaceKind,
+    sourceOrigin: artifact.sourceOrigin,
+    viewerOrigin: artifact.viewerOrigin,
+    mismatchSignals: artifact.mismatchSignals,
+    metadataSignals: artifact.metadataSignals,
+    provenance: {
+      extractionMethod: artifact.extractionMethod,
+      lineageChain: artifact.lineageChain,
+      derivedTaintClass: artifact.derivedTaintClass
+    },
+    authorityEligible
+  };
+}
+
 export async function createSafeBrowseServer(
   options: SafeBrowseDaemonOptions = {}
 ): Promise<Server> {
   const runtime = await buildRuntimeContext(options);
-  const initialParserProbe = await probeParserIsolation(runtime.parserIsolationMode);
-  runtime.claimBearingReady = claimBearingReady(runtime, initialParserProbe);
-  if (runtime.deploymentProfile === "secure_v5") {
+  const parserIsolationService = createParserIsolationService(runtime.parserIsolationMode, {
+    allowlistedEgress: runtime.parserAllowlistedEgress,
+    runtime: {
+      knowledgeBase: runtime.knowledgeBase
+    }
+  });
+  let parserProbeSnapshot = await parserIsolationService.refreshProbe();
+  runtime.claimBearingReady = claimBearingReady(runtime, parserProbeSnapshot.probe);
+  if (isSecureDeploymentProfile(runtime.deploymentProfile)) {
+    const secureProfile = runtime.deploymentProfile;
     if (!runtime.verifiedRegistry?.signatureVerified) {
-      throw new Error("secure_v5 requires a signature-verified registry bundle");
+      throw new Error(`${secureProfile} requires a signature-verified registry bundle`);
     }
     if (!runtime.approvalBrokerConfigured || !runtime.approvalBrokerPublicKey) {
-      throw new Error("secure_v5 requires an approval broker public key");
+      throw new Error(`${secureProfile} requires an approval broker public key`);
     }
     if (runtime.approvalBrokerMode !== "external_service") {
-      throw new Error("secure_v5 requires approvalBrokerMode=external_service");
+      throw new Error(`${secureProfile} requires approvalBrokerMode=external_service`);
     }
     if (runtime.parserIsolationMode !== "node_permission_process") {
-      throw new Error("secure_v5 requires parserIsolationMode=node_permission_process");
+      throw new Error(`${secureProfile} requires parserIsolationMode=node_permission_process`);
     }
-    if (!secureParserIsolationSatisfied(initialParserProbe)) {
+    if (!secureParserIsolationSatisfied(parserProbeSnapshot.probe)) {
       throw new Error(
-        "secure_v5 requires a permission-constrained parser process with denied egress and scrubbed env"
+        `${secureProfile} requires a permission-constrained parser process with denied egress and scrubbed env`
       );
     }
   }
   const onboardingSessions = new Map<string, ToolOnboardingSession>();
   const sessions = new Map<string, SessionState>();
+  const parserHealthRefreshTimer = setInterval(() => {
+    void parserIsolationService
+      .refreshProbe()
+      .then((snapshot) => {
+        parserProbeSnapshot = snapshot;
+        runtime.claimBearingReady = claimBearingReady(runtime, snapshot.probe);
+      })
+      .catch(() => {
+        runtime.claimBearingReady = false;
+      });
+  }, PARSER_HEALTH_REFRESH_INTERVAL_MS);
+  parserHealthRefreshTimer.unref();
 
-  return createServer(async (request, response) => {
+  const server = createServer(async (request, response) => {
     if (!request.url) {
       writeJson(response, 400, { error: "missing_url" });
       return;
@@ -795,8 +957,9 @@ export async function createSafeBrowseServer(
 
     try {
       if (request.method === "GET" && request.url === "/health") {
-        const parserProbe = await probeParserIsolation(runtime.parserIsolationMode);
-        const claimReady = claimBearingReady(runtime, parserProbe);
+        parserProbeSnapshot = await parserIsolationService.getCachedProbe();
+        const claimReady = claimBearingReady(runtime, parserProbeSnapshot.probe);
+        runtime.claimBearingReady = claimReady;
         writeJson(response, 200, {
           status: "ok",
           profile: runtime.policy.profile,
@@ -811,16 +974,17 @@ export async function createSafeBrowseServer(
                 version: runtime.verifiedRegistry.version,
                 signatureVerified: runtime.verifiedRegistry.signatureVerified,
                 entryCount: runtime.verifiedRegistry.entries.length,
-                required: runtime.deploymentProfile === "secure_v5"
+                required: isSecureDeploymentProfile(runtime.deploymentProfile)
               }
             : undefined,
           parserIsolation: {
-            ...parserProbe,
+            ...parserProbeSnapshot.probe,
+            lastCheckedAt: parserProbeSnapshot.lastCheckedAt,
             configuredMode: runtime.parserIsolationMode,
-            enforced: runtime.deploymentProfile === "secure_v5"
+            enforced: isSecureDeploymentProfile(runtime.deploymentProfile)
           },
           approvalBroker: {
-            required: runtime.deploymentProfile === "secure_v5",
+            required: isSecureDeploymentProfile(runtime.deploymentProfile),
             configured: runtime.approvalBrokerConfigured,
             mode: runtime.approvalBrokerMode
           }
@@ -835,9 +999,18 @@ export async function createSafeBrowseServer(
 
       if (legacyRoutesDisabled(runtime) && isLegacyRoute(request.url)) {
         writeJson(response, 403, {
-          error: "route_disabled_in_secure_v5",
+          error: `route_disabled_in_${runtime.deploymentProfile}`,
           route: request.url,
-          claimProfile: "secure_v5"
+          claimProfile: secureClaimProfile(runtime)
+        });
+        return;
+      }
+
+      if (request.url.startsWith("/v6/") && runtime.deploymentProfile !== "secure_v6") {
+        writeJson(response, 403, {
+          error: "route_requires_secure_v6",
+          route: request.url,
+          requiredProfile: "secure_v6"
         });
         return;
       }
@@ -965,6 +1138,1117 @@ export async function createSafeBrowseServer(
         return;
       }
 
+      if (request.url === "/v6/session/start") {
+        const payload = await readJson<SessionStartRequest>(request);
+        const sessionState = createSessionState(payload, runtime);
+        sessions.set(sessionState.session.sessionId, sessionState);
+        appendReplayEvent(sessionState, {
+          kind: "verdict",
+          actor: "system",
+          payload: {
+            route: "/v6/session/start",
+            sessionId: sessionState.session.sessionId,
+            claimProfile: sessionState.session.claimProfile ?? "secure_v6"
+          }
+        });
+        writeJson(response, 200, {
+          session: sessionState.session
+        });
+        return;
+      }
+
+      if (request.url === "/v6/observe") {
+        const payload = await readJson<V5ObservePayload>(request);
+        const sessionState = findSessionState(sessions, payload.sessionId);
+        if (!sessionState) {
+          writeJson(response, 404, { error: "unknown_session" });
+          return;
+        }
+
+        const capture: SurfaceCapture = {
+          ...payload.capture,
+          sessionId: payload.sessionId,
+          taskId: sessionState.session.taskId
+        };
+
+        const observationResult = await parserIsolationService.compileObservation({
+          capture,
+          workflowHash: sessionState.session.workflowHash,
+          compilerVersion: "v5"
+        });
+ 
+        const compiledObservation = observationResult.compiledObservation as CompiledObservationV5;
+        const plannerView = observationResult.plannerView as PlannerViewV5;
+        const verifiedEntry =
+          capture.surfaceType === "tool_manifest"
+            ? resolveToolManifestRegistryEntry(runtime, capture)
+            : undefined;
+        const manifestHash = observationResult.toolManifestDigests?.manifestHash;
+        const schemaHash = observationResult.toolManifestDigests?.schemaHash;
+
+        retireObservationCapabilitiesV5(sessionState);
+        const capabilities = mintCapabilitiesForObservationV5(
+          sessionState.session,
+          compiledObservation,
+          plannerView,
+          {
+            verifiedRegistryEntry: verifiedEntry,
+            registryEntryId:
+              capture.surfaceType === "tool_manifest" ? verifiedEntry?.registryEntryId : undefined,
+            connectorId:
+              capture.surfaceType === "tool_manifest"
+                ? verifiedEntry?.adapterId ?? capture.toolId
+                : undefined,
+            requestedScopes: capture.surfaceType === "tool_manifest" ? capture.requestedScopes : undefined,
+            callbackUri: capture.surfaceType === "tool_manifest" ? capture.callbackUri : undefined,
+            callbackOrigin: capture.surfaceType === "tool_manifest" ? capture.callbackOrigin : undefined,
+            manifestAuthType: capture.surfaceType === "tool_manifest" ? capture.authType : undefined,
+            manifestHash,
+            schemaHash
+          }
+        );
+ 
+        sessionState.latestObservationV5 = compiledObservation;
+        sessionState.observationsV5.set(compiledObservation.observationId, compiledObservation);
+        for (const capability of capabilities) {
+          sessionState.capabilitiesV5.set(capability.capabilityId, capability);
+        }
+ 
+        const observationVerdict = relabelClaimProfile(
+          buildV6ObservationDecision(compiledObservation),
+          "secure_v6"
+        );
+        const artifactCapture = buildLegacyObservationCapture(capture);
+        const artifactRefs = artifactCapture
+          ? [
+              buildV6ArtifactRef(
+                brokerArtifact(artifactCapture, runtime).artifact,
+                compiledObservation.authorityEligible
+              )
+            ]
+          : [];
+        const replayEvent = appendReplayEvent(sessionState, {
+          kind: "observation",
+          actor: "sdk",
+          payload: {
+            route: "/v6/observe",
+            observationId: compiledObservation.observationId,
+            surfaceType: compiledObservation.surfaceType,
+            authorityEligible: compiledObservation.authorityEligible,
+            authorityCandidateCount: capabilities.length,
+            verdict: observationVerdict.decision
+          }
+        });
+ 
+        writeJson(response, 200, {
+          compiledObservation,
+          plannerView,
+          authorityCandidates: capabilities.map((capability) => ({
+            authorityId: capability.capabilityId,
+            authorityDigest: capability.capabilityDigest,
+            semanticDigest: capability.semanticDigest,
+            title: capability.title,
+            kind: capability.kind,
+            parameterSchema: capability.parameterSchema,
+            expiresAt: capability.expiresAt
+          })),
+          artifactRefs,
+          observationVerdict,
+          replayEventId: replayEvent.eventId
+        });
+        return;
+      }
+
+      if (request.url === "/v6/action/evaluate") {
+        const payload = await readJson<V6ActionPayload>(request);
+        const sessionState = findSessionState(sessions, payload.sessionId);
+        const capability = getCapabilityV5(sessionState, payload.authorityId);
+        const authorityDecision = relabelClaimProfile(
+          evaluateCapabilityUseV5(
+            {
+              sessionId: payload.sessionId,
+              capabilityId: payload.authorityId,
+              capabilityDigest: payload.authorityDigest,
+              parameters: payload.parameters as Record<string, never> | undefined
+            },
+            sessionState?.session,
+            capability,
+            {
+              alreadyUsed: sessionState?.usedCapabilitiesV5.has(payload.authorityId) ?? false
+            }
+          ),
+          "secure_v6"
+        );
+        const observationDecision = relabelClaimProfile(
+          sessionState?.latestObservationV5
+            ? buildV6ObservationDecision(sessionState.latestObservationV5)
+            : {
+                decision: "BLOCK",
+                reasonCodes: ["OBSERVATION_REQUIRED"],
+                riskScore: 0.99,
+                safeConstraints: {},
+                telemetryTags: ["v6_observation", "block"]
+              },
+          "secure_v6"
+        );
+        const effectDecision =
+          observationDecision.decision === "ALLOW" &&
+          authorityDecision.decision === "ALLOW"
+            ? authorityDecision
+            : relabelClaimProfile(
+                {
+                  decision: "BLOCK",
+                  reasonCodes: [...new Set([
+                    ...(observationDecision.decision === "ALLOW"
+                      ? []
+                      : ["OBSERVATION_NOT_EFFECT_ELIGIBLE"]),
+                    ...(authorityDecision.decision === "ALLOW"
+                      ? []
+                      : authorityDecision.reasonCodes)
+                  ])],
+                  riskScore: Math.max(observationDecision.riskScore, authorityDecision.riskScore),
+                  safeConstraints: {
+                    target_class: capability?.targetClass ?? "unknown"
+                  },
+                  telemetryTags: ["v6_action", "block"]
+                },
+                "secure_v6"
+              );
+ 
+        if (effectDecision.decision === "ALLOW" && sessionState && capability) {
+          consumeCapabilityV5(sessionState, capability);
+          sessionState.session = {
+            ...sessionState.session,
+            currentStep: sessionState.session.currentStep + 1
+          };
+        }
+ 
+        appendReplayEvent(sessionState, {
+          kind: "action",
+          actor: "sdk",
+          payload: {
+            route: "/v6/action/evaluate",
+            authorityId: payload.authorityId,
+            observationDecision: observationDecision.decision,
+            authorityDecision: authorityDecision.decision,
+            effectDecision: effectDecision.decision
+          }
+        });
+ 
+        writeJson(response, 200, {
+          observationDecision,
+          authorityDecision,
+          effectDecision,
+          executionPlan: buildV5ExecutionPlan(capability)
+        });
+        return;
+      }
+
+      if (request.url === "/v6/approval/issue") {
+        const payload = await readJson<V5ApprovalIssuePayload>(request);
+        const sessionState = findSessionState(sessions, payload.sessionId);
+        const capability = sessionState?.capabilitiesV5.get(payload.capabilityId);
+ 
+        if (sessionState?.usedCapabilitiesV5.has(payload.capabilityId)) {
+          writeJson(response, 200, {
+            verdict: relabelClaimProfile(
+              {
+                decision: "BLOCK",
+                reasonCodes: ["CAPABILITY_REPLAYED"],
+                riskScore: 0.99,
+                safeConstraints: {},
+                telemetryTags: ["approval_v6_issue", "block"]
+              },
+              "secure_v6"
+            )
+          });
+          return;
+        }
+ 
+        if (capability && payload.capabilityDigest !== capability.capabilityDigest) {
+          writeJson(response, 200, {
+            verdict: relabelClaimProfile(
+              {
+                decision: "BLOCK",
+                reasonCodes: ["CAPABILITY_DIGEST_MISMATCH"],
+                riskScore: 0.99,
+                safeConstraints: {},
+                telemetryTags: ["approval_v6_issue", "block"]
+              },
+              "secure_v6"
+            )
+          });
+          return;
+        }
+ 
+        const activeApproval = getActiveApprovalEnvelopeForCapability(sessionState, payload.capabilityId);
+        if (activeApproval) {
+          writeJson(response, 200, {
+            verdict: relabelClaimProfile(
+              {
+                decision: "BLOCK",
+                reasonCodes: ["APPROVAL_ALREADY_ISSUED_FOR_CAPABILITY"],
+                riskScore: 0.99,
+                safeConstraints: {},
+                telemetryTags: ["approval_v6_issue", "block"]
+              },
+              "secure_v6"
+            ),
+            approvalEnvelope: activeApproval
+          });
+          return;
+        }
+ 
+        const brokerPayload =
+          sessionState && capability
+            ? createApprovalIntentPayloadV5({
+                sessionId: sessionState.session.sessionId,
+                workflowHash: sessionState.session.workflowHash,
+                capabilityId: capability.capabilityId,
+                capabilityDigest: capability.capabilityDigest,
+                expiresInSeconds: payload.expiresInSeconds
+              })
+            : "";
+        const brokerSignatureVerified = verifyApprovalIntentSignatureV5(
+          brokerPayload,
+          payload.brokerSignature,
+          runtime.approvalBrokerPublicKey
+        );
+        const issued = issueApprovalEnvelopeV5({
+          session: sessionState?.session,
+          capability,
+          brokerSignature: payload.brokerSignature,
+          brokerSignatureVerified,
+          expiresInSeconds: payload.expiresInSeconds
+        });
+ 
+        if (issued.approvalEnvelope && sessionState) {
+          sessionState.approvalEnvelopesV5.set(
+            issued.approvalEnvelope.approvalId,
+            issued.approvalEnvelope
+          );
+        }
+ 
+        appendReplayEvent(sessionState, {
+          kind: "tool",
+          actor: "sdk",
+          payload: {
+            route: "/v6/approval/issue",
+            capabilityId: payload.capabilityId,
+            verdict: issued.verdict.decision
+          }
+        });
+ 
+        writeJson(response, 200, {
+          ...issued,
+          verdict: relabelClaimProfile(issued.verdict, "secure_v6")
+        });
+        return;
+      }
+
+      if (request.url === "/v6/tool/prepare") {
+        const payload = await readJson<V5ToolPreparePayload>(request);
+        const sessionState = findSessionState(sessions, payload.sessionId);
+        const approvalEnvelope = sessionState?.approvalEnvelopesV5.get(payload.approvalId);
+        const capability = approvalEnvelope
+          ? getCapabilityV5(sessionState, approvalEnvelope.capabilityId)
+          : undefined;
+        const verifiedEntry = approvalEnvelope
+          ? lookupVerifiedRegistryEntry(
+              runtime,
+              approvalEnvelope.connectorId,
+              approvalEnvelope.registryEntryId
+            )
+          : undefined;
+ 
+        const prepared = prepareToolOnboardingV5({
+          session: sessionState?.session,
+          capability,
+          approvalEnvelope,
+          verifiedRegistryEntry: verifiedEntry
+        });
+ 
+        if (sessionState && prepared.onboardingSession) {
+          const consumedAt = new Date().toISOString();
+          if (capability) {
+            consumeCapabilityV5(sessionState, capability, consumedAt);
+          }
+          if (approvalEnvelope) {
+            sessionState.approvalEnvelopesV5.set(payload.approvalId, {
+              ...approvalEnvelope,
+              consumedAt,
+              onboardingSessionId: prepared.onboardingSession.onboardingSessionId
+            });
+          }
+          sessionState.onboardingSessionsV5.set(
+            prepared.onboardingSession.onboardingSessionId,
+            prepared.onboardingSession
+          );
+          sessionState.session = {
+            ...sessionState.session,
+            currentStep: sessionState.session.currentStep + 1
+          };
+        }
+ 
+        appendReplayEvent(sessionState, {
+          kind: "tool",
+          actor: "sdk",
+          payload: {
+            route: "/v6/tool/prepare",
+            approvalId: payload.approvalId,
+            verdict: prepared.verdict.decision
+          }
+        });
+ 
+        writeJson(response, 200, {
+          verdict: relabelClaimProfile(prepared.verdict, "secure_v6"),
+          approvalEnvelope:
+            sessionState?.approvalEnvelopesV5.get(payload.approvalId) ?? approvalEnvelope,
+          verifiedRegistryEntry: verifiedEntry,
+          onboardingSession: prepared.onboardingSession
+        });
+        return;
+      }
+
+      if (request.url === "/v6/tool/callback/verify") {
+        const payload = await readJson<V5ToolCallbackPayload>(request);
+        const sessionState = findSessionState(sessions, payload.sessionId);
+        const approvalEnvelope = sessionState?.approvalEnvelopesV5.get(payload.approvalId);
+        const capability = approvalEnvelope
+          ? getCapabilityV5(sessionState, approvalEnvelope.capabilityId)
+          : undefined;
+        const onboardingSession = sessionState?.onboardingSessionsV5.get(payload.onboardingSessionId);
+        const verifiedEntry = approvalEnvelope
+          ? lookupVerifiedRegistryEntry(
+              runtime,
+              approvalEnvelope.connectorId,
+              approvalEnvelope.registryEntryId
+            )
+          : undefined;
+ 
+        const verified = verifyToolCallbackV5({
+          session: sessionState?.session,
+          capability,
+          approvalEnvelope,
+          onboardingSession,
+          verifiedRegistryEntry: verifiedEntry,
+          request: payload.request
+        });
+ 
+        if (sessionState && onboardingSession && verified.verdict.decision === "ALLOW") {
+          sessionState.onboardingSessionsV5.set(payload.onboardingSessionId, {
+            ...onboardingSession,
+            status: "used"
+          });
+        }
+        if (sessionState && verified.connectorHandle) {
+          sessionState.connectorHandlesV5.set(
+            verified.connectorHandle.handleId,
+            verified.connectorHandle
+          );
+        }
+ 
+        appendReplayEvent(sessionState, {
+          kind: "tool",
+          actor: "sdk",
+          payload: {
+            route: "/v6/tool/callback/verify",
+            onboardingSessionId: payload.onboardingSessionId,
+            verdict: verified.verdict.decision
+          }
+        });
+ 
+        writeJson(response, 200, {
+          ...verified,
+          verdict: relabelClaimProfile(verified.verdict, "secure_v6")
+        });
+        return;
+      }
+
+      if (request.url === "/v6/artifact/ingest") {
+        const payload = await readJson<V4ArtifactPayload>(request);
+        const sessionState = findSessionState(sessions, payload.sessionId);
+        if (!sessionState) {
+          writeJson(response, 404, { error: "unknown_session" });
+          return;
+        }
+ 
+        const capture: SurfaceCapture = {
+          ...payload.capture,
+          sessionId: payload.sessionId,
+          taskId: sessionState.session.taskId
+        };
+        const observationResult = await parserIsolationService.compileObservation({
+          capture,
+          workflowHash: sessionState.session.workflowHash,
+          compilerVersion: "v5"
+        });
+
+        const compiledObservation = observationResult.compiledObservation as CompiledObservationV5;
+        const plannerView = observationResult.plannerView as PlannerViewV5;
+        const verifiedEntry =
+          capture.surfaceType === "tool_manifest"
+            ? resolveToolManifestRegistryEntry(runtime, capture)
+            : undefined;
+        const manifestHash = observationResult.toolManifestDigests?.manifestHash;
+        const schemaHash = observationResult.toolManifestDigests?.schemaHash;
+
+        retireObservationCapabilitiesV5(sessionState);
+        const capabilities = mintCapabilitiesForObservationV5(
+          sessionState.session,
+          compiledObservation,
+          plannerView,
+          {
+            verifiedRegistryEntry: verifiedEntry,
+            registryEntryId:
+              capture.surfaceType === "tool_manifest" ? verifiedEntry?.registryEntryId : undefined,
+            connectorId:
+              capture.surfaceType === "tool_manifest"
+                ? verifiedEntry?.adapterId ?? capture.toolId
+                : undefined,
+            requestedScopes: capture.surfaceType === "tool_manifest" ? capture.requestedScopes : undefined,
+            callbackUri: capture.surfaceType === "tool_manifest" ? capture.callbackUri : undefined,
+            callbackOrigin: capture.surfaceType === "tool_manifest" ? capture.callbackOrigin : undefined,
+            manifestAuthType: capture.surfaceType === "tool_manifest" ? capture.authType : undefined,
+            manifestHash,
+            schemaHash
+          }
+        );
+
+        sessionState.latestObservationV5 = compiledObservation;
+        sessionState.observationsV5.set(compiledObservation.observationId, compiledObservation);
+        for (const capability of capabilities) {
+          sessionState.capabilitiesV5.set(capability.capabilityId, capability);
+        }
+
+        const observationVerdict = relabelClaimProfile(
+          buildV6ObservationDecision(compiledObservation),
+          "secure_v6"
+        );
+        const artifactCapture = buildLegacyObservationCapture(capture);
+        const artifactRefs = artifactCapture
+          ? [
+              buildV6ArtifactRef(
+                brokerArtifact(artifactCapture, runtime).artifact,
+                compiledObservation.authorityEligible
+              )
+            ]
+          : [];
+        const replayEvent = appendReplayEvent(sessionState, {
+          kind: "observation",
+          actor: "sdk",
+          payload: {
+            route: "/v6/observe",
+            observationId: compiledObservation.observationId,
+            surfaceType: compiledObservation.surfaceType,
+            authorityEligible: compiledObservation.authorityEligible,
+            authorityCandidateCount: capabilities.length,
+            verdict: observationVerdict.decision
+          }
+        });
+
+        writeJson(response, 200, {
+          compiledObservation,
+          plannerView,
+          authorityCandidates: capabilities.map((capability) => ({
+            authorityId: capability.capabilityId,
+            authorityDigest: capability.capabilityDigest,
+            semanticDigest: capability.semanticDigest,
+            title: capability.title,
+            kind: capability.kind,
+            parameterSchema: capability.parameterSchema,
+            expiresAt: capability.expiresAt
+          })),
+          artifactRefs,
+          observationVerdict,
+          replayEventId: replayEvent.eventId
+        });
+        return;
+      }
+
+      if (request.url === "/v6/action/evaluate") {
+        const payload = await readJson<V6ActionPayload>(request);
+        const sessionState = findSessionState(sessions, payload.sessionId);
+        const capability = getCapabilityV5(sessionState, payload.authorityId);
+        const authorityDecision = relabelClaimProfile(
+          evaluateCapabilityUseV5(
+            {
+              sessionId: payload.sessionId,
+              capabilityId: payload.authorityId,
+              capabilityDigest: payload.authorityDigest,
+              parameters: payload.parameters as Record<string, never> | undefined
+            },
+            sessionState?.session,
+            capability,
+            {
+              alreadyUsed: sessionState?.usedCapabilitiesV5.has(payload.authorityId) ?? false
+            }
+          ),
+          "secure_v6"
+        );
+        const observationDecision = relabelClaimProfile(
+          sessionState?.latestObservationV5
+            ? buildV6ObservationDecision(sessionState.latestObservationV5)
+            : {
+                decision: "BLOCK",
+                reasonCodes: ["OBSERVATION_REQUIRED"],
+                riskScore: 0.99,
+                safeConstraints: {},
+                telemetryTags: ["v6_observation", "block"]
+              },
+          "secure_v6"
+        );
+        const effectDecision =
+          observationDecision.decision === "ALLOW" &&
+          authorityDecision.decision === "ALLOW"
+            ? authorityDecision
+            : relabelClaimProfile(
+                {
+                  decision: "BLOCK",
+                  reasonCodes: [...new Set([
+                    ...(observationDecision.decision === "ALLOW"
+                      ? []
+                      : ["OBSERVATION_NOT_EFFECT_ELIGIBLE"]),
+                    ...(authorityDecision.decision === "ALLOW"
+                      ? []
+                      : authorityDecision.reasonCodes)
+                  ])],
+                  riskScore: Math.max(observationDecision.riskScore, authorityDecision.riskScore),
+                  safeConstraints: {
+                    target_class: capability?.targetClass ?? "unknown"
+                  },
+                  telemetryTags: ["v6_action", "block"]
+                },
+                "secure_v6"
+              );
+
+        if (effectDecision.decision === "ALLOW" && sessionState && capability) {
+          consumeCapabilityV5(sessionState, capability);
+          sessionState.session = {
+            ...sessionState.session,
+            currentStep: sessionState.session.currentStep + 1
+          };
+        }
+
+        appendReplayEvent(sessionState, {
+          kind: "action",
+          actor: "sdk",
+          payload: {
+            route: "/v6/action/evaluate",
+            authorityId: payload.authorityId,
+            observationDecision: observationDecision.decision,
+            authorityDecision: authorityDecision.decision,
+            effectDecision: effectDecision.decision
+          }
+        });
+
+        writeJson(response, 200, {
+          observationDecision,
+          authorityDecision,
+          effectDecision,
+          executionPlan: buildV5ExecutionPlan(capability)
+        });
+        return;
+      }
+
+      if (request.url === "/v6/approval/issue") {
+        const payload = await readJson<V5ApprovalIssuePayload>(request);
+        const sessionState = findSessionState(sessions, payload.sessionId);
+        const capability = sessionState?.capabilitiesV5.get(payload.capabilityId);
+
+        if (sessionState?.usedCapabilitiesV5.has(payload.capabilityId)) {
+          writeJson(response, 200, {
+            verdict: relabelClaimProfile(
+              {
+                decision: "BLOCK",
+                reasonCodes: ["CAPABILITY_REPLAYED"],
+                riskScore: 0.99,
+                safeConstraints: {},
+                telemetryTags: ["approval_v6_issue", "block"]
+              },
+              "secure_v6"
+            )
+          });
+          return;
+        }
+
+        if (capability && payload.capabilityDigest !== capability.capabilityDigest) {
+          writeJson(response, 200, {
+            verdict: relabelClaimProfile(
+              {
+                decision: "BLOCK",
+                reasonCodes: ["CAPABILITY_DIGEST_MISMATCH"],
+                riskScore: 0.99,
+                safeConstraints: {},
+                telemetryTags: ["approval_v6_issue", "block"]
+              },
+              "secure_v6"
+            )
+          });
+          return;
+        }
+
+        const activeApproval = getActiveApprovalEnvelopeForCapability(sessionState, payload.capabilityId);
+        if (activeApproval) {
+          writeJson(response, 200, {
+            verdict: relabelClaimProfile(
+              {
+                decision: "BLOCK",
+                reasonCodes: ["APPROVAL_ALREADY_ISSUED_FOR_CAPABILITY"],
+                riskScore: 0.99,
+                safeConstraints: {},
+                telemetryTags: ["approval_v6_issue", "block"]
+              },
+              "secure_v6"
+            ),
+            approvalEnvelope: activeApproval
+          });
+          return;
+        }
+
+        const brokerPayload =
+          sessionState && capability
+            ? createApprovalIntentPayloadV5({
+                sessionId: sessionState.session.sessionId,
+                workflowHash: sessionState.session.workflowHash,
+                capabilityId: capability.capabilityId,
+                capabilityDigest: capability.capabilityDigest,
+                expiresInSeconds: payload.expiresInSeconds
+              })
+            : "";
+        const brokerSignatureVerified = verifyApprovalIntentSignatureV5(
+          brokerPayload,
+          payload.brokerSignature,
+          runtime.approvalBrokerPublicKey
+        );
+        const issued = issueApprovalEnvelopeV5({
+          session: sessionState?.session,
+          capability,
+          brokerSignature: payload.brokerSignature,
+          brokerSignatureVerified,
+          expiresInSeconds: payload.expiresInSeconds
+        });
+
+        if (issued.approvalEnvelope && sessionState) {
+          sessionState.approvalEnvelopesV5.set(
+            issued.approvalEnvelope.approvalId,
+            issued.approvalEnvelope
+          );
+        }
+
+        appendReplayEvent(sessionState, {
+          kind: "tool",
+          actor: "sdk",
+          payload: {
+            route: "/v6/approval/issue",
+            capabilityId: payload.capabilityId,
+            verdict: issued.verdict.decision
+          }
+        });
+
+        writeJson(response, 200, {
+          ...issued,
+          verdict: relabelClaimProfile(issued.verdict, "secure_v6")
+        });
+        return;
+      }
+
+      if (request.url === "/v6/tool/prepare") {
+        const payload = await readJson<V5ToolPreparePayload>(request);
+        const sessionState = findSessionState(sessions, payload.sessionId);
+        const approvalEnvelope = sessionState?.approvalEnvelopesV5.get(payload.approvalId);
+        const capability = approvalEnvelope
+          ? getCapabilityV5(sessionState, approvalEnvelope.capabilityId)
+          : undefined;
+        const verifiedEntry = approvalEnvelope
+          ? lookupVerifiedRegistryEntry(
+              runtime,
+              approvalEnvelope.connectorId,
+              approvalEnvelope.registryEntryId
+            )
+          : undefined;
+
+        const prepared = prepareToolOnboardingV5({
+          session: sessionState?.session,
+          capability,
+          approvalEnvelope,
+          verifiedRegistryEntry: verifiedEntry
+        });
+
+        if (sessionState && prepared.onboardingSession) {
+          const consumedAt = new Date().toISOString();
+          if (capability) {
+            consumeCapabilityV5(sessionState, capability, consumedAt);
+          }
+          if (approvalEnvelope) {
+            sessionState.approvalEnvelopesV5.set(payload.approvalId, {
+              ...approvalEnvelope,
+              consumedAt,
+              onboardingSessionId: prepared.onboardingSession.onboardingSessionId
+            });
+          }
+          sessionState.onboardingSessionsV5.set(
+            prepared.onboardingSession.onboardingSessionId,
+            prepared.onboardingSession
+          );
+          sessionState.session = {
+            ...sessionState.session,
+            currentStep: sessionState.session.currentStep + 1
+          };
+        }
+
+        appendReplayEvent(sessionState, {
+          kind: "tool",
+          actor: "sdk",
+          payload: {
+            route: "/v6/tool/prepare",
+            approvalId: payload.approvalId,
+            verdict: prepared.verdict.decision
+          }
+        });
+
+        writeJson(response, 200, {
+          verdict: relabelClaimProfile(prepared.verdict, "secure_v6"),
+          approvalEnvelope:
+            sessionState?.approvalEnvelopesV5.get(payload.approvalId) ?? approvalEnvelope,
+          verifiedRegistryEntry: verifiedEntry,
+          onboardingSession: prepared.onboardingSession
+        });
+        return;
+      }
+
+      if (request.url === "/v6/tool/callback/verify") {
+        const payload = await readJson<V5ToolCallbackPayload>(request);
+        const sessionState = findSessionState(sessions, payload.sessionId);
+        const approvalEnvelope = sessionState?.approvalEnvelopesV5.get(payload.approvalId);
+        const capability = approvalEnvelope
+          ? getCapabilityV5(sessionState, approvalEnvelope.capabilityId)
+          : undefined;
+        const onboardingSession = sessionState?.onboardingSessionsV5.get(payload.onboardingSessionId);
+        const verifiedEntry = approvalEnvelope
+          ? lookupVerifiedRegistryEntry(
+              runtime,
+              approvalEnvelope.connectorId,
+              approvalEnvelope.registryEntryId
+            )
+          : undefined;
+
+        const verified = verifyToolCallbackV5({
+          session: sessionState?.session,
+          capability,
+          approvalEnvelope,
+          onboardingSession,
+          verifiedRegistryEntry: verifiedEntry,
+          request: payload.request
+        });
+
+        if (sessionState && onboardingSession && verified.verdict.decision === "ALLOW") {
+          sessionState.onboardingSessionsV5.set(payload.onboardingSessionId, {
+            ...onboardingSession,
+            status: "used"
+          });
+        }
+        if (sessionState && verified.connectorHandle) {
+          sessionState.connectorHandlesV5.set(
+            verified.connectorHandle.handleId,
+            verified.connectorHandle
+          );
+        }
+
+        appendReplayEvent(sessionState, {
+          kind: "tool",
+          actor: "sdk",
+          payload: {
+            route: "/v6/tool/callback/verify",
+            onboardingSessionId: payload.onboardingSessionId,
+            verdict: verified.verdict.decision
+          }
+        });
+
+        writeJson(response, 200, {
+          ...verified,
+          verdict: relabelClaimProfile(verified.verdict, "secure_v6")
+        });
+        return;
+      }
+
+      if (request.url === "/v6/artifact/ingest") {
+        const payload = await readJson<V4ArtifactPayload>(request);
+        const sessionState = findSessionState(sessions, payload.sessionId);
+        if (!sessionState) {
+          writeJson(response, 404, { error: "unknown_session" });
+          return;
+        }
+
+        const capture: SurfaceCapture = {
+          ...payload.capture,
+          sessionId: payload.sessionId,
+          taskId: sessionState.session.taskId
+        };
+        const observationResult = await parserIsolationService.compileObservation({
+          capture,
+          workflowHash: sessionState.session.workflowHash,
+          compilerVersion: "v5"
+        });
+        const compiledObservation = observationResult.compiledObservation as CompiledObservationV5;
+        const plannerView = observationResult.plannerView as PlannerViewV5;
+        const artifactCapture = buildLegacyObservationCapture(capture);
+        const brokeredArtifact = artifactCapture
+          ? brokerArtifact(artifactCapture, runtime)
+          : brokerArtifact(
+              {
+                mimeType: "application/octet-stream",
+                surfaceKind: "document",
+                sourceOrigin: capture.url,
+                viewerOrigin: capture.frameUrl ?? capture.url,
+                extractionMethod: "download",
+                trustSignals: capture.trustSignals
+              },
+              runtime
+            );
+        const authorityEligible =
+          compiledObservation.parseStatus === "compiled" &&
+          compiledObservation.authorityEligible &&
+          !brokeredArtifact.artifact.mismatchSignals.length &&
+          !brokeredArtifact.artifact.metadataSignals.length;
+        const artifactVerdict = relabelClaimProfile(
+          authorityEligible
+            ? {
+                decision: "ALLOW",
+                reasonCodes: [],
+                riskScore: Math.max(compiledObservation.riskScore, brokeredArtifact.verdict.riskScore),
+                safeConstraints: {
+                  authority_eligible: true,
+                  handoff_mode: "artifact_reference"
+                },
+                telemetryTags: ["artifact_v6", "allow"]
+              }
+            : {
+                decision:
+                  brokeredArtifact.verdict.decision === "QUARANTINE_ARTIFACT" ||
+                  brokeredArtifact.artifact.mismatchSignals.length > 0 ||
+                  brokeredArtifact.artifact.metadataSignals.length > 0
+                    ? "QUARANTINE_ARTIFACT"
+                    : "BLOCK",
+                reasonCodes: [...new Set([
+                  ...(compiledObservation.parseStatus === "compiled"
+                    ? ["ARTIFACT_NOT_AUTHORITY_ELIGIBLE"]
+                    : [
+                        compiledObservation.parseStatus === "partial"
+                          ? "PARSE_STATUS_PARTIAL"
+                          : "PARSE_STATUS_UNSUPPORTED"
+                      ]),
+                  ...brokeredArtifact.verdict.reasonCodes
+                ])],
+                riskScore: Math.max(0.95, brokeredArtifact.verdict.riskScore),
+                safeConstraints: {
+                  authority_eligible: false,
+                  handoff_mode: "artifact_reference"
+                },
+                telemetryTags: ["artifact_v6", "quarantine"]
+              },
+          "secure_v6"
+        );
+
+        sessionState.latestObservationV5 = compiledObservation;
+        sessionState.observationsV5.set(compiledObservation.observationId, compiledObservation);
+        const replayEvent = appendReplayEvent(sessionState, {
+          kind: "artifact",
+          actor: "sdk",
+          payload: {
+            route: "/v6/artifact/ingest",
+            artifactId: brokeredArtifact.artifact.artifactId,
+            surfaceKind: brokeredArtifact.artifact.surfaceKind,
+            verdict: artifactVerdict.decision
+          }
+        });
+
+        writeJson(response, 200, {
+          compiledObservation,
+          plannerView,
+          artifactRef: buildV6ArtifactRef(brokeredArtifact.artifact, authorityEligible),
+          mismatchSignals: brokeredArtifact.artifact.mismatchSignals,
+          artifactVerdict,
+          replayEventId: replayEvent.eventId
+        });
+        return;
+      }
+
+      if (request.url === "/v6/memory/stage") {
+        const payload = await readJson<MemoryStageRequestV6>(request);
+        const sessionState = findSessionState(sessions, payload.sessionId);
+        const result = stageMemoryRecordV6(payload, sessionState?.session);
+
+        let promotionTicket;
+        if (sessionState && result.record) {
+          sessionState.memoryRecords.set(result.record.recordId, result.record);
+          sessionState.memorySourceClassesV6.set(result.record.recordId, payload.sourceClass);
+          if (result.record.tier === "candidate_durable") {
+            const capability = mintMemoryPromotionCapabilityV5(sessionState.session, {
+              recordId: result.record.recordId,
+              sourceDigest: result.record.sourceDigest,
+              sourceObservationId: result.record.sourceObservationId,
+              key: result.record.key,
+              valueDigest: result.record.sourceDigest ?? hashValue(result.record.value)
+            });
+            sessionState.capabilitiesV5.set(capability.capabilityId, capability);
+            promotionTicket = {
+              ticketId: capability.capabilityId,
+              ticketDigest: capability.capabilityDigest,
+              semanticDigest: capability.semanticDigest,
+              recordId: result.record.recordId,
+              sourceClass: payload.sourceClass,
+              expiresAt: capability.expiresAt
+            };
+          }
+        }
+
+        appendReplayEvent(sessionState, {
+          kind: "memory",
+          actor: "sdk",
+          payload: {
+            route: "/v6/memory/stage",
+            recordId: result.record?.recordId ?? null,
+            sourceClass: payload.sourceClass,
+            verdict: result.verdict.decision
+          }
+        });
+
+        writeJson(response, 200, {
+          ...result,
+          verdict: relabelClaimProfile(result.verdict, "secure_v6"),
+          promotionTicket
+        });
+        return;
+      }
+
+      if (request.url === "/v6/memory/promote") {
+        const payload = await readJson<MemoryPromotionRequestV6>(request);
+        const sessionState = findSessionState(sessions, payload.sessionId);
+        const record = sessionState?.memoryRecords.get(payload.recordId);
+        const capability = sessionState?.capabilitiesV5.get(payload.ticketId);
+        const approvalEnvelope = sessionState?.approvalEnvelopesV5.get(payload.approvalId);
+        const snapshotState =
+          sessionState && record ? buildMemorySnapshotState(sessionState, record) : undefined;
+        const result = promoteMemoryRecordV6(
+          payload,
+          sessionState?.session,
+          record,
+          capability,
+          approvalEnvelope,
+          {
+            sourceClass: record ? sessionState?.memorySourceClassesV6.get(record.recordId) : undefined,
+            priorTrustedRecord: snapshotState?.snapshotRecord
+          }
+        );
+
+        if (sessionState && result.promotedRecord) {
+          if (snapshotState && result.promotedRecord.snapshotId) {
+            sessionState.memorySnapshots.set(result.promotedRecord.snapshotId, {
+              ...snapshotState,
+              snapshotId: result.promotedRecord.snapshotId
+            });
+          }
+          sessionState.memoryRecords.set(result.promotedRecord.recordId, result.promotedRecord);
+          if (capability) {
+            consumeCapabilityV5(sessionState, capability);
+          }
+          if (approvalEnvelope) {
+            sessionState.approvalEnvelopesV5.set(payload.approvalId, {
+              ...approvalEnvelope,
+              consumedAt: new Date().toISOString()
+            });
+          }
+          sessionState.session = {
+            ...sessionState.session,
+            currentStep: sessionState.session.currentStep + 1
+          };
+        }
+
+        appendReplayEvent(sessionState, {
+          kind: "memory",
+          actor: "sdk",
+          payload: {
+            route: "/v6/memory/promote",
+            recordId: payload.recordId,
+            verdict: result.verdict.decision
+          }
+        });
+
+        writeJson(response, 200, {
+          ...result,
+          verdict: relabelClaimProfile(result.verdict, "secure_v6"),
+          approvalEnvelope:
+            payload.approvalId && sessionState
+              ? sessionState.approvalEnvelopesV5.get(payload.approvalId)
+              : approvalEnvelope
+        });
+        return;
+      }
+
+      if (request.url === "/v6/memory/rollback") {
+        const payload = await readJson<MemoryRollbackRequest>(request);
+        const sessionState = findSessionState(sessions, payload.sessionId);
+        const record = sessionState?.memoryRecords.get(payload.recordId);
+        const snapshotState = sessionState?.memorySnapshots.get(payload.snapshotId) as
+          | MemorySnapshotState
+          | undefined;
+        const result = rollbackMemoryRecordV5(
+          payload,
+          sessionState?.session,
+          record,
+          {
+            snapshotRecord: snapshotState?.snapshotRecord,
+            baselineAbsent: snapshotState?.baselineAbsent
+          }
+        );
+
+        if (sessionState && result.verdict.decision === "ALLOW") {
+          if (result.restoredRecord) {
+            sessionState.memoryRecords.set(result.restoredRecord.recordId, result.restoredRecord);
+          } else {
+            sessionState.memoryRecords.delete(payload.recordId);
+          }
+        }
+
+        appendReplayEvent(sessionState, {
+          kind: "memory",
+          actor: "sdk",
+          payload: {
+            route: "/v6/memory/rollback",
+            recordId: payload.recordId,
+            snapshotId: payload.snapshotId,
+            verdict: result.verdict.decision
+          }
+        });
+
+        writeJson(response, 200, {
+          ...result,
+          verdict: relabelClaimProfile(result.verdict, "secure_v6"),
+          rollbackEvent:
+            result.verdict.decision === "ALLOW"
+              ? {
+                  recordId: payload.recordId,
+                  snapshotId: payload.snapshotId,
+                  appliedAt: new Date().toISOString()
+                }
+              : undefined
+        });
+        return;
+      }
+
+      if (request.url === "/v6/replay/bundle") {
+        const payload = await readJson<V6ReplayPayload>(request);
+        const sessionState = findSessionState(sessions, payload.sessionId);
+        if (!sessionState) {
+          writeJson(response, 404, { error: "unknown_session" });
+          return;
+        }
+
+        writeJson(response, 200, buildReplayBundle(sessionState.replayEvents, runtime));
+        return;
+      }
+
       if (request.url === "/v5/session/start") {
         const payload = await readJson<SessionStartRequest>(request);
         const sessionState = createSessionState(payload, runtime);
@@ -989,15 +2273,10 @@ export async function createSafeBrowseServer(
           taskId: sessionState.session.taskId
         };
 
-        const observationResult = await compileObservationInIsolation({
+        const observationResult = await parserIsolationService.compileObservation({
           capture,
           workflowHash: sessionState.session.workflowHash,
-          allowlistedEgress: runtime.parserAllowlistedEgress,
-          parserIsolationMode: runtime.parserIsolationMode,
-          compilerVersion: "v5",
-          runtime: {
-            knowledgeBase: runtime.knowledgeBase
-          }
+          compilerVersion: "v5"
         });
 
         const compiledObservation = observationResult.compiledObservation as CompiledObservationV5;
@@ -1264,15 +2543,10 @@ export async function createSafeBrowseServer(
           sessionId: payload.sessionId,
           taskId: sessionState.session.taskId
         };
-        const observationResult = await compileObservationInIsolation({
+        const observationResult = await parserIsolationService.compileObservation({
           capture,
           workflowHash: sessionState.session.workflowHash,
-          allowlistedEgress: runtime.parserAllowlistedEgress,
-          parserIsolationMode: runtime.parserIsolationMode,
-          compilerVersion: "v5",
-          runtime: {
-            knowledgeBase: runtime.knowledgeBase
-          }
+          compilerVersion: "v5"
         });
         const compiledObservation = observationResult.compiledObservation as CompiledObservationV5;
         const plannerView = observationResult.plannerView as PlannerViewV5;
@@ -1478,14 +2752,10 @@ export async function createSafeBrowseServer(
           taskId: sessionState.session.taskId
         };
 
-        const observation = await compileObservationInIsolation({
+        const observation = await parserIsolationService.compileObservation({
           capture,
           workflowHash: sessionState.session.workflowHash,
-          allowlistedEgress: runtime.parserAllowlistedEgress,
-          parserIsolationMode: runtime.parserIsolationMode,
-          runtime: {
-            knowledgeBase: runtime.knowledgeBase
-          }
+          compilerVersion: "v4"
         });
 
         const failClosedObservation = applyV4FailClosedMediation(
@@ -1678,14 +2948,10 @@ export async function createSafeBrowseServer(
           sessionId: payload.sessionId,
           taskId: sessionState.session.taskId
         };
-        const observation = await compileObservationInIsolation({
+        const observation = await parserIsolationService.compileObservation({
           capture,
           workflowHash: sessionState.session.workflowHash,
-          allowlistedEgress: runtime.parserAllowlistedEgress,
-          parserIsolationMode: runtime.parserIsolationMode,
-          runtime: {
-            knowledgeBase: runtime.knowledgeBase
-          }
+          compilerVersion: "v4"
         });
 
         const failClosedArtifact = applyV4FailClosedMediation(
@@ -1817,6 +3083,18 @@ export async function createSafeBrowseServer(
       });
     }
   });
+
+  const originalClose = server.close.bind(server);
+  server.close = ((callback?: (error?: Error) => void) => {
+    clearInterval(parserHealthRefreshTimer);
+    return originalClose((error?: Error) => {
+      void parserIsolationService.close().finally(() => {
+        callback?.(error);
+      });
+    });
+  }) as Server["close"];
+
+  return server;
 }
 
 export async function startSafeBrowseDaemon(

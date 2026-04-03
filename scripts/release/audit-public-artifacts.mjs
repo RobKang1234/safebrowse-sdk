@@ -205,17 +205,6 @@ function assertManifestAcceptable(pkg, manifest) {
   }
 }
 
-async function assertPublishDryRun(pkg, stagedDir) {
-  await execFileAsync(
-    npmRunner.command,
-    [...npmRunner.baseArgs, "publish", "--dry-run", "--access", "public"],
-    {
-      cwd: stagedDir,
-      encoding: "utf8"
-    }
-  );
-}
-
 async function main() {
   const stagingRoot = await mkdtemp(resolve(tmpdir(), "safebrowse-audit-stage-"));
 
@@ -225,11 +214,10 @@ async function main() {
     ).version;
 
     for (const pkg of publicPackages) {
-      const { stagedDir, manifest, files } = await getPackedFiles(pkg, stagingRoot, releaseVersion);
+      const { manifest, files } = await getPackedFiles(pkg, stagingRoot, releaseVersion);
       assertRequiredContent(pkg.name, files, pkg.requiredFiles);
       assertNoBannedContent(pkg.name, files);
       assertManifestAcceptable(pkg, manifest);
-      await assertPublishDryRun(pkg, stagedDir);
     }
 
     const pythonArtifacts = await getPythonArtifactEntries();

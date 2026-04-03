@@ -65,6 +65,10 @@ function registryEntryActive(entry: VerifiedRegistryEntry): boolean {
   return new Date(entry.expiresAt).getTime() > Date.now();
 }
 
+function matchesOptional(expected: string | undefined, actual: string | undefined): boolean {
+  return expected === undefined || expected === actual;
+}
+
 export function issueApprovalEnvelopeV5(input: {
   session: TaskSession | undefined;
   capability: CapabilityDescriptorV5 | undefined;
@@ -174,10 +178,15 @@ export function issueApprovalEnvelopeV5(input: {
       input.capability.kind === "memory_promote" ? "memory_promotion" : "connector_oauth",
     connectorId: input.capability.connectorId,
     registryEntryId: input.capability.registryEntryId,
+    registryBundleId: input.capability.registryBundleId,
+    registryBundleVersion: input.capability.registryBundleVersion,
+    registrySigner: input.capability.registrySigner,
     requestedScopes: input.capability.requestedScopes ?? [],
     requestedScopesHash: requestedScopesHash(input.capability.requestedScopes ?? []),
     callbackUri: input.capability.callbackUri,
     callbackOrigin: input.capability.callbackOrigin,
+    manifestHash: input.capability.manifestHash,
+    schemaHash: input.capability.schemaHash,
     targetOrigin: input.capability.targetOrigin,
     issuedAt,
     expiresAt,
@@ -343,6 +352,30 @@ export function prepareToolOnboardingV5(input: {
       reasonCodes.push("REGISTRY_AUTH_TYPE_MISMATCH");
       riskScore = 0.99;
     }
+    if (
+      !matchesOptional(input.approvalEnvelope.registryBundleId, input.verifiedRegistryEntry.bundleId) ||
+      !matchesOptional(
+        input.approvalEnvelope.registryBundleVersion,
+        input.verifiedRegistryEntry.bundleVersion
+      ) ||
+      !matchesOptional(input.approvalEnvelope.registrySigner, input.verifiedRegistryEntry.signer)
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_REGISTRY_ATTESTATION_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (
+      !matchesOptional(input.approvalEnvelope.manifestHash, input.verifiedRegistryEntry.manifestHash)
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("MANIFEST_HASH_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (!matchesOptional(input.approvalEnvelope.schemaHash, input.verifiedRegistryEntry.schemaHash)) {
+      decision = "BLOCK";
+      reasonCodes.push("SCHEMA_HASH_MISMATCH");
+      riskScore = 0.99;
+    }
   }
 
   if (input.capability && input.approvalEnvelope) {
@@ -367,6 +400,28 @@ export function prepareToolOnboardingV5(input: {
     ) {
       decision = "BLOCK";
       reasonCodes.push("APPROVAL_SCOPE_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (
+      !matchesOptional(input.capability.registryBundleId, input.approvalEnvelope.registryBundleId) ||
+      !matchesOptional(
+        input.capability.registryBundleVersion,
+        input.approvalEnvelope.registryBundleVersion
+      ) ||
+      !matchesOptional(input.capability.registrySigner, input.approvalEnvelope.registrySigner)
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_REGISTRY_ATTESTATION_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (!matchesOptional(input.capability.manifestHash, input.approvalEnvelope.manifestHash)) {
+      decision = "BLOCK";
+      reasonCodes.push("MANIFEST_HASH_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (!matchesOptional(input.capability.schemaHash, input.approvalEnvelope.schemaHash)) {
+      decision = "BLOCK";
+      reasonCodes.push("SCHEMA_HASH_MISMATCH");
       riskScore = 0.99;
     }
   }
@@ -414,9 +469,14 @@ export function prepareToolOnboardingV5(input: {
       capabilityDigest: input.capability.capabilityDigest,
       connectorId: input.capability.connectorId,
       registryEntryId: input.verifiedRegistryEntry.registryEntryId,
+      registryBundleId: input.verifiedRegistryEntry.bundleId,
+      registryBundleVersion: input.verifiedRegistryEntry.bundleVersion,
+      registrySigner: input.verifiedRegistryEntry.signer,
       callbackUri: input.capability.callbackUri,
       callbackOrigin: input.capability.callbackOrigin,
       requestedScopes: input.capability.requestedScopes ?? [],
+      manifestHash: input.capability.manifestHash,
+      schemaHash: input.capability.schemaHash,
       state: randomUUID(),
       pkceMethod: "S256",
       createdAt,
@@ -480,6 +540,28 @@ export function verifyToolCallbackV5(input: {
       reasonCodes.push("ONBOARDING_CAPABILITY_DIGEST_MISMATCH");
       riskScore = 0.99;
     }
+    if (
+      !matchesOptional(input.onboardingSession.registryBundleId, input.capability.registryBundleId) ||
+      !matchesOptional(
+        input.onboardingSession.registryBundleVersion,
+        input.capability.registryBundleVersion
+      ) ||
+      !matchesOptional(input.onboardingSession.registrySigner, input.capability.registrySigner)
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("ONBOARDING_REGISTRY_ATTESTATION_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (!matchesOptional(input.onboardingSession.manifestHash, input.capability.manifestHash)) {
+      decision = "BLOCK";
+      reasonCodes.push("MANIFEST_HASH_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (!matchesOptional(input.onboardingSession.schemaHash, input.capability.schemaHash)) {
+      decision = "BLOCK";
+      reasonCodes.push("SCHEMA_HASH_MISMATCH");
+      riskScore = 0.99;
+    }
   }
   if (input.approvalEnvelope && input.capability) {
     if (input.approvalEnvelope.onboardingSessionId !== input.onboardingSession?.onboardingSessionId) {
@@ -495,6 +577,28 @@ export function verifyToolCallbackV5(input: {
     if (input.approvalEnvelope.capabilityDigest !== input.capability.capabilityDigest) {
       decision = "BLOCK";
       reasonCodes.push("APPROVAL_CAPABILITY_DIGEST_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (
+      !matchesOptional(input.approvalEnvelope.registryBundleId, input.capability.registryBundleId) ||
+      !matchesOptional(
+        input.approvalEnvelope.registryBundleVersion,
+        input.capability.registryBundleVersion
+      ) ||
+      !matchesOptional(input.approvalEnvelope.registrySigner, input.capability.registrySigner)
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_REGISTRY_ATTESTATION_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (!matchesOptional(input.approvalEnvelope.manifestHash, input.capability.manifestHash)) {
+      decision = "BLOCK";
+      reasonCodes.push("MANIFEST_HASH_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (!matchesOptional(input.approvalEnvelope.schemaHash, input.capability.schemaHash)) {
+      decision = "BLOCK";
+      reasonCodes.push("SCHEMA_HASH_MISMATCH");
       riskScore = 0.99;
     }
   }
@@ -558,6 +662,28 @@ export function verifyToolCallbackV5(input: {
       reasonCodes.push("CALLBACK_SCOPE_MISMATCH");
       riskScore = 0.99;
     }
+    if (
+      !matchesOptional(input.onboardingSession.registryBundleId, input.verifiedRegistryEntry.bundleId) ||
+      !matchesOptional(
+        input.onboardingSession.registryBundleVersion,
+        input.verifiedRegistryEntry.bundleVersion
+      ) ||
+      !matchesOptional(input.onboardingSession.registrySigner, input.verifiedRegistryEntry.signer)
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("CALLBACK_REGISTRY_ATTESTATION_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (!matchesOptional(input.onboardingSession.manifestHash, input.verifiedRegistryEntry.manifestHash)) {
+      decision = "BLOCK";
+      reasonCodes.push("MANIFEST_HASH_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (!matchesOptional(input.onboardingSession.schemaHash, input.verifiedRegistryEntry.schemaHash)) {
+      decision = "BLOCK";
+      reasonCodes.push("SCHEMA_HASH_MISMATCH");
+      riskScore = 0.99;
+    }
   }
 
   if (
@@ -609,6 +735,11 @@ export function verifyToolCallbackV5(input: {
       approvalId: input.approvalEnvelope.approvalId,
       connectorId: input.capability.connectorId,
       registryEntryId: input.verifiedRegistryEntry.registryEntryId,
+      registryBundleId: input.verifiedRegistryEntry.bundleId,
+      registryBundleVersion: input.verifiedRegistryEntry.bundleVersion,
+      registrySigner: input.verifiedRegistryEntry.signer,
+      manifestHash: input.onboardingSession.manifestHash,
+      schemaHash: input.onboardingSession.schemaHash,
       scopeSet: input.approvalEnvelope.requestedScopes,
       issuedAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),

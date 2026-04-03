@@ -30,6 +30,7 @@ jobs:
       - run: pnpm build
       - run: pnpm test
       - run: pnpm perf:smoke
+      - run: pnpm perf:daemon:gate -- --json-out perf-daemon-routes.json
       - run: pnpm run kb:bundle -- --generate-dev-key
       - run: pnpm kb:verify
       - run: pnpm release:build:python
@@ -37,6 +38,11 @@ jobs:
       - run: pnpm release:audit
       - run: pnpm release:smoke:artifacts
       - run: pnpm release:smoke:docker
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: daemon-perf-pr
+          path: perf-daemon-routes.json
 
   wrapper-parity:
     runs-on: ubuntu-latest

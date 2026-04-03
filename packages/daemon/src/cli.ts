@@ -10,7 +10,7 @@ export interface ParsedDaemonOptions extends SafeBrowseDaemonOptions {
 const HELP_TEXT = `SafeBrowse daemon
 
 Usage:
-  safebrowse-daemon [--host 127.0.0.1] [--port 8787] [--root-dir <path>] [--deployment-profile development|secure_v5]
+  safebrowse-daemon [--host 127.0.0.1] [--port 8787] [--root-dir <path>] [--deployment-profile development|secure_v5|secure_v6]
                     [--approval-broker-mode signature_verification|external_service]
                     [--parser-isolation-mode scrubbed_process|node_permission_process]
 
@@ -60,7 +60,11 @@ export function parseDaemonOptions(
   if (envRootDir) {
     options.rootDir = resolve(envRootDir);
   }
-  if (envDeploymentProfile === "development" || envDeploymentProfile === "secure_v5") {
+  if (
+    envDeploymentProfile === "development" ||
+    envDeploymentProfile === "secure_v5" ||
+    envDeploymentProfile === "secure_v6"
+  ) {
     options.deploymentProfile = envDeploymentProfile;
   }
   if (envApprovalBrokerPublicKeyPath) {
@@ -116,10 +120,10 @@ export function parseDaemonOptions(
 
     if (arg === "--deployment-profile") {
       const value = queue.shift();
-      if (!value || !["development", "secure_v5"].includes(value)) {
+      if (!value || !["development", "secure_v5", "secure_v6"].includes(value)) {
         throw new Error("Invalid value for --deployment-profile");
       }
-      options.deploymentProfile = value as "development" | "secure_v5";
+      options.deploymentProfile = value as "development" | "secure_v5" | "secure_v6";
       continue;
     }
 

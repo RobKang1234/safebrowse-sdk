@@ -72,10 +72,15 @@ function createCapabilityDigests(
       derivedSinkClass: capability.derivedSinkClass,
       derivedSensitiveSink: capability.derivedSensitiveSink,
       registryEntryId: capability.registryEntryId ?? null,
+      registryBundleId: capability.registryBundleId ?? null,
+      registryBundleVersion: capability.registryBundleVersion ?? null,
+      registrySigner: capability.registrySigner ?? null,
       connectorId: capability.connectorId ?? null,
       requestedScopes: capability.requestedScopes ?? [],
       callbackUri: capability.callbackUri ?? null,
       callbackOrigin: capability.callbackOrigin ?? null,
+      manifestHash: capability.manifestHash ?? null,
+      schemaHash: capability.schemaHash ?? null,
       memoryRecordId: capability.memoryRecordId ?? null,
       parameterSchema: capability.parameterSchema
     })
@@ -129,6 +134,8 @@ export function mintCapabilitiesForObservationV5(
     callbackUri?: string;
     callbackOrigin?: string;
     manifestAuthType?: "none" | "oauth" | "api_key";
+    manifestHash?: string;
+    schemaHash?: string;
   } = {}
 ): CapabilityDescriptorV5[] {
   if (
@@ -199,6 +206,10 @@ export function mintCapabilitiesForObservationV5(
       const requestedScopes = uniq(options.requestedScopes ?? []);
       const callbackUri = options.callbackUri;
       const callbackOrigin = options.callbackOrigin ?? (callbackUri ? normalizeOrigin(callbackUri) : undefined);
+      const manifestHashMatches =
+        options.manifestHash === undefined || options.manifestHash === entry.manifestHash;
+      const schemaHashMatches =
+        options.schemaHash === undefined || options.schemaHash === entry.schemaHash;
       const connectorBindingValid =
         registryEntryActive(entry) &&
         (!options.registryEntryId || options.registryEntryId === entry.registryEntryId) &&
@@ -208,7 +219,9 @@ export function mintCapabilitiesForObservationV5(
         isExactAllowedUri(callbackUri, entry.allowedRedirectUris) &&
         Boolean(callbackOrigin) &&
         entry.allowedCallbackOrigins.includes(normalizeOrigin(callbackOrigin ?? "")) &&
-        normalizeOrigin(callbackUri ?? "") === normalizeOrigin(callbackOrigin ?? "");
+        normalizeOrigin(callbackUri ?? "") === normalizeOrigin(callbackOrigin ?? "") &&
+        manifestHashMatches &&
+        schemaHashMatches;
       if (!connectorBindingValid) {
         return [];
       }
@@ -238,10 +251,15 @@ export function mintCapabilitiesForObservationV5(
           entry.writeCapability || entry.sinkSensitivity === "external_sensitive_sink"
         ),
         registryEntryId: entry.registryEntryId,
+        registryBundleId: entry.bundleId,
+        registryBundleVersion: entry.bundleVersion,
+        registrySigner: entry.signer,
         connectorId: entry.adapterId,
         requestedScopes,
         callbackUri,
         callbackOrigin: normalizeOrigin(callbackOrigin ?? ""),
+        manifestHash: options.manifestHash,
+        schemaHash: options.schemaHash,
         expiresAt,
         nonReplayable: true,
         title: `Prepare connector: ${connectorId}`

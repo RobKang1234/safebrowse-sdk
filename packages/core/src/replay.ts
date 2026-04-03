@@ -14,8 +14,12 @@ export function buildReplayBundle(
 ): ReplayBundle {
   let blockingDecisions = 0;
   let reviewDecisions = 0;
+  const actorCounts: Partial<Record<NonNullable<ReplayEvent["actor"]>, number>> = {};
 
   for (const event of events) {
+    if (event.actor) {
+      actorCounts[event.actor] = (actorCounts[event.actor] ?? 0) + 1;
+    }
     if (isVerdictPayload(event.payload)) {
       if (event.payload.decision === "BLOCK") {
         blockingDecisions += 1;
@@ -50,7 +54,8 @@ export function buildReplayBundle(
     metrics: {
       totalEvents: events.length,
       blockingDecisions,
-      reviewDecisions
+      reviewDecisions,
+      actorCounts: Object.keys(actorCounts).length > 0 ? actorCounts : undefined
     }
   };
 }

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { createPrivateKey, createPublicKey, generateKeyPairSync, sign, type KeyObject } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 
@@ -277,22 +278,36 @@ export async function startApprovalBroker(
   };
 }
 
-export async function ensureApprovalBrokerKeypair(outputDir: string): Promise<{
+export async function ensureApprovalBrokerKeypair(
+  outputDir: string,
+  options: {
+    privateKeyDir?: string;
+  } = {}
+): Promise<{
   privateKeyPath: string;
   publicKeyPath: string;
   publicKeyPem: string;
+  privateKeyDir: string;
 }> {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
-  const privateKeyPath = resolve(outputDir, "approval-broker-private.pem");
-  const publicKeyPath = resolve(outputDir, "approval-broker-public.pem");
+  const publicOutputDir = resolve(outputDir);
+  const privateKeyDir =
+    options.privateKeyDir?.trim()
+      ? resolve(options.privateKeyDir)
+      : await mkdtemp(join(tmpdir(), "safebrowse-approval-broker-"));
+  const privateKeyPath = resolve(privateKeyDir, "approval-broker-private.pem");
+  const publicKeyPath = resolve(publicOutputDir, "approval-broker-public.pem");
   const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs8" }).toString();
   const publicKeyPem = publicKey.export({ format: "pem", type: "spki" }).toString();
+  await mkdir(publicOutputDir, { recursive: true });
+  await mkdir(privateKeyDir, { recursive: true });
   await writeFile(privateKeyPath, privateKeyPem, "utf8");
   await writeFile(publicKeyPath, publicKeyPem, "utf8");
   return {
     privateKeyPath,
     publicKeyPath,
-    publicKeyPem
+    publicKeyPem,
+    privateKeyDir
   };
 }
 

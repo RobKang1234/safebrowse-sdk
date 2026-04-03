@@ -191,8 +191,8 @@ async function writeValidatedLatest(sourceDir: string) {
     "raw-qwen-agent.ndjson",
     "sdk-qwen-agent.ndjson",
     "sink-hits.json",
-    "auditor-opinion.json",
-    "auditor-opinion.md"
+    "internal-assessment.json",
+    "internal-assessment.md"
   ];
 
   for (const file of required) {
@@ -621,7 +621,7 @@ async function main() {
   }));
 
   const reportMd = [
-    "# SafeBrowse V5 Auditor Review",
+    "# SafeBrowse V5 Internal Assessment",
     "",
     `- Suite: \`${summary.suiteId}\``,
     `- Claim profile: \`${summary.claimProfile}\``,
@@ -637,7 +637,7 @@ async function main() {
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>SafeBrowse V5 Auditor Review</title>
+    <title>SafeBrowse V5 Internal Assessment</title>
     <style>
       body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 32px; }
       table { border-collapse: collapse; width: 100%; }
@@ -648,7 +648,7 @@ async function main() {
     </style>
   </head>
   <body>
-    <h1>SafeBrowse V5 Auditor Review</h1>
+    <h1>SafeBrowse V5 Internal Assessment</h1>
     <p>Suite: <code>${htmlEscape(summary.suiteId)}</code></p>
     <p>Claim profile: <code>${htmlEscape(summary.claimProfile)}</code></p>
     <p>Verdict: <strong>${htmlEscape(summary.verdict)}</strong></p>
@@ -669,7 +669,7 @@ async function main() {
 </html>`;
 
   const opinionMd = [
-    "# Auditor Opinion",
+    "# Internal Assessment",
     "",
     `- Verdict: \`${opinion.verdict}\``,
     `- Failed cases: \`${opinion.failed}\``
@@ -693,8 +693,16 @@ async function main() {
   await writeFile(join(archiveDir, "report.html"), reportHtml, "utf8");
   await writeFile(join(archiveDir, "system.ndjson"), `${toNdjson(systemLog)}\n`, "utf8");
   await writeFile(join(archiveDir, "sink-hits.json"), `${JSON.stringify(sinkHits, null, 2)}\n`, "utf8");
-  await writeFile(join(archiveDir, "auditor-opinion.json"), `${JSON.stringify(opinion, null, 2)}\n`, "utf8");
-  await writeFile(join(archiveDir, "auditor-opinion.md"), `${opinionMd.join("\n")}\n`, "utf8");
+  await writeFile(
+    join(archiveDir, "internal-assessment.json"),
+    `${JSON.stringify(opinion, null, 2)}\n`,
+    "utf8"
+  );
+  await writeFile(
+    join(archiveDir, "internal-assessment.md"),
+    `${opinionMd.join("\n")}\n`,
+    "utf8"
+  );
   await writeFile(join(archiveDir, "raw-agent.ndjson"), `${toNdjson(rawLog)}\n`, "utf8");
   await writeFile(join(archiveDir, "raw-qwen-agent.ndjson"), `${toNdjson(rawQwenLog)}\n`, "utf8");
   await writeFile(join(archiveDir, "sdk-qwen-agent.ndjson"), `${toNdjson(sdkLog)}\n`, "utf8");
