@@ -36,6 +36,8 @@
     "auditor:parity": "node scripts/ci/run-wrapper-parity-v5.mjs",
     "auditor:live-smoke": "node scripts/run-pnpm.mjs build && node scripts/ci/smoke-watch-live-v5.mjs",
     "release:sync-version": "node scripts/release/sync-version.mjs",
+    "release:next-version": "node scripts/release/next-version.mjs",
+    "release:update-manifest": "node scripts/release/update-release-manifest.mjs",
     "release:version": "changeset version && node scripts/release/sync-version.mjs",
     "release:build:python": "node scripts/release/build-python-artifacts.mjs",
     "release:check:python": "node scripts/release/check-python-artifacts.mjs",
