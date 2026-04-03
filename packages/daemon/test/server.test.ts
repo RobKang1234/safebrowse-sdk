@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   computeToolManifestHash,
@@ -302,5 +302,21 @@ describe("safebrowse daemon v2 routes", () => {
     ]);
     expect(health.verifiedRegistry.signatureVerified).toBe(true);
     expect(health.verifiedRegistry.entryCount).toBe(1);
+  });
+
+  it("does not expose internal exception messages in daemon error responses", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const baseUrl = await startTestServer();
+    const response = await fetch(`${baseUrl}/v1/observe`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{"
+    });
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "server_error"
+    });
+    expect(errorSpy).toHaveBeenCalled();
   });
 });

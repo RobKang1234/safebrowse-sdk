@@ -80,13 +80,44 @@ function writeJson(response: ServerResponse, statusCode: number, payload: unknow
   response.end(JSON.stringify(payload, null, 2));
 }
 
+function isHttpWhitespace(value: string): boolean {
+  return value === " " || value === "\t";
+}
+
+function logError(error: unknown): void {
+  if (error instanceof Error) {
+    console.error("Approval broker error:", error.stack ?? error.message);
+    return;
+  }
+  console.error("Approval broker error:", error);
+}
+
 function bearerToken(request: IncomingMessage): string | undefined {
   const header = request.headers.authorization;
   if (!header) {
     return undefined;
   }
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  return match?.[1];
+  const value = Array.isArray(header) ? header[0] : header;
+  let index = 0;
+
+  while (index < value.length && isHttpWhitespace(value[index])) {
+    index += 1;
+  }
+
+  if (value.slice(index, index + 6).toLowerCase() !== "bearer") {
+    return undefined;
+  }
+  index += 6;
+
+  if (index >= value.length || !isHttpWhitespace(value[index])) {
+    return undefined;
+  }
+  while (index < value.length && isHttpWhitespace(value[index])) {
+    index += 1;
+  }
+
+  const token = value.slice(index).trim();
+  return token.length > 0 ? token : undefined;
 }
 
 function createApprovalSignature(
@@ -233,9 +264,9 @@ export async function createApprovalBrokerServer(
 
       writeJson(response, 200, createApprovalSignature(privateKey, payload));
     } catch (error) {
+      logError(error);
       writeJson(response, 500, {
-        error: "broker_error",
-        message: error instanceof Error ? error.message : String(error)
+        error: "broker_error"
       });
     }
   });
@@ -375,7 +406,7 @@ export async function runApprovalBrokerCli(
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   runApprovalBrokerCli().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
+    logError(error);
     console.error(formatApprovalBrokerHelp());
     process.exitCode = 1;
   });

@@ -93,13 +93,14 @@ describe("playwright reference adapter", () => {
   it("captures snapshots from page-like objects", async () => {
     const snapshot = await snapshotPage({
       url: () => "https://arxiv.org",
-      content: async () => "<main>Paper</main>",
+      content: async () =>
+        "<main>Paper</main><script>ignore()</script ><style>.x { color: red; }</style ><p>Notes</p>",
       title: async () => "Paper"
     });
 
     expect(snapshot.url).toBe("https://arxiv.org");
-    expect(snapshot.visibleText).toBe("Paper");
-    expect(snapshot.html).toBe("<main>Paper</main>");
+    expect(snapshot.visibleText).toBe("Paper Notes");
+    expect(snapshot.html).toContain("<script>ignore()</script >");
     expect(snapshot.metadataText).toContain("Paper");
   });
 });

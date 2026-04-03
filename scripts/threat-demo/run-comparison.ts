@@ -7,6 +7,7 @@ import {
   brokerArtifact,
   buildReplayBundle,
   compilePolicy,
+  extractTextFromHtml,
   evaluateAction,
   evaluateMemoryWrite,
   evaluateToolRequest,
@@ -188,12 +189,7 @@ function extractBetweenAll(html: string, pattern: RegExp): string[] {
 }
 
 function textContentFromHtml(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return extractTextFromHtml(html);
 }
 
 function parsePage(html: string): PageData {

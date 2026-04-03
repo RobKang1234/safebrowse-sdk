@@ -4,6 +4,7 @@ import type {
   RawObservationInput,
   SafeVerdict
 } from "@safebrowse/core";
+import { extractTextFromHtml } from "@safebrowse/core";
 
 export interface PageLike {
   url(): string;
@@ -148,13 +149,7 @@ export async function snapshotPage(page: PageLike): Promise<PlaywrightPageSnapsh
   ]);
   const visibleText = page.visibleText
     ? await page.visibleText()
-    : html
-        .replace(/<script[\s\S]*?<\/script>/gi, " ")
-        .replace(/<style[\s\S]*?<\/style>/gi, " ")
-        .replace(/<!--[\s\S]*?-->/g, " ")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
+    : extractTextFromHtml(html);
 
   return {
     url: page.url(),

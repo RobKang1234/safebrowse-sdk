@@ -240,6 +240,14 @@ function writeJson(response: ServerResponse, statusCode: number, payload: unknow
   response.end(JSON.stringify(payload, null, 2));
 }
 
+function logServerError(error: unknown): void {
+  if (error instanceof Error) {
+    console.error("SafeBrowse daemon error:", error.stack ?? error.message);
+    return;
+  }
+  console.error("SafeBrowse daemon error:", error);
+}
+
 function legacyResponseMeta(route: string) {
   return {
     deprecated: true as const,
@@ -3077,9 +3085,9 @@ export async function createSafeBrowseServer(
 
       writeJson(response, 404, { error: "not_found" });
     } catch (error) {
+      logServerError(error);
       writeJson(response, 500, {
-        error: "server_error",
-        message: error instanceof Error ? error.message : String(error)
+        error: "server_error"
       });
     }
   });

@@ -14,6 +14,7 @@ export {
 export { compilePolicy } from "./policy.js";
 export { applyV4FailClosedMediation, compileObservation } from "./observationV4.js";
 export { applyV5ObservationMediation, compileObservationV5 } from "./observationV5.js";
+export { extractTextFromHtml } from "./htmlText.js";
 export { evaluateMemoryWrite } from "./memory.js";
 export {
   evaluateMemoryWriteV4,

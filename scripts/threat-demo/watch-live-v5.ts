@@ -13,6 +13,7 @@ import {
   compilePolicy,
   computeToolManifestHash,
   computeToolSchemaHash,
+  extractTextFromHtml,
   evaluateAction,
   evaluateCapabilityUseV5,
   evaluateMemoryWrite,
@@ -495,12 +496,7 @@ function extractBetweenAll(html: string, pattern: RegExp): string[] {
 }
 
 function textContentFromHtml(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return extractTextFromHtml(html);
 }
 
 function parseJsonScript<T>(html: string, id: string, fallback: T): T {
