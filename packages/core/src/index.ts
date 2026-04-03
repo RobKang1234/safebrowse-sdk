@@ -61,5 +61,6 @@ export {
   verifyApprovalIntentSignatureV5,
   verifyToolCallbackV5
 } from "./toolProtocolV5.js";
+export { parseThreatPageHtml } from "./threatPageParser.js";
 export { appendLineage, normalizeTrustSignals } from "./trust.js";
 export * from "./types.js";

@@ -19,6 +19,7 @@ import {
   evaluateMemoryWrite,
   evaluateMemoryWriteV5,
   mintCapabilitiesForObservationV5,
+  parseThreatPageHtml,
   prepareToolOnboardingV5,
   verifyToolCallbackV5,
   prepareToolOnboarding,
@@ -486,70 +487,52 @@ function buildThreatPage(
 </html>`;
 }
 
-function extractBetweenAll(html: string, pattern: RegExp): string[] {
-  const values: string[] = [];
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(html))) {
-    values.push(match[1]);
-  }
-  return values;
-}
-
 function textContentFromHtml(html: string): string {
   return extractTextFromHtml(html);
 }
 
-function parseJsonScript<T>(html: string, id: string, fallback: T): T {
-  const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const json = extractBetweenAll(
-    html,
-    new RegExp(
-      `<script id="${escapedId}" type="application\\/json">([\\s\\S]*?)<\\/script>`,
-      "gi"
-    )
-  )[0];
-  if (!json) {
+function parseJsonValue<T>(value: string | undefined, fallback: T): T {
+  if (!value) {
     return fallback;
   }
   try {
-    return JSON.parse(json) as T;
+    return JSON.parse(value) as T;
   } catch {
     return fallback;
   }
 }
 
 function parsePage(html: string): PageData {
-  const title = extractBetweenAll(html, /<title>([\s\S]*?)<\/title>/gi)[0] ?? "Untitled";
-  const visibleText =
-    extractBetweenAll(html, /<div data-channel="visible">([\s\S]*?)<\/div>/gi)[0] ?? "";
-  const hiddenText = extractBetweenAll(
-    html,
-    /<div data-channel="hidden"[^>]*>([\s\S]*?)<\/div>/gi
+  const parsed = parseThreatPageHtml(html);
+  const toolJson = parseJsonValue<Record<string, unknown> | undefined>(
+    parsed.jsonScripts["tool-manifest"],
+    undefined
   );
-  const metadataText = extractBetweenAll(
-    html,
-    /<meta name="agent-note" content="([\s\S]*?)"\s*\/?>/gi
-  );
-  const links = extractBetweenAll(html, /<a(?![^>]*data-hidden-link="true")[^>]*href="([^"]+)"/gi);
-  const toolJson = parseJsonScript<Record<string, unknown> | undefined>(html, "tool-manifest", undefined);
-  const memoryJson = parseJsonScript<
+  const memoryJson = parseJsonValue<
     { key: string; value: JsonValue; durable: boolean } | undefined
-  >(html, "memory-directive", undefined);
+  >(parsed.jsonScripts["memory-directive"], undefined);
 
   return {
-    title,
-    visibleText,
-    hiddenText,
-    metadataText,
-    links,
-    contextPackets: parseJsonScript<ContextPacket[]>(html, "context-packets", []),
-    workflowHistory: parseJsonScript<WorkflowHistoryEntry[]>(html, "workflow-history", []),
-    authorityClaims: parseJsonScript<AuthorityClaim[]>(html, "authority-claims", []),
-    quotedMessages: parseJsonScript<QuotedMessage[]>(html, "quoted-messages", []),
-    socialPressureSignals: parseJsonScript<string[]>(html, "social-pressure-signals", []),
+    title: parsed.title,
+    visibleText: parsed.visibleText,
+    hiddenText: parsed.hiddenText,
+    hiddenLinks: parsed.hiddenLinks.length ? parsed.hiddenLinks : undefined,
+    metadataText: parsed.metadataText,
+    links: parsed.links,
+    contextPackets: parseJsonValue<ContextPacket[]>(parsed.jsonScripts["context-packets"], []),
+    workflowHistory: parseJsonValue<WorkflowHistoryEntry[]>(
+      parsed.jsonScripts["workflow-history"],
+      []
+    ),
+    authorityClaims: parseJsonValue<AuthorityClaim[]>(parsed.jsonScripts["authority-claims"], []),
+    quotedMessages: parseJsonValue<QuotedMessage[]>(parsed.jsonScripts["quoted-messages"], []),
+    socialPressureSignals: parseJsonValue<string[]>(
+      parsed.jsonScripts["social-pressure-signals"],
+      []
+    ),
     toolManifest: toolJson,
     memoryDirective: memoryJson,
-    artifactUrl: links.find((href) => href.includes("/artifact/"))
+    artifactUrl: parsed.links.find((href) => href.includes("/artifact/"))
   };
 }
 

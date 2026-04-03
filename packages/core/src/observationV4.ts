@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { parse as parseHtmlDocument } from "parse5";
 
 import { redactSecretsInText } from "./secretIsolation.js";
 import { sanitizeObservation } from "./sanitize.js";
@@ -19,33 +20,106 @@ import type {
 } from "./types.js";
 import { clamp, normalizeOrigin, normalizeText, overlapScore, sha256Hex, uniq } from "./utils.js";
 
-const HTML_COMMENT = /<!--([\s\S]*?)-->/g;
-const TITLE_TAG = /<title[^>]*>([\s\S]*?)<\/title>/i;
-const META_CONTENT =
-  /<meta[^>]+(?:name|property)=["']?([^"'>\s]+)["']?[^>]+content=["']?([^"'>]+)["']?[^>]*>/gi;
-const ANCHOR_TAG =
-  /<a[^>]+href=["']?([^"'>\s]+)["']?[^>]*>([\s\S]*?)<\/a>/gi;
-const HIDDEN_TAG =
-  /<([a-z0-9:-]+)[^>]*(?:hidden|aria-hidden=["']?true["']?|style=["'][^"']*(?:display\s*:\s*none|visibility\s*:\s*hidden)[^"']*["'])[^>]*>([\s\S]*?)<\/\1>/gi;
-const HIDDEN_BLOCK =
-  /<[^>]*(?:hidden|aria-hidden=["']?true["']?|style=["'][^"']*(?:display\s*:\s*none|visibility\s*:\s*hidden)[^"']*["'])[^>]*>[\s\S]*?<\/[^>]+>/gi;
-const ALT_ATTR = /\b(?:alt|title|aria-label)=["']([^"']+)["']/gi;
-const TAGS = /<[^>]+>/g;
-const SCRIPT_STYLE = /<(script|style)[^>]*>[\s\S]*?<\/\1>/gi;
+type HtmlAttr = {
+  name: string;
+  value: string;
+};
 
-function stripHtmlVisible(input: string): string {
-  return normalizeText(
-    input
-      .replace(SCRIPT_STYLE, " ")
-      .replace(HIDDEN_BLOCK, " ")
-      .replace(HIDDEN_TAG, " ")
-      .replace(HTML_COMMENT, " ")
-      .replace(TAGS, " ")
+type HtmlNode = {
+  nodeName?: string;
+  tagName?: string;
+  value?: string;
+  data?: string;
+  attrs?: HtmlAttr[];
+  childNodes?: HtmlNode[];
+};
+
+const SKIP_TEXT_TAGS = new Set(["script", "style", "template", "noscript"]);
+const METADATA_ATTRS = new Set(["alt", "title", "aria-label"]);
+
+function getAttr(node: HtmlNode, name: string): string | undefined {
+  return node.attrs?.find((attr) => attr.name.toLowerCase() === name)?.value;
+}
+
+function stripAsciiWhitespace(input: string): string {
+  let result = "";
+  for (const char of input) {
+    if (
+      char !== " " &&
+      char !== "\t" &&
+      char !== "\n" &&
+      char !== "\r" &&
+      char !== "\f" &&
+      char !== "\v"
+    ) {
+      result += char;
+    }
+  }
+  return result;
+}
+
+function styleContainsHiddenSignal(style: string | undefined): boolean {
+  if (!style) {
+    return false;
+  }
+
+  for (const declaration of style.toLowerCase().split(";")) {
+    const separator = declaration.indexOf(":");
+    if (separator === -1) {
+      continue;
+    }
+
+    const property = declaration.slice(0, separator).trim();
+    const value = stripAsciiWhitespace(declaration.slice(separator + 1));
+
+    if ((property === "display" && value === "none") || (property === "visibility" && value === "hidden")) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function elementHasHiddenSignal(node: HtmlNode): boolean {
+  if (!node.tagName) {
+    return false;
+  }
+
+  const hidden = getAttr(node, "hidden");
+  const inert = getAttr(node, "inert");
+  const ariaHidden = getAttr(node, "aria-hidden")?.toLowerCase();
+
+  return (
+    hidden !== undefined ||
+    inert !== undefined ||
+    ariaHidden === "true" ||
+    styleContainsHiddenSignal(getAttr(node, "style"))
   );
 }
 
-function stripHtml(input: string): string {
-  return normalizeText(input.replace(SCRIPT_STYLE, " ").replace(HTML_COMMENT, " ").replace(TAGS, " "));
+function nodeText(node: HtmlNode): string {
+  return normalizeText(node.value ?? node.data ?? "");
+}
+
+function textContent(node: HtmlNode, skipHiddenDescendants = false): string {
+  const nodeName = node.nodeName?.toLowerCase() ?? "";
+  if (nodeName === "#text") {
+    return nodeText(node);
+  }
+  if (nodeName === "#comment") {
+    return "";
+  }
+
+  const tagName = node.tagName?.toLowerCase();
+  if (tagName && SKIP_TEXT_TAGS.has(tagName)) {
+    return "";
+  }
+
+  if (skipHiddenDescendants && elementHasHiddenSignal(node)) {
+    return "";
+  }
+
+  return normalizeText((node.childNodes ?? []).map((child) => textContent(child, skipHiddenDescendants)).join(" "));
 }
 
 function hashSurface(capture: SurfaceCapture): string {
@@ -98,18 +172,6 @@ function buildSpan(input: {
   };
 }
 
-function parseHtmlLinks(html: string, fallbackLinks: SurfaceLinkCapture[]): SurfaceLinkCapture[] {
-  const links: SurfaceLinkCapture[] = [...fallbackLinks];
-  for (const match of html.matchAll(ANCHOR_TAG)) {
-    links.push({
-      href: match[1],
-      text: stripHtml(match[2]),
-      selector: `a[href="${match[1]}"]`
-    });
-  }
-  return links;
-}
-
 function parseHtmlCapture(
   capture: HtmlSurfaceCapture,
   trustSignals: ReturnType<typeof normalizeTrustSignals>,
@@ -123,7 +185,6 @@ function parseHtmlCapture(
   parseStatus: CompiledObservation["parseStatus"];
 } {
   const html = capture.html ?? "";
-  const visibleText = normalizeText(capture.visibleText ?? stripHtmlVisible(html));
   const sourceOrigin = normalizeOrigin(capture.url);
   const frameOrigin = normalizeOrigin(capture.frameUrl ?? capture.url);
   const spans: ProvenanceSpan[] = [];
@@ -132,6 +193,193 @@ function parseHtmlCapture(
   const riskFindings: string[] = [];
   const blockedChannels: ProvenanceChannel[] = [];
   const nestedUnsupportedComponents = capture.nestedUnsupportedComponents ?? [];
+  const document = html ? (parseHtmlDocument(html) as unknown as HtmlNode) : undefined;
+  const visibleParts: string[] = [];
+  const htmlLinks: SurfaceLinkCapture[] = [];
+
+  function pushLink(link: SurfaceLinkCapture): void {
+    if (!normalizeText(link.href)) {
+      return;
+    }
+
+    const targetOrigin = normalizeOrigin(link.href);
+    const linkText = normalizeText(link.text ?? link.href);
+    const normalizedFrameOrigin = normalizeOrigin(link.frameOrigin ?? frameOrigin);
+    const span = buildSpan({
+      channel: "link",
+      text: linkText,
+      sourceOrigin,
+      frameOrigin: normalizedFrameOrigin,
+      visibilityClass: "visible",
+      extractionMethod: "dom",
+      taintClass: trustSignals.taintClass,
+      lineageChain: trustSignals.lineageChain,
+      selector: link.selector,
+      supportingDigest: sourceDigest
+    });
+    spans.push(span);
+    extractedTargets.push({
+      targetId: randomUUID(),
+      kind: "navigate",
+      href: link.href,
+      selector: link.selector,
+      sourceSpanIds: [span.spanId],
+      sourceOrigin,
+      frameOrigin: normalizedFrameOrigin,
+      targetOrigin,
+      displayText: linkText || link.href
+    });
+  }
+
+  function walk(node: HtmlNode, state: { hidden: boolean; inHead: boolean }): void {
+    const nodeName = node.nodeName?.toLowerCase() ?? "";
+    const tagName = node.tagName?.toLowerCase();
+
+    if (nodeName === "#comment") {
+      const commentText = nodeText(node);
+      if (commentText) {
+        spans.push(
+          buildSpan({
+            channel: "comment",
+            text: commentText,
+            sourceOrigin,
+            frameOrigin,
+            visibilityClass: "hidden",
+            extractionMethod: "dom",
+            taintClass: trustSignals.taintClass,
+            lineageChain: trustSignals.lineageChain,
+            supportingDigest: sourceDigest
+          })
+        );
+        blockedChannels.push("comment");
+        riskFindings.push("html_comment_channel_present");
+      }
+      return;
+    }
+
+    if (nodeName === "#text") {
+      const text = nodeText(node);
+      if (!text) {
+        return;
+      }
+
+      if (state.hidden) {
+        spans.push(
+          buildSpan({
+            channel: "hidden_text",
+            text,
+            sourceOrigin,
+            frameOrigin,
+            visibilityClass: "hidden",
+            extractionMethod: "dom",
+            taintClass: trustSignals.taintClass,
+            lineageChain: trustSignals.lineageChain,
+            supportingDigest: sourceDigest
+          })
+        );
+        blockedChannels.push("hidden_text");
+        riskFindings.push("html_hidden_channel_present");
+      } else if (!state.inHead) {
+        visibleParts.push(text);
+      }
+
+      return;
+    }
+
+    if (!tagName) {
+      for (const child of node.childNodes ?? []) {
+        walk(child, state);
+      }
+      return;
+    }
+
+    const hidden = state.hidden || elementHasHiddenSignal(node);
+    const inHead = state.inHead || tagName === "head";
+
+    if (tagName === "title") {
+      const title = normalizeText(capture.title ?? textContent(node));
+      if (title) {
+        spans.push(
+          buildSpan({
+            channel: "metadata",
+            text: title,
+            sourceOrigin,
+            frameOrigin,
+            visibilityClass: "metadata",
+            extractionMethod: "dom",
+            taintClass: trustSignals.taintClass,
+            lineageChain: trustSignals.lineageChain,
+            supportingDigest: sourceDigest
+          })
+        );
+        extractedFacts.push(`title: ${title}`);
+        blockedChannels.push("metadata");
+      }
+    } else if (tagName === "meta") {
+      const metaName = normalizeText(getAttr(node, "name") ?? getAttr(node, "property") ?? "");
+      const metaContent = normalizeText(getAttr(node, "content") ?? "");
+      if (metaName && metaContent) {
+        spans.push(
+          buildSpan({
+            channel: "metadata",
+            text: `${metaName}: ${metaContent}`,
+            sourceOrigin,
+            frameOrigin,
+            visibilityClass: "metadata",
+            extractionMethod: "dom",
+            taintClass: trustSignals.taintClass,
+            lineageChain: trustSignals.lineageChain,
+            supportingDigest: sourceDigest
+          })
+        );
+        blockedChannels.push("metadata");
+      }
+    } else if (tagName === "a" && !hidden) {
+      const href = getAttr(node, "href");
+      if (href && normalizeText(href)) {
+        htmlLinks.push({
+          href,
+          text: textContent(node, true),
+          selector: `a[href="${href}"]`,
+          frameOrigin
+        });
+      }
+    }
+
+    for (const attrName of METADATA_ATTRS) {
+      const attrValue = normalizeText(getAttr(node, attrName) ?? "");
+      if (!attrValue) {
+        continue;
+      }
+      spans.push(
+        buildSpan({
+          channel: "metadata",
+          text: attrValue,
+          sourceOrigin,
+          frameOrigin,
+          visibilityClass: "metadata",
+          extractionMethod: "dom",
+          taintClass: trustSignals.taintClass,
+          lineageChain: trustSignals.lineageChain,
+          supportingDigest: sourceDigest
+        })
+      );
+      blockedChannels.push("metadata");
+    }
+
+    for (const child of node.childNodes ?? []) {
+      walk(child, {
+        hidden,
+        inHead
+      });
+    }
+  }
+
+  if (document) {
+    walk(document, { hidden: false, inHead: false });
+  }
+
+  const visibleText = normalizeText(capture.visibleText ?? visibleParts.join(" "));
 
   if (visibleText) {
     spans.push(
@@ -147,68 +395,6 @@ function parseHtmlCapture(
         supportingDigest: sourceDigest
       })
     );
-  }
-
-  const titleMatch = capture.title || html.match(TITLE_TAG)?.[1];
-  if (titleMatch) {
-    spans.push(
-      buildSpan({
-        channel: "metadata",
-        text: titleMatch,
-        sourceOrigin,
-        frameOrigin,
-        visibilityClass: "metadata",
-        extractionMethod: "dom",
-        taintClass: trustSignals.taintClass,
-        lineageChain: trustSignals.lineageChain,
-        supportingDigest: sourceDigest
-      })
-    );
-    extractedFacts.push(`title: ${normalizeText(titleMatch)}`);
-    blockedChannels.push("metadata");
-  }
-
-  for (const match of html.matchAll(HTML_COMMENT)) {
-    if (!normalizeText(match[1])) {
-      continue;
-    }
-    spans.push(
-      buildSpan({
-        channel: "comment",
-        text: match[1],
-        sourceOrigin,
-        frameOrigin,
-        visibilityClass: "hidden",
-        extractionMethod: "dom",
-        taintClass: trustSignals.taintClass,
-        lineageChain: trustSignals.lineageChain,
-        supportingDigest: sourceDigest
-      })
-    );
-    blockedChannels.push("comment");
-    riskFindings.push("html_comment_channel_present");
-  }
-
-  for (const match of html.matchAll(HIDDEN_TAG)) {
-    const hiddenText = stripHtml(match[2]);
-    if (!hiddenText) {
-      continue;
-    }
-    spans.push(
-      buildSpan({
-        channel: "hidden_text",
-        text: hiddenText,
-        sourceOrigin,
-        frameOrigin,
-        visibilityClass: "hidden",
-        extractionMethod: "dom",
-        taintClass: trustSignals.taintClass,
-        lineageChain: trustSignals.lineageChain,
-        supportingDigest: sourceDigest
-      })
-    );
-    blockedChannels.push("hidden_text");
-    riskFindings.push("html_hidden_channel_present");
   }
 
   for (const value of capture.hiddenText ?? []) {
@@ -229,40 +415,6 @@ function parseHtmlCapture(
       })
     );
     blockedChannels.push("hidden_text");
-  }
-
-  for (const match of html.matchAll(META_CONTENT)) {
-    spans.push(
-      buildSpan({
-        channel: "metadata",
-        text: `${match[1]}: ${match[2]}`,
-        sourceOrigin,
-        frameOrigin,
-        visibilityClass: "metadata",
-        extractionMethod: "dom",
-        taintClass: trustSignals.taintClass,
-        lineageChain: trustSignals.lineageChain,
-        supportingDigest: sourceDigest
-      })
-    );
-    blockedChannels.push("metadata");
-  }
-
-  for (const match of html.matchAll(ALT_ATTR)) {
-    spans.push(
-      buildSpan({
-        channel: "metadata",
-        text: match[1],
-        sourceOrigin,
-        frameOrigin,
-        visibilityClass: "metadata",
-        extractionMethod: "dom",
-        taintClass: trustSignals.taintClass,
-        lineageChain: trustSignals.lineageChain,
-        supportingDigest: sourceDigest
-      })
-    );
-    blockedChannels.push("metadata");
   }
 
   for (const value of capture.metadataText ?? []) {
@@ -305,35 +457,12 @@ function parseHtmlCapture(
     blockedChannels.push("annotation");
   }
 
-  const linkEntries = parseHtmlLinks(html, capture.links ?? []);
-  for (const link of linkEntries) {
-    const targetOrigin = normalizeOrigin(link.href);
-    const linkText = normalizeText(link.text ?? link.href);
-    spans.push(
-      buildSpan({
-        channel: "link",
-        text: linkText,
-        sourceOrigin,
-        frameOrigin: normalizeOrigin(link.frameOrigin ?? frameOrigin),
-        visibilityClass: "visible",
-        extractionMethod: "dom",
-        taintClass: trustSignals.taintClass,
-        lineageChain: trustSignals.lineageChain,
-        selector: link.selector,
-        supportingDigest: sourceDigest
-      })
-    );
-    extractedTargets.push({
-      targetId: randomUUID(),
-      kind: "navigate",
-      href: link.href,
-      selector: link.selector,
-      sourceSpanIds: [spans[spans.length - 1].spanId],
-      sourceOrigin,
-      frameOrigin,
-      targetOrigin,
-      displayText: linkText || link.href
-    });
+  for (const link of capture.links ?? []) {
+    pushLink(link);
+  }
+
+  for (const link of htmlLinks) {
+    pushLink(link);
   }
 
   if (nestedUnsupportedComponents.length) {
