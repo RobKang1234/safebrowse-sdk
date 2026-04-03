@@ -10,7 +10,7 @@ export interface ParsedDaemonOptions extends SafeBrowseDaemonOptions {
 const HELP_TEXT = `SafeBrowse daemon
 
 Usage:
-  safebrowse-daemon [--host 127.0.0.1] [--port 8787] [--root-dir <path>] [--deployment-profile development|secure_v5|secure_v6]
+  safebrowse-daemon [--host 127.0.0.1] [--port 8787] [--root-dir <path>] [--deployment-profile development|secure_v5]
                     [--approval-broker-mode signature_verification|external_service]
                     [--parser-isolation-mode scrubbed_process|node_permission_process]
 
@@ -22,6 +22,9 @@ Environment:
   SAFEBROWSE_APPROVAL_BROKER_PUBLIC_KEY_PATH
   SAFEBROWSE_APPROVAL_BROKER_MODE
   SAFEBROWSE_PARSER_ISOLATION_MODE
+
+Notes:
+  secure_v6 is accepted as a deprecated alias for secure_v5.
 `;
 
 function parsePort(value: string): number {
@@ -65,7 +68,7 @@ export function parseDaemonOptions(
     envDeploymentProfile === "secure_v5" ||
     envDeploymentProfile === "secure_v6"
   ) {
-    options.deploymentProfile = envDeploymentProfile;
+    options.deploymentProfile = envDeploymentProfile === "secure_v6" ? "secure_v5" : envDeploymentProfile;
   }
   if (envApprovalBrokerPublicKeyPath) {
     options.approvalBrokerPublicKeyPath = resolve(envApprovalBrokerPublicKeyPath);
@@ -123,7 +126,10 @@ export function parseDaemonOptions(
       if (!value || !["development", "secure_v5", "secure_v6"].includes(value)) {
         throw new Error("Invalid value for --deployment-profile");
       }
-      options.deploymentProfile = value as "development" | "secure_v5" | "secure_v6";
+      options.deploymentProfile =
+        value === "secure_v6"
+          ? "secure_v5"
+          : (value as "development" | "secure_v5");
       continue;
     }
 

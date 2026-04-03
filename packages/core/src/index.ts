@@ -27,7 +27,9 @@ export {
   rollbackMemoryRecordV5
 } from "./memoryV5.js";
 export {
+  promoteStagedMemoryRecordV5,
   promoteMemoryRecordV6,
+  stageMemoryRecordV5,
   stageMemoryRecordV6
 } from "./memoryV6.js";
 export { runPromptInjectionGuard } from "./promptInjection.js";

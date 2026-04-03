@@ -128,7 +128,7 @@ async function startTestServer() {
   const server = await createSafeBrowseServer({
     policyPack,
     verifiedRegistry,
-    deploymentProfile: "secure_v6",
+    deploymentProfile: "secure_v5",
     approvalBrokerPublicKeyPem: broker.publicKeyPem,
     knowledgeBase: {
       promptInjectionPatterns: [],
@@ -187,12 +187,12 @@ afterEach(async () => {
   await Promise.all(brokers.splice(0).map((entry) => entry.close()));
 });
 
-describe("safebrowse daemon v6 routes", () => {
-  it("boots secure_v6 with strict defaults and actor-attributed replay", async () => {
+describe("safebrowse daemon advanced v5 routes", () => {
+  it("boots secure_v5 with strict defaults and actor-attributed replay", async () => {
     const { baseUrl } = await startTestServer();
     const health = await fetch(`${baseUrl}/health`).then((response) => response.json());
 
-    expect(health.deploymentProfile).toBe("secure_v6");
+    expect(health.deploymentProfile).toBe("secure_v5");
     expect(health.claimBearingReady).toBe(true);
     expect(health.legacyRoutesEnabled).toBe(false);
     expect(health.approvalBroker.mode).toBe("external_service");
@@ -213,9 +213,9 @@ describe("safebrowse daemon v6 routes", () => {
       })
     }).then((response) => response.json());
 
-    expect(legacy.error).toBe("route_disabled_in_secure_v6");
+    expect(legacy.error).toBe("route_disabled_in_secure_v5");
 
-    const session = await fetch(`${baseUrl}/v6/session/start`, {
+    const session = await fetch(`${baseUrl}/v5/session/start`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -227,7 +227,7 @@ describe("safebrowse daemon v6 routes", () => {
       })
     }).then((response) => response.json());
 
-    const observe = await fetch(`${baseUrl}/v6/observe`, {
+    const observe = await fetch(`${baseUrl}/v5/observe`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -240,7 +240,7 @@ describe("safebrowse daemon v6 routes", () => {
       })
     }).then((response) => response.json());
 
-    const action = await fetch(`${baseUrl}/v6/action/evaluate`, {
+    const action = await fetch(`${baseUrl}/v5/action/evaluate`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -253,7 +253,7 @@ describe("safebrowse daemon v6 routes", () => {
 
     expect(action.effectDecision.decision).toBe("ALLOW");
 
-    const replay = await fetch(`${baseUrl}/v6/replay/bundle`, {
+    const replay = await fetch(`${baseUrl}/v5/replay/bundle`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -264,9 +264,9 @@ describe("safebrowse daemon v6 routes", () => {
     expect(replay.metrics.actorCounts.sdk).toBeGreaterThanOrEqual(2);
   });
 
-  it("requires exact manifest and schema hash binding for V6 connector authority", async () => {
+  it("requires exact manifest and schema hash binding for canonical V5 connector authority", async () => {
     const { baseUrl } = await startTestServer();
-    const session = await fetch(`${baseUrl}/v6/session/start`, {
+    const session = await fetch(`${baseUrl}/v5/session/start`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -278,7 +278,7 @@ describe("safebrowse daemon v6 routes", () => {
       })
     }).then((response) => response.json());
 
-    const mismatchObserve = await fetch(`${baseUrl}/v6/observe`, {
+    const mismatchObserve = await fetch(`${baseUrl}/v5/observe`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -300,9 +300,9 @@ describe("safebrowse daemon v6 routes", () => {
     expect(mismatchObserve.authorityCandidates).toEqual([]);
   });
 
-  it("allows the valid V6 connector path and blocks callback mismatch after prepare", async () => {
+  it("allows the valid canonical V5 connector path and blocks callback mismatch after prepare", async () => {
     const { baseUrl, broker } = await startTestServer();
-    const session = await fetch(`${baseUrl}/v6/session/start`, {
+    const session = await fetch(`${baseUrl}/v5/session/start`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -314,7 +314,7 @@ describe("safebrowse daemon v6 routes", () => {
       })
     }).then((response) => response.json());
 
-    const observe = await fetch(`${baseUrl}/v6/observe`, {
+    const observe = await fetch(`${baseUrl}/v5/observe`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -335,7 +335,7 @@ describe("safebrowse daemon v6 routes", () => {
 
     const authority = observe.authorityCandidates[0];
     const brokerSignature = await signApproval(session.session, authority, broker);
-    const issued = await fetch(`${baseUrl}/v6/approval/issue`, {
+    const issued = await fetch(`${baseUrl}/v5/approval/issue`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -349,7 +349,7 @@ describe("safebrowse daemon v6 routes", () => {
     expect(issued.verdict.decision).toBe("ALLOW");
     expect(issued.approvalEnvelope.manifestHash).toBe(verifiedRegistry.entries[0].manifestHash);
 
-    const prepared = await fetch(`${baseUrl}/v6/tool/prepare`, {
+    const prepared = await fetch(`${baseUrl}/v5/tool/prepare`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -360,7 +360,7 @@ describe("safebrowse daemon v6 routes", () => {
 
     expect(prepared.verdict.decision).toBe("ALLOW");
 
-    const callbackMismatch = await fetch(`${baseUrl}/v6/tool/callback/verify`, {
+    const callbackMismatch = await fetch(`${baseUrl}/v5/tool/callback/verify`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -386,7 +386,7 @@ describe("safebrowse daemon v6 routes", () => {
 
   it("requires corroboration for web observations and rolls back to the prior trusted baseline", async () => {
     const { baseUrl, broker } = await startTestServer();
-    const session = await fetch(`${baseUrl}/v6/session/start`, {
+    const session = await fetch(`${baseUrl}/v5/session/start`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -398,7 +398,7 @@ describe("safebrowse daemon v6 routes", () => {
       })
     }).then((response) => response.json());
 
-    const baselineStage = await fetch(`${baseUrl}/v6/memory/stage`, {
+    const baselineStage = await fetch(`${baseUrl}/v5/memory/stage`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -411,7 +411,7 @@ describe("safebrowse daemon v6 routes", () => {
     }).then((response) => response.json());
 
     const baselineSignature = await signApproval(session.session, baselineStage.promotionTicket, broker);
-    const baselineApproval = await fetch(`${baseUrl}/v6/approval/issue`, {
+    const baselineApproval = await fetch(`${baseUrl}/v5/approval/issue`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -422,7 +422,7 @@ describe("safebrowse daemon v6 routes", () => {
       })
     }).then((response) => response.json());
 
-    const baselinePromote = await fetch(`${baseUrl}/v6/memory/promote`, {
+    const baselinePromote = await fetch(`${baseUrl}/v5/memory/promote`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -436,7 +436,7 @@ describe("safebrowse daemon v6 routes", () => {
 
     expect(baselinePromote.verdict.decision).toBe("ALLOW");
 
-    const webStage = await fetch(`${baseUrl}/v6/memory/stage`, {
+    const webStage = await fetch(`${baseUrl}/v5/memory/stage`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -450,7 +450,7 @@ describe("safebrowse daemon v6 routes", () => {
     }).then((response) => response.json());
 
     const webSignature = await signApproval(session.session, webStage.promotionTicket, broker);
-    const webApproval = await fetch(`${baseUrl}/v6/approval/issue`, {
+    const webApproval = await fetch(`${baseUrl}/v5/approval/issue`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -461,7 +461,7 @@ describe("safebrowse daemon v6 routes", () => {
       })
     }).then((response) => response.json());
 
-    const blockedPromote = await fetch(`${baseUrl}/v6/memory/promote`, {
+    const blockedPromote = await fetch(`${baseUrl}/v5/memory/promote`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -476,7 +476,7 @@ describe("safebrowse daemon v6 routes", () => {
     expect(blockedPromote.verdict.decision).toBe("BLOCK");
     expect(blockedPromote.verdict.reasonCodes).toContain("CORROBORATION_REQUIRED");
 
-    const corroboratedStage = await fetch(`${baseUrl}/v6/memory/stage`, {
+    const corroboratedStage = await fetch(`${baseUrl}/v5/memory/stage`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -495,7 +495,7 @@ describe("safebrowse daemon v6 routes", () => {
       corroboratedStage.promotionTicket,
       broker
     );
-    const corroboratedApproval = await fetch(`${baseUrl}/v6/approval/issue`, {
+    const corroboratedApproval = await fetch(`${baseUrl}/v5/approval/issue`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -506,7 +506,7 @@ describe("safebrowse daemon v6 routes", () => {
       })
     }).then((response) => response.json());
 
-    const promoted = await fetch(`${baseUrl}/v6/memory/promote`, {
+    const promoted = await fetch(`${baseUrl}/v5/memory/promote`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -520,7 +520,7 @@ describe("safebrowse daemon v6 routes", () => {
 
     expect(promoted.verdict.decision).toBe("ALLOW");
 
-    const rollback = await fetch(`${baseUrl}/v6/memory/rollback`, {
+    const rollback = await fetch(`${baseUrl}/v5/memory/rollback`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -532,5 +532,182 @@ describe("safebrowse daemon v6 routes", () => {
 
     expect(rollback.verdict.decision).toBe("ALLOW");
     expect(rollback.restoredRecord.value).toEqual({ note: "baseline" });
+  });
+
+  it("keeps /v6 compatibility aliases available and canonicalizes replay routes", async () => {
+    const { baseUrl, broker } = await startTestServer();
+    const session = await fetch(`${baseUrl}/v6/session/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        taskId: "task-v6-alias",
+        userGoal: "Review docs safely",
+        allowedOrigins: ["https://safe.example", "https://docs.python.org"],
+        allowedVerbs: ["navigate", "connector_prepare", "memory_promote"],
+        forbiddenSinks: []
+      })
+    }).then((response) => response.json());
+
+    const observe = await fetch(`${baseUrl}/v6/observe`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        capture: {
+          surfaceType: "html",
+          url: "https://safe.example/page",
+          html: `<html><body><a href="https://docs.python.org/3/tutorial/">Docs</a></body></html>`
+        }
+      })
+    }).then((response) => response.json());
+
+    expect(observe.authorityCandidates).toHaveLength(1);
+
+    const action = await fetch(`${baseUrl}/v6/action/evaluate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        authorityId: observe.authorityCandidates[0].authorityId,
+        authorityDigest: observe.authorityCandidates[0].authorityDigest,
+        parameters: {}
+      })
+    }).then((response) => response.json());
+
+    expect(action.effectDecision.decision).toBe("ALLOW");
+
+    const toolObserve = await fetch(`${baseUrl}/v6/observe`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        capture: {
+          surfaceType: "tool_manifest",
+          url: "https://safe.example/connectors/citation-sync-safe",
+          toolId: manifest.toolId,
+          description: manifest.description,
+          schemaDescriptions: manifest.schemaDescriptions,
+          authType: "oauth",
+          requestedScopes: ["citation:read"],
+          callbackUri: manifest.callbackUri,
+          callbackOrigin: "https://safe.example"
+        }
+      })
+    }).then((response) => response.json());
+
+    const authority = toolObserve.authorityCandidates[0];
+    const brokerSignature = await signApproval(session.session, authority, broker);
+    const issued = await fetch(`${baseUrl}/v6/approval/issue`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        capabilityId: authority.authorityId,
+        capabilityDigest: authority.authorityDigest,
+        brokerSignature
+      })
+    }).then((response) => response.json());
+
+    const prepared = await fetch(`${baseUrl}/v6/tool/prepare`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        approvalId: issued.approvalEnvelope.approvalId
+      })
+    }).then((response) => response.json());
+
+    const callback = await fetch(`${baseUrl}/v6/tool/callback/verify`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        approvalId: issued.approvalEnvelope.approvalId,
+        onboardingSessionId: prepared.onboardingSession.onboardingSessionId,
+        request: {
+          sessionId: prepared.onboardingSession.onboardingSessionId,
+          callbackUri: "https://safe.example/oauth/callback",
+          callbackOrigin: "https://safe.example",
+          state: prepared.onboardingSession.state,
+          payload: {
+            code: "auth-code",
+            state: prepared.onboardingSession.state
+          }
+        }
+      })
+    }).then((response) => response.json());
+
+    expect(callback.verdict.decision).toBe("ALLOW");
+
+    const stage = await fetch(`${baseUrl}/v6/memory/stage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        key: "workflow_hint",
+        value: { note: "alias" },
+        sourceClass: "user_note",
+        durable: true
+      })
+    }).then((response) => response.json());
+
+    const memorySignature = await signApproval(session.session, stage.promotionTicket, broker);
+    const memoryApproval = await fetch(`${baseUrl}/v6/approval/issue`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        capabilityId: stage.promotionTicket.ticketId,
+        capabilityDigest: stage.promotionTicket.ticketDigest,
+        brokerSignature: memorySignature
+      })
+    }).then((response) => response.json());
+
+    const promoted = await fetch(`${baseUrl}/v6/memory/promote`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        recordId: stage.record.recordId,
+        ticketId: stage.promotionTicket.ticketId,
+        ticketDigest: stage.promotionTicket.ticketDigest,
+        approvalId: memoryApproval.approvalEnvelope.approvalId
+      })
+    }).then((response) => response.json());
+
+    const rollback = await fetch(`${baseUrl}/v6/memory/rollback`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId,
+        recordId: promoted.promotedRecord.recordId,
+        snapshotId: promoted.promotedRecord.snapshotId
+      })
+    }).then((response) => response.json());
+
+    expect(rollback.verdict.decision).toBe("ALLOW");
+
+    const replay = await fetch(`${baseUrl}/v6/replay/bundle`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: session.session.sessionId
+      })
+    }).then((response) => response.json());
+
+    const replayRoutes = replay.events
+      .map((event: { payload?: { route?: string } }) => event.payload?.route)
+      .filter(Boolean);
+
+    expect(replayRoutes).toContain("/v5/session/start");
+    expect(replayRoutes).toContain("/v5/observe");
+    expect(replayRoutes).toContain("/v5/action/evaluate");
+    expect(replayRoutes).toContain("/v5/approval/issue");
+    expect(replayRoutes).toContain("/v5/tool/prepare");
+    expect(replayRoutes).toContain("/v5/tool/callback/verify");
+    expect(replayRoutes).toContain("/v5/memory/stage");
+    expect(replayRoutes).toContain("/v5/memory/promote");
+    expect(replayRoutes).toContain("/v5/memory/rollback");
+    expect(replayRoutes.some((route: string) => route.startsWith("/v6/"))).toBe(false);
   });
 });

@@ -448,7 +448,7 @@ describe("safebrowse daemon v5 routes", () => {
     }).then((response) => response.json());
 
     expect(firstPromoteBlocked.verdict.decision).toBe("BLOCK");
-    expect(firstPromoteBlocked.verdict.reasonCodes).toContain("MEMORY_PROMOTION_CAPABILITY_REQUIRED");
+    expect(firstPromoteBlocked.verdict.reasonCodes).toContain("MEMORY_PROMOTION_TICKET_REQUIRED");
 
     const firstSignature = await signApproval(session.session, firstWrite.promotionCapability, broker);
     const firstApproval = await fetch(`${baseUrl}/v5/approval/issue`, {

@@ -2,7 +2,7 @@
 
 SafeBrowse is app-side security middleware for browser-use agents. It sits on the action path between an agent and risky external surfaces, then returns structured decisions, capability-bound execution plans, replay data, and guarded connector flows without owning the planner itself.
 
-The repository now carries two secure tracks. `secure_v5` is the frozen bounded claim surface on `/v5/*`. `secure_v6` is the clean-slate vf-aligned surface on `/v6/*` with stricter tool attestation, artifact-first handoff, staged memory promotion, and first-class replay attribution.
+The repository now ships one canonical secure surface. `secure_v5` owns the claim-bearing `/v5/*` API, including the staged-memory, artifact-reference, connector-binding, and replay capabilities that previously lived behind a separate redesign lane. `/v6/*` remains accepted only as a deprecated compatibility alias that is rewritten onto `/v5/*`.
 
 ## What Ships Here
 
@@ -27,7 +27,7 @@ The repository now carries two secure tracks. `secure_v5` is the frozen bounded 
 
 ## Current Secure Profiles
 
-`secure_v5` remains the externally reviewable bounded claim lane:
+`secure_v5` is the only first-class secure deployment profile:
 
 - Server-owned observation compilation
 - Parser isolation for supported capture formats
@@ -38,6 +38,12 @@ The repository now carries two secure tracks. `secure_v5` is the frozen bounded 
 - Tiered memory authority separation
 - System-wide secret isolation and noninterference checks
 - Wrapper parity across direct, Python, and npm-installed execution paths in `secure_v5`
+- Planner-safe observations by default
+- Explicit authority candidates alongside historical capability descriptors
+- Registry-hash-bound connector preparation and callback verification
+- Artifact references with mismatch metadata and quarantine semantics
+- Staged memory with source-class rules, corroboration, and rollback to the prior trusted baseline
+- Replay bundles with actor attribution
 
 Supported V5 claim surfaces:
 
@@ -48,14 +54,7 @@ Supported V5 claim surfaces:
 
 Other supported content surfaces may still be observed and summarized, but they do not directly mint effectful capabilities in the V5 claim-bearing profile. Unsupported or partially parsed surfaces fail closed and are outside the prevention claim.
 
-`secure_v6` is the vf-aligned redesign lane:
-
-- Planner-safe observations by default
-- Explicit authority candidates instead of implicit action carryover
-- Registry-hash-bound connector preparation and callback verification
-- Artifact references with mismatch metadata and quarantine semantics
-- Staged memory with source-class rules, corroboration, and rollback to the prior trusted baseline
-- Replay bundles with actor attribution
+`secure_v6` is no longer a separate product surface in this repository. If older callers still send `/v6/*` routes or `secure_v6`, the daemon rewrites them onto `secure_v5` for compatibility.
 
 ## Latest Internal Assessment
 
@@ -97,16 +96,8 @@ That parity gate runs through [scripts/ci/run-wrapper-parity-v5.mjs](scripts/ci/
 
 ### Daemon
 
-Frozen V5 lane:
-
 ```bash
 npx @safebrowse/daemon --host 127.0.0.1 --port 8787 --deployment-profile secure_v5 --approval-broker-public-key-path ./knowledge_base/signing/safebrowse_vf_ed25519_public.pem
-```
-
-Vf-aligned V6 lane:
-
-```bash
-npx @safebrowse/daemon --host 127.0.0.1 --port 8787 --deployment-profile secure_v6 --approval-broker-public-key-path ./knowledge_base/signing/safebrowse_vf_ed25519_public.pem
 ```
 
 ### Python client
@@ -210,8 +201,8 @@ The main runtime entrypoints exported from [packages/core/src/index.ts](packages
 | `evaluateMemoryWriteV5` | Place memory into trusted, candidate, or tainted tiers without caller authority metadata |
 | `promoteMemoryRecordV5` | Promote candidate memory into trusted durable state with validation or approval |
 | `rollbackMemoryRecordV5` | Restore a trusted snapshot after contradiction or operator action |
-| `stageMemoryRecordV6` | Stage V6 memory with source-class, corroboration, and lineage metadata |
-| `promoteMemoryRecordV6` | Promote staged V6 memory with approval-bound ticket consumption |
+| `stageMemoryRecordV5` | Stage V5 memory with source-class, corroboration, and lineage metadata |
+| `promoteStagedMemoryRecordV5` | Promote staged V5 memory with approval-bound ticket consumption |
 | `assertNoSecretsInJson` | Enforce secret noninterference for JSON payloads |
 | `buildReplayBundle` | Build replayable forensic bundles from runtime events |
 
@@ -223,30 +214,24 @@ The localhost daemon in [packages/daemon/src/server.ts](packages/daemon/src/serv
 
 | Route | Purpose |
 | --- | --- |
-| `POST /v5/session/start` | Start a server-owned secure V5 task session |
-| `POST /v5/observe` | Compile a supported surface into a planner-safe observation and V5 capabilities |
-| `POST /v5/capability/use` | Evaluate a single capability use |
-| `POST /v5/approval/issue` | Issue a broker-signed approval envelope for an exact connector flow |
+| `POST /v5/session/start` | Start a server-owned secure session under `secure_v5` |
+| `POST /v5/observe` | Compile a supported surface into a planner-safe observation; returns capabilities plus canonical V5 authority candidates |
+| `POST /v5/capability/use` | Evaluate a single historical V5 capability use |
+| `POST /v5/action/evaluate` | Evaluate observation, authority, and effect decisions on the canonical action path |
+| `POST /v5/approval/issue` | Issue a broker-signed approval envelope for an exact connector or promotion flow |
 | `POST /v5/tool/prepare` | Prepare a brokered connector or OAuth flow |
 | `POST /v5/tool/callback/verify` | Verify callback origin, state, registry binding, and allowlisted fields |
-| `POST /v5/artifact/ingest` | Ingest an artifact under the V5 fail-closed path |
-| `POST /v5/memory/write` | Write candidate or tainted memory records |
+| `POST /v5/artifact/ingest` | Ingest an artifact and return the active profile’s fail-closed or artifact-reference response |
+| `POST /v5/memory/write` | Historical V5 memory-write path for user notes |
+| `POST /v5/memory/stage` | Canonical staged memory path with source-class and corroboration semantics |
 | `POST /v5/memory/promote` | Promote memory into trusted durable state |
 | `POST /v5/memory/rollback` | Restore a trusted snapshot |
-| `POST /v6/session/start` | Start a server-owned secure V6 task session |
-| `POST /v6/observe` | Compile planner-safe observation output and explicit V6 authority candidates |
-| `POST /v6/action/evaluate` | Return separate observation, authority, and effect decisions plus execution plan |
-| `POST /v6/approval/issue` | Issue approval for V6 connector or memory promotion envelopes |
-| `POST /v6/tool/prepare` | Prepare a registry-hash-bound V6 connector flow |
-| `POST /v6/tool/callback/verify` | Verify exact callback binding and carried registry hashes |
-| `POST /v6/artifact/ingest` | Return planner-safe artifact projection plus artifact reference and mismatch signals |
-| `POST /v6/memory/stage` | Stage V6 memory and mint a promotion ticket when durable promotion is eligible |
-| `POST /v6/memory/promote` | Promote V6 memory with ticket and approval consumption |
-| `POST /v6/memory/rollback` | Restore the exact prior trusted baseline for a staged key |
-| `POST /v6/replay/bundle` | Build a replay bundle from actor-attributed V6 runtime events |
+| `POST /v5/replay/bundle` | Build a replay bundle from actor-attributed runtime events |
 | `GET /health` | Report runtime profile, secure deployment posture, registry metadata, and parser isolation probe |
 
-Compatibility routes remain available on `/v1/*`, `/v2/*`, and `/v4/*` in development mode. Under `secure_v5` and `secure_v6`, they are disabled and explicitly outside the prevention claim.
+The deprecated `/v6/*` family remains available only as a compatibility alias for the canonical `/v5/*` routes.
+
+Compatibility routes remain available on `/v1/*`, `/v2/*`, and `/v4/*` in development mode. Under `secure_v5`, they are disabled and explicitly outside the prevention claim.
 
 ## User Manual
 
@@ -275,7 +260,7 @@ corepack pnpm test
 node packages/daemon/dist/index.js --host 127.0.0.1 --port 8787 --deployment-profile secure_v5 --approval-broker-public-key-path knowledge_base/signing/safebrowse_vf_ed25519_public.pem
 ```
 
-`secure_v5` and `secure_v6` now force `approvalBrokerMode=external_service` and `parserIsolationMode=node_permission_process` internally. Passing those flags explicitly is allowed but redundant.
+`secure_v5` now forces `approvalBrokerMode=external_service` and `parserIsolationMode=node_permission_process` internally. Passing those flags explicitly is allowed but redundant. `secure_v6` is accepted only as a deprecated alias for `secure_v5`.
 
 ### 5. Run the auditor-backed threat lab
 
@@ -347,7 +332,7 @@ The practical rule is simple:
 The secure profiles are materially stronger than the legacy routes, but there are still important limits:
 
 - The prevention claim applies only to supported `/v5/*` routes under `secure_v5` and supported authority surfaces.
-- `secure_v6` is implemented in this repository, but it does not yet have a refreshed external audit opinion.
+- Older `secure_v6` and `/v6/*` callers are accepted only as deprecated compatibility aliases and should be migrated to `secure_v5` and `/v5/*`.
 - Legacy `/v1/*`, `/v2/*`, and `/v4/*` paths remain for migration and are explicitly outside the prevention claim.
 - Parser isolation is process-level hardening with denied egress and scrubbed ambient state, not yet a full OS or container sandbox.
 - Repo-generated internal assessments are not a substitute for external audit.

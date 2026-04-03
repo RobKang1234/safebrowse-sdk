@@ -36,7 +36,7 @@ class SafeBrowseClient:
         return self._post("/v5/session/start", payload)
 
     def start_session_v6(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._post("/v6/session/start", payload)
+        return self._post("/v5/session/start", payload)
 
     def observe(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v1/observe", payload)
@@ -48,7 +48,7 @@ class SafeBrowseClient:
         return self._post("/v5/observe", payload)
 
     def observe_v6(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._post("/v6/observe", payload)
+        return self._post("/v5/observe", payload)
 
     def action(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v1/action", payload)
@@ -59,8 +59,11 @@ class SafeBrowseClient:
     def action_v5(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v5/capability/use", payload)
 
+    def action_evaluate_v5(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post("/v5/action/evaluate", payload)
+
     def action_v6(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._post("/v6/action/evaluate", payload)
+        return self._post("/v5/action/evaluate", payload)
 
     def artifact(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v1/artifact", payload)
@@ -72,7 +75,7 @@ class SafeBrowseClient:
         return self._post("/v5/artifact/ingest", payload)
 
     def artifact_ingest_v6(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._post("/v6/artifact/ingest", payload)
+        return self._post("/v5/artifact/ingest", payload)
 
     def tool(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v1/tool", payload)
@@ -87,7 +90,7 @@ class SafeBrowseClient:
         return self._post("/v5/tool/prepare", payload)
 
     def tool_prepare_v6(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._post("/v6/tool/prepare", payload)
+        return self._post("/v5/tool/prepare", payload)
 
     def tool_callback_verify(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v2/tool/callback/verify", payload)
@@ -99,7 +102,7 @@ class SafeBrowseClient:
         return self._post("/v5/tool/callback/verify", payload)
 
     def tool_callback_verify_v6(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._post("/v6/tool/callback/verify", payload)
+        return self._post("/v5/tool/callback/verify", payload)
 
     def issue_approval_grant(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v4/approval/grant", payload)
@@ -111,7 +114,7 @@ class SafeBrowseClient:
         return self.approval_issue_v5(payload)
 
     def approval_issue_v6(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._post("/v6/approval/issue", payload)
+        return self._post("/v5/approval/issue", payload)
 
     def memory(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v1/memory", payload)
@@ -122,8 +125,11 @@ class SafeBrowseClient:
     def memory_write_v5(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v5/memory/write", payload)
 
+    def memory_stage_v5(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post("/v5/memory/stage", payload)
+
     def memory_stage_v6(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._post("/v6/memory/stage", payload)
+        return self._post("/v5/memory/stage", payload)
 
     def memory_promote_v4(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v4/memory/promote", payload)
@@ -132,7 +138,7 @@ class SafeBrowseClient:
         return self._post("/v5/memory/promote", payload)
 
     def memory_promote_v6(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._post("/v6/memory/promote", payload)
+        return self._post("/v5/memory/promote", payload)
 
     def memory_rollback_v4(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v4/memory/rollback", payload)
@@ -141,7 +147,7 @@ class SafeBrowseClient:
         return self._post("/v5/memory/rollback", payload)
 
     def memory_rollback_v6(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._post("/v6/memory/rollback", payload)
+        return self._post("/v5/memory/rollback", payload)
 
     def artifact_v2(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/v2/artifact", payload)
@@ -149,6 +155,9 @@ class SafeBrowseClient:
     def replay(self, events: list[dict[str, Any]]) -> dict[str, Any]:
         return self._post("/v1/replay", {"events": events})
 
+    def replay_bundle_v5(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post("/v5/replay/bundle", payload)
+
     def replay_bundle_v6(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._post("/v6/replay/bundle", payload)
+        return self._post("/v5/replay/bundle", payload)
 

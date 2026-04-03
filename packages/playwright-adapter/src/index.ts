@@ -26,10 +26,12 @@ export interface PlaywrightPageSnapshot {
   userShared?: boolean;
 }
 
-export interface V6AuthorityCandidateRef {
+export interface V5AuthorityCandidateRef {
   authorityId: string;
   authorityDigest: string;
 }
+
+export type V6AuthorityCandidateRef = V5AuthorityCandidateRef;
 
 export function createObservationFromSnapshot(
   snapshot: PlaywrightPageSnapshot
@@ -97,20 +99,28 @@ export function createSurfaceCaptureFromSnapshot(
   };
 }
 
-export function buildObservePayloadV6(sessionId: string, snapshot: PlaywrightPageSnapshot) {
+export function buildObservePayloadV5(sessionId: string, snapshot: PlaywrightPageSnapshot) {
   return {
     sessionId,
     capture: createSurfaceCaptureFromSnapshot(snapshot)
   };
 }
 
-export function buildArtifactIngestPayloadV6(sessionId: string, snapshot: PlaywrightPageSnapshot) {
-  return buildObservePayloadV6(sessionId, snapshot);
+export function buildObservePayloadV6(sessionId: string, snapshot: PlaywrightPageSnapshot) {
+  return buildObservePayloadV5(sessionId, snapshot);
 }
 
-export function buildActionEvaluatePayloadV6(
+export function buildArtifactIngestPayloadV5(sessionId: string, snapshot: PlaywrightPageSnapshot) {
+  return buildObservePayloadV5(sessionId, snapshot);
+}
+
+export function buildArtifactIngestPayloadV6(sessionId: string, snapshot: PlaywrightPageSnapshot) {
+  return buildArtifactIngestPayloadV5(sessionId, snapshot);
+}
+
+export function buildActionEvaluatePayloadV5(
   sessionId: string,
-  authority: V6AuthorityCandidateRef,
+  authority: V5AuthorityCandidateRef,
   parameters?: Record<string, unknown>
 ) {
   return {
@@ -119,6 +129,14 @@ export function buildActionEvaluatePayloadV6(
     authorityDigest: authority.authorityDigest,
     parameters
   };
+}
+
+export function buildActionEvaluatePayloadV6(
+  sessionId: string,
+  authority: V6AuthorityCandidateRef,
+  parameters?: Record<string, unknown>
+) {
+  return buildActionEvaluatePayloadV5(sessionId, authority, parameters);
 }
 
 export function proposeNavigationAction(input: {

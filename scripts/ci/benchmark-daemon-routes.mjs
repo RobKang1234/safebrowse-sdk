@@ -283,7 +283,7 @@ async function startServer(profile, verifiedRegistry, brokerPublicKeyPem) {
 }
 
 async function startSession(baseUrl, version, allowedVerbs) {
-  const route = version === "v6" ? "/v6/session/start" : "/v5/session/start";
+  const route = "/v5/session/start";
   const result = await postJson(`${baseUrl}${route}`, {
     taskId: `perf-${version}-${allowedVerbs.join("-")}`,
     userGoal: "Benchmark safe flows",
@@ -410,7 +410,7 @@ async function main() {
       })
     );
     results.routes.observeHtmlV6 = await benchmark("observe_html_v6", 20, async () =>
-      postJson(`${v6Server.baseUrl}/v6/observe`, {
+      postJson(`${v6Server.baseUrl}/v5/observe`, {
         sessionId: v6NavigateSession.sessionId,
         capture: htmlCapture
       })
@@ -423,7 +423,7 @@ async function main() {
       })
     );
     results.routes.observeToolV6 = await benchmark("observe_tool_v6", 20, async () =>
-      postJson(`${v6Server.baseUrl}/v6/observe`, {
+      postJson(`${v6Server.baseUrl}/v5/observe`, {
         sessionId: v6ToolSession.sessionId,
         capture: toolCapture
       })
@@ -444,13 +444,13 @@ async function main() {
       });
     });
     results.routes.actionV6 = await benchmark("action_v6", 20, async () => {
-      const observe = await postJson(`${v6Server.baseUrl}/v6/observe`, {
+      const observe = await postJson(`${v6Server.baseUrl}/v5/observe`, {
         sessionId: v6NavigateSession.sessionId,
         capture: htmlCapture
       });
       const capability = getCapability("v6", observe.json);
       const ids = getCapabilityIds("v6", capability);
-      return postJson(`${v6Server.baseUrl}/v6/action/evaluate`, {
+      return postJson(`${v6Server.baseUrl}/v5/action/evaluate`, {
         sessionId: v6NavigateSession.sessionId,
         authorityId: ids.id,
         authorityDigest: ids.digest,
@@ -465,7 +465,7 @@ async function main() {
       })
     );
     results.routes.artifactV6 = await benchmark("artifact_v6", 20, async () =>
-      postJson(`${v6Server.baseUrl}/v6/artifact/ingest`, {
+      postJson(`${v6Server.baseUrl}/v5/artifact/ingest`, {
         sessionId: v6NavigateSession.sessionId,
         capture: htmlCapture
       })
@@ -491,7 +491,7 @@ async function main() {
       });
     });
     results.routes.approvalIssueV6 = await benchmark("approval_issue_v6", 15, async () => {
-      const observe = await postJson(`${v6Server.baseUrl}/v6/observe`, {
+      const observe = await postJson(`${v6Server.baseUrl}/v5/observe`, {
         sessionId: v6ToolSession.sessionId,
         capture: toolCapture
       });
@@ -502,7 +502,7 @@ async function main() {
         brokerAuthToken,
         buildApprovalIntent(v6ToolSession, ids.id, ids.digest)
       );
-      return postJson(`${v6Server.baseUrl}/v6/approval/issue`, {
+      return postJson(`${v6Server.baseUrl}/v5/approval/issue`, {
         sessionId: v6ToolSession.sessionId,
         capabilityId: ids.id,
         capabilityDigest: ids.digest,
@@ -534,7 +534,7 @@ async function main() {
       });
     });
     results.routes.toolPrepareV6 = await benchmark("tool_prepare_v6", 15, async () => {
-      const observe = await postJson(`${v6Server.baseUrl}/v6/observe`, {
+      const observe = await postJson(`${v6Server.baseUrl}/v5/observe`, {
         sessionId: v6ToolSession.sessionId,
         capture: toolCapture
       });
@@ -545,13 +545,13 @@ async function main() {
         brokerAuthToken,
         buildApprovalIntent(v6ToolSession, ids.id, ids.digest)
       );
-      const approval = await postJson(`${v6Server.baseUrl}/v6/approval/issue`, {
+      const approval = await postJson(`${v6Server.baseUrl}/v5/approval/issue`, {
         sessionId: v6ToolSession.sessionId,
         capabilityId: ids.id,
         capabilityDigest: ids.digest,
         brokerSignature: signature.brokerSignature
       });
-      return postJson(`${v6Server.baseUrl}/v6/tool/prepare`, {
+      return postJson(`${v6Server.baseUrl}/v5/tool/prepare`, {
         sessionId: v6ToolSession.sessionId,
         approvalId: approval.json.approvalEnvelope.approvalId
       });
@@ -596,7 +596,7 @@ async function main() {
       });
     });
     results.routes.toolCallbackV6 = await benchmark("tool_callback_v6", 15, async () => {
-      const observe = await postJson(`${v6Server.baseUrl}/v6/observe`, {
+      const observe = await postJson(`${v6Server.baseUrl}/v5/observe`, {
         sessionId: v6ToolSession.sessionId,
         capture: toolCapture
       });
@@ -607,17 +607,17 @@ async function main() {
         brokerAuthToken,
         buildApprovalIntent(v6ToolSession, ids.id, ids.digest)
       );
-      const approval = await postJson(`${v6Server.baseUrl}/v6/approval/issue`, {
+      const approval = await postJson(`${v6Server.baseUrl}/v5/approval/issue`, {
         sessionId: v6ToolSession.sessionId,
         capabilityId: ids.id,
         capabilityDigest: ids.digest,
         brokerSignature: signature.brokerSignature
       });
-      const prepare = await postJson(`${v6Server.baseUrl}/v6/tool/prepare`, {
+      const prepare = await postJson(`${v6Server.baseUrl}/v5/tool/prepare`, {
         sessionId: v6ToolSession.sessionId,
         approvalId: approval.json.approvalEnvelope.approvalId
       });
-      return postJson(`${v6Server.baseUrl}/v6/tool/callback/verify`, {
+      return postJson(`${v6Server.baseUrl}/v5/tool/callback/verify`, {
         sessionId: v6ToolSession.sessionId,
         approvalId: approval.json.approvalEnvelope.approvalId,
         onboardingSessionId: prepare.json.onboardingSession.onboardingSessionId,
@@ -646,7 +646,7 @@ async function main() {
       })
     );
     results.routes.memoryStageV6 = await benchmark("memory_stage_v6", 20, async () =>
-      postJson(`${v6Server.baseUrl}/v6/memory/stage`, {
+      postJson(`${v6Server.baseUrl}/v5/memory/stage`, {
         sessionId: v6MemorySession.sessionId,
         key: "workflow_hint",
         value: {
@@ -692,7 +692,7 @@ async function main() {
       });
     });
     results.routes.memoryPromoteV6 = await benchmark("memory_promote_v6", 20, async () => {
-      const stage = await postJson(`${v6Server.baseUrl}/v6/memory/stage`, {
+      const stage = await postJson(`${v6Server.baseUrl}/v5/memory/stage`, {
         sessionId: v6MemorySession.sessionId,
         key: "workflow_hint",
         value: {
@@ -707,13 +707,13 @@ async function main() {
         brokerAuthToken,
         buildApprovalIntent(v6MemorySession, ticket.ticketId, ticket.ticketDigest)
       );
-      const approval = await postJson(`${v6Server.baseUrl}/v6/approval/issue`, {
+      const approval = await postJson(`${v6Server.baseUrl}/v5/approval/issue`, {
         sessionId: v6MemorySession.sessionId,
         capabilityId: ticket.ticketId,
         capabilityDigest: ticket.ticketDigest,
         brokerSignature: signature.brokerSignature
       });
-      return postJson(`${v6Server.baseUrl}/v6/memory/promote`, {
+      return postJson(`${v6Server.baseUrl}/v5/memory/promote`, {
         sessionId: v6MemorySession.sessionId,
         recordId: stage.json.record.recordId,
         ticketId: ticket.ticketId,
@@ -723,7 +723,7 @@ async function main() {
     });
 
     for (let index = 0; index < 25; index += 1) {
-      await postJson(`${v6Server.baseUrl}/v6/observe`, {
+      await postJson(`${v6Server.baseUrl}/v5/observe`, {
         sessionId: v6NavigateSession.sessionId,
         capture: {
           ...htmlCapture,
@@ -732,7 +732,7 @@ async function main() {
       });
     }
     results.routes.replayBundleV6 = await benchmark("replay_bundle_v6", 10, async () =>
-      postJson(`${v6Server.baseUrl}/v6/replay/bundle`, {
+      postJson(`${v6Server.baseUrl}/v5/replay/bundle`, {
         sessionId: v6NavigateSession.sessionId
       }), 1
     );

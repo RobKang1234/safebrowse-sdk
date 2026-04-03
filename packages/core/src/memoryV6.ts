@@ -3,10 +3,10 @@ import { randomUUID } from "node:crypto";
 import type {
   ApprovalEnvelopeV5,
   CapabilityDescriptorV5,
-  MemoryPromotionRequestV6,
+  MemoryStageSourceClassV5,
   MemoryRecord,
-  MemorySourceClassV6,
-  MemoryStageRequestV6,
+  MemoryStageRequestV5,
+  StagedMemoryPromotionRequestV5,
   SafeVerdict,
   TaskSession
 } from "./types.js";
@@ -14,7 +14,7 @@ import { redactJsonValue } from "./secretIsolation.js";
 import { clamp, sha256Hex, stableStringify, uniq } from "./utils.js";
 
 function resolveMemorySource(
-  sourceClass: MemorySourceClassV6
+  sourceClass: MemoryStageSourceClassV5
 ): Pick<MemoryRecord, "source" | "sourceClass"> {
   switch (sourceClass) {
     case "user_note":
@@ -30,12 +30,12 @@ function resolveMemorySource(
   }
 }
 
-function corroborationRequired(sourceClass: MemorySourceClassV6): boolean {
+function corroborationRequired(sourceClass: MemoryStageSourceClassV5): boolean {
   return ["web_observation", "model_summary", "retrieval_fact"].includes(sourceClass);
 }
 
-export function stageMemoryRecordV6(
-  request: MemoryStageRequestV6,
+export function stageMemoryRecordV5(
+  request: MemoryStageRequestV5,
   session: TaskSession | undefined
 ): {
   verdict: SafeVerdict;
@@ -90,26 +90,28 @@ export function stageMemoryRecordV6(
       reasonCodes: uniq(reasonCodes),
       riskScore: clamp(riskScore),
       safeConstraints: {
-        claim_profile: "secure_v6",
+        claim_profile: "secure_v5",
         staged_only: true,
         requires_corroboration: corroborationRequired(request.sourceClass),
         source_class: request.sourceClass,
         summary_only: true
       },
-      telemetryTags: uniq(["memory_v6_stage", request.sourceClass, decision.toLowerCase()])
+      telemetryTags: uniq(["memory_v5_stage", request.sourceClass, decision.toLowerCase()])
     },
     record
   };
 }
 
-export function promoteMemoryRecordV6(
-  request: MemoryPromotionRequestV6,
+export const stageMemoryRecordV6 = stageMemoryRecordV5;
+
+export function promoteStagedMemoryRecordV5(
+  request: StagedMemoryPromotionRequestV5,
   session: TaskSession | undefined,
   record: MemoryRecord | undefined,
   capability: CapabilityDescriptorV5 | undefined,
   approvalEnvelope: ApprovalEnvelopeV5 | undefined,
   options: {
-    sourceClass: MemorySourceClassV6 | undefined;
+    sourceClass: MemoryStageSourceClassV5 | undefined;
     priorTrustedRecord?: MemoryRecord;
   }
 ): {
@@ -220,10 +222,10 @@ export function promoteMemoryRecordV6(
         reasonCodes: uniq(reasonCodes),
         riskScore: clamp(riskScore),
         safeConstraints: {
-          claim_profile: "secure_v6",
+          claim_profile: "secure_v5",
           source_class: options.sourceClass ?? "unknown"
         },
-        telemetryTags: uniq(["memory_v6_promote", decision.toLowerCase()])
+        telemetryTags: uniq(["memory_v5_promote", decision.toLowerCase()])
       }
     };
   }
@@ -243,13 +245,15 @@ export function promoteMemoryRecordV6(
       reasonCodes: uniq(reasonCodes),
       riskScore: clamp(riskScore),
       safeConstraints: {
-        claim_profile: "secure_v6",
+        claim_profile: "secure_v5",
         source_class: options.sourceClass ?? "unknown",
         snapshot_required: true,
         rollback_required: true
       },
-      telemetryTags: uniq(["memory_v6_promote", decision.toLowerCase()])
+      telemetryTags: uniq(["memory_v5_promote", decision.toLowerCase()])
     },
     promotedRecord
   };
 }
+
+export const promoteMemoryRecordV6 = promoteStagedMemoryRecordV5;

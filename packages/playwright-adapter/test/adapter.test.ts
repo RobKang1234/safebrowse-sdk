@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildActionEvaluatePayloadV5,
   buildActionEvaluatePayloadV6,
+  buildArtifactIngestPayloadV5,
   buildArtifactIngestPayloadV6,
+  buildObservePayloadV5,
   buildObservePayloadV6,
   createSurfaceCaptureFromSnapshot,
   createObservationFromSnapshot,
@@ -52,16 +55,22 @@ describe("playwright reference adapter", () => {
     expect(action.targetUrl).toBe("https://openreview.net");
   });
 
-  it("builds v6 observe, artifact, and action payload helpers", () => {
+  it("builds canonical v5 helpers and keeps v6 helper aliases aligned", () => {
     const snapshot = {
       url: "https://safe.example/page",
       visibleText: "Visible docs only. Docs",
       html: "<main>Visible docs only.</main><a href=\"https://docs.python.org/3/tutorial/\">Docs</a>"
     };
 
-    const observePayload = buildObservePayloadV6("session-1", snapshot);
-    const artifactPayload = buildArtifactIngestPayloadV6("session-1", snapshot);
-    const actionPayload = buildActionEvaluatePayloadV6("session-1", {
+    const observePayload = buildObservePayloadV5("session-1", snapshot);
+    const observePayloadAlias = buildObservePayloadV6("session-1", snapshot);
+    const artifactPayload = buildArtifactIngestPayloadV5("session-1", snapshot);
+    const artifactPayloadAlias = buildArtifactIngestPayloadV6("session-1", snapshot);
+    const actionPayload = buildActionEvaluatePayloadV5("session-1", {
+      authorityId: "auth-1",
+      authorityDigest: "digest-1"
+    });
+    const actionPayloadAlias = buildActionEvaluatePayloadV6("session-1", {
       authorityId: "auth-1",
       authorityDigest: "digest-1"
     });
@@ -69,12 +78,15 @@ describe("playwright reference adapter", () => {
     expect(observePayload.sessionId).toBe("session-1");
     expect(observePayload.capture.surfaceType).toBe("html");
     expect(artifactPayload).toEqual(observePayload);
+    expect(observePayloadAlias).toEqual(observePayload);
+    expect(artifactPayloadAlias).toEqual(artifactPayload);
     expect(actionPayload).toEqual({
       sessionId: "session-1",
       authorityId: "auth-1",
       authorityDigest: "digest-1",
       parameters: undefined
     });
+    expect(actionPayloadAlias).toEqual(actionPayload);
   });
 
   it("does not bypass non-allow verdicts", async () => {

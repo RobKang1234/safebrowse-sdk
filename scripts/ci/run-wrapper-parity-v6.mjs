@@ -422,7 +422,7 @@ async function runV6Cases(baseUrl, makeObservePayload, makeActionPayload, signAp
   };
 
   {
-    const session = await postJson(baseUrl, "/v6/session/start", {
+    const session = await postJson(baseUrl, "/v5/session/start", {
       taskId: "parity-v6-visible",
       userGoal: "Review docs safely",
       allowedOrigins: ["https://safe.example", "https://docs.python.org"],
@@ -431,7 +431,7 @@ async function runV6Cases(baseUrl, makeObservePayload, makeActionPayload, signAp
     });
     const observe = await postJson(
       baseUrl,
-      "/v6/observe",
+      "/v5/observe",
       makeObservePayload(session.session.sessionId, {
         url: "https://safe.example/review",
         visibleText: "Visible docs only. Docs",
@@ -444,7 +444,7 @@ async function runV6Cases(baseUrl, makeObservePayload, makeActionPayload, signAp
     }
     const action = await postJson(
       baseUrl,
-      "/v6/action/evaluate",
+      "/v5/action/evaluate",
       makeActionPayload(session.session.sessionId, authority.authorityId, authority.authorityDigest)
     );
     results.visible_navigation = {
@@ -454,14 +454,14 @@ async function runV6Cases(baseUrl, makeObservePayload, makeActionPayload, signAp
   }
 
   {
-    const session = await postJson(baseUrl, "/v6/session/start", {
+    const session = await postJson(baseUrl, "/v5/session/start", {
       taskId: "parity-v6-hash",
       userGoal: "Review connector onboarding safely",
       allowedOrigins: ["https://safe.example"],
       allowedVerbs: ["connector_prepare"],
       forbiddenSinks: []
     });
-    const observe = await postJson(baseUrl, "/v6/observe", {
+    const observe = await postJson(baseUrl, "/v5/observe", {
       sessionId: session.session.sessionId,
       capture: {
         ...toolManifestCapture,
@@ -474,14 +474,14 @@ async function runV6Cases(baseUrl, makeObservePayload, makeActionPayload, signAp
   }
 
   {
-    const session = await postJson(baseUrl, "/v6/session/start", {
+    const session = await postJson(baseUrl, "/v5/session/start", {
       taskId: "parity-v6-tool",
       userGoal: "Review connector onboarding safely",
       allowedOrigins: ["https://safe.example"],
       allowedVerbs: ["connector_prepare"],
       forbiddenSinks: []
     });
-    const observe = await postJson(baseUrl, "/v6/observe", {
+const observe = await postJson(baseUrl, "/v5/observe", {
       sessionId: session.session.sessionId,
       capture: toolManifestCapture
     });
@@ -489,17 +489,17 @@ async function runV6Cases(baseUrl, makeObservePayload, makeActionPayload, signAp
     if (!authority) {
       throw new Error(`signed_connector_prepare produced no authority candidate: ${JSON.stringify(observe, null, 2)}`);
     }
-    const approval = await postJson(baseUrl, "/v6/approval/issue", {
+    const approval = await postJson(baseUrl, "/v5/approval/issue", {
       sessionId: session.session.sessionId,
       capabilityId: authority.authorityId,
       capabilityDigest: authority.authorityDigest,
       brokerSignature: await signApproval(session.session, authority)
     });
-    const prepare = await postJson(baseUrl, "/v6/tool/prepare", {
+    const prepare = await postJson(baseUrl, "/v5/tool/prepare", {
       sessionId: session.session.sessionId,
       approvalId: approval.approvalEnvelope.approvalId
     });
-    const callback = await postJson(baseUrl, "/v6/tool/callback/verify", {
+    const callback = await postJson(baseUrl, "/v5/tool/callback/verify", {
       sessionId: session.session.sessionId,
       approvalId: approval.approvalEnvelope.approvalId,
       onboardingSessionId: prepare.onboardingSession.onboardingSessionId,
@@ -523,34 +523,34 @@ async function runV6Cases(baseUrl, makeObservePayload, makeActionPayload, signAp
   }
 
   {
-    const session = await postJson(baseUrl, "/v6/session/start", {
+    const session = await postJson(baseUrl, "/v5/session/start", {
       taskId: "parity-v6-memory",
       userGoal: "Store notes safely",
       allowedOrigins: ["https://safe.example"],
       allowedVerbs: ["memory_promote"],
       forbiddenSinks: []
     });
-    const baselineStage = await postJson(baseUrl, "/v6/memory/stage", {
+    const baselineStage = await postJson(baseUrl, "/v5/memory/stage", {
       sessionId: session.session.sessionId,
       key: "workflow_hint",
       value: { note: "baseline" },
       sourceClass: "user_note",
       durable: true
     });
-    const baselineApproval = await postJson(baseUrl, "/v6/approval/issue", {
+    const baselineApproval = await postJson(baseUrl, "/v5/approval/issue", {
       sessionId: session.session.sessionId,
       capabilityId: baselineStage.promotionTicket.ticketId,
       capabilityDigest: baselineStage.promotionTicket.ticketDigest,
       brokerSignature: await signApproval(session.session, baselineStage.promotionTicket)
     });
-    const baselinePromote = await postJson(baseUrl, "/v6/memory/promote", {
+    const baselinePromote = await postJson(baseUrl, "/v5/memory/promote", {
       sessionId: session.session.sessionId,
       recordId: baselineStage.record.recordId,
       ticketId: baselineStage.promotionTicket.ticketId,
       ticketDigest: baselineStage.promotionTicket.ticketDigest,
       approvalId: baselineApproval.approvalEnvelope.approvalId
     });
-    const blockedStage = await postJson(baseUrl, "/v6/memory/stage", {
+    const blockedStage = await postJson(baseUrl, "/v5/memory/stage", {
       sessionId: session.session.sessionId,
       key: "workflow_hint",
       value: { note: "replacement" },
@@ -558,20 +558,20 @@ async function runV6Cases(baseUrl, makeObservePayload, makeActionPayload, signAp
       durable: true,
       sourceObservationId: "obs-v6-uncorroborated"
     });
-    const blockedApproval = await postJson(baseUrl, "/v6/approval/issue", {
+    const blockedApproval = await postJson(baseUrl, "/v5/approval/issue", {
       sessionId: session.session.sessionId,
       capabilityId: blockedStage.promotionTicket.ticketId,
       capabilityDigest: blockedStage.promotionTicket.ticketDigest,
       brokerSignature: await signApproval(session.session, blockedStage.promotionTicket)
     });
-    const blockedPromote = await postJson(baseUrl, "/v6/memory/promote", {
+    const blockedPromote = await postJson(baseUrl, "/v5/memory/promote", {
       sessionId: session.session.sessionId,
       recordId: blockedStage.record.recordId,
       ticketId: blockedStage.promotionTicket.ticketId,
       ticketDigest: blockedStage.promotionTicket.ticketDigest,
       approvalId: blockedApproval.approvalEnvelope.approvalId
     });
-    const corroboratedStage = await postJson(baseUrl, "/v6/memory/stage", {
+    const corroboratedStage = await postJson(baseUrl, "/v5/memory/stage", {
       sessionId: session.session.sessionId,
       key: "workflow_hint",
       value: { note: "replacement" },
@@ -580,20 +580,20 @@ async function runV6Cases(baseUrl, makeObservePayload, makeActionPayload, signAp
       sourceObservationId: "obs-v6-corroborated",
       corroboration: [{ source: "manual-review", note: "operator confirmed" }]
     });
-    const corroboratedApproval = await postJson(baseUrl, "/v6/approval/issue", {
+    const corroboratedApproval = await postJson(baseUrl, "/v5/approval/issue", {
       sessionId: session.session.sessionId,
       capabilityId: corroboratedStage.promotionTicket.ticketId,
       capabilityDigest: corroboratedStage.promotionTicket.ticketDigest,
       brokerSignature: await signApproval(session.session, corroboratedStage.promotionTicket)
     });
-    const promoted = await postJson(baseUrl, "/v6/memory/promote", {
+    const promoted = await postJson(baseUrl, "/v5/memory/promote", {
       sessionId: session.session.sessionId,
       recordId: corroboratedStage.record.recordId,
       ticketId: corroboratedStage.promotionTicket.ticketId,
       ticketDigest: corroboratedStage.promotionTicket.ticketDigest,
       approvalId: corroboratedApproval.approvalEnvelope.approvalId
     });
-    const rollback = await postJson(baseUrl, "/v6/memory/rollback", {
+    const rollback = await postJson(baseUrl, "/v5/memory/rollback", {
       sessionId: session.session.sessionId,
       recordId: promoted.promotedRecord.recordId,
       snapshotId: promoted.promotedRecord.snapshotId
@@ -610,7 +610,7 @@ async function runV6Cases(baseUrl, makeObservePayload, makeActionPayload, signAp
   }
 
   {
-    const session = await postJson(baseUrl, "/v6/session/start", {
+    const session = await postJson(baseUrl, "/v5/session/start", {
       taskId: "parity-v6-replay",
       userGoal: "Review docs safely",
       allowedOrigins: ["https://safe.example", "https://docs.python.org"],
@@ -619,7 +619,7 @@ async function runV6Cases(baseUrl, makeObservePayload, makeActionPayload, signAp
     });
     const observe = await postJson(
       baseUrl,
-      "/v6/observe",
+      "/v5/observe",
       makeObservePayload(session.session.sessionId, {
         url: "https://safe.example/review",
         visibleText: "Visible docs only. Docs",
@@ -632,10 +632,10 @@ async function runV6Cases(baseUrl, makeObservePayload, makeActionPayload, signAp
     }
     await postJson(
       baseUrl,
-      "/v6/action/evaluate",
+      "/v5/action/evaluate",
       makeActionPayload(session.session.sessionId, authority.authorityId, authority.authorityDigest)
     );
-    const replay = await postJson(baseUrl, "/v6/replay/bundle", {
+    const replay = await postJson(baseUrl, "/v5/replay/bundle", {
       sessionId: session.session.sessionId
     });
     results.replay_bundle = {

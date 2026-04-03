@@ -72,13 +72,13 @@ function buildSession(): TaskSession {
     currentStep: 0,
     createdAt: "2026-04-02T00:00:00.000Z",
     expiresAt: "2026-04-02T01:00:00.000Z",
-    claimProfile: "secure_v6",
+    claimProfile: "secure_v5",
     approvalBrokerRequired: true,
     legacyRoutesDisabled: true
   };
 }
 
-describe("safebrowse core runtime v6", () => {
+describe("safebrowse core staged-memory runtime", () => {
   it("requires corroboration for web observations before trusted promotion", () => {
     const session = buildSession();
     const { privateKey, publicKey } = generateKeyPairSync("ed25519");

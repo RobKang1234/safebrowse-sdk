@@ -507,7 +507,7 @@ export interface TaskSession {
   currentStep: number;
   createdAt: string;
   expiresAt: string;
-  claimProfile?: "legacy_compatibility" | "secure_v5" | "secure_v6";
+  claimProfile?: "legacy_compatibility" | "secure_v5";
   approvalBrokerRequired?: boolean;
   legacyRoutesDisabled?: boolean;
 }
@@ -736,7 +736,7 @@ export interface MemoryRecord {
   sourceClass: MemorySourceClass;
   sourceObservationId?: string;
   sourceDigest?: string;
-  corroboration?: MemoryCorroborationV6[];
+  corroboration?: MemoryCorroborationV5[];
   secretFindings: string[];
   summaryOnly: boolean;
   createdAt: string;
@@ -782,42 +782,50 @@ export interface MemoryRollbackResult {
   restoredRecord?: MemoryRecord;
 }
 
-export type MemorySourceClassV6 =
+export type MemoryStageSourceClassV5 =
   | "user_note"
   | "web_observation"
   | "model_summary"
   | "retrieval_fact"
   | "system_validation";
 
-export interface MemoryCorroborationV6 {
+export type MemorySourceClassV6 = MemoryStageSourceClassV5;
+
+export interface MemoryCorroborationV5 {
   source: string;
   digest?: string;
   note?: string;
 }
 
-export interface MemoryStageRequestV6 {
+export type MemoryCorroborationV6 = MemoryCorroborationV5;
+
+export interface MemoryStageRequestV5 {
   sessionId: string;
   key: string;
   value: JsonValue;
-  sourceClass: MemorySourceClassV6;
+  sourceClass: MemoryStageSourceClassV5;
   durable: boolean;
   sourceObservationId?: string;
   sourceDigest?: string;
-  corroboration?: MemoryCorroborationV6[];
+  corroboration?: MemoryCorroborationV5[];
   lineageChain?: string[];
   delayedTriggerIndicators?: string[];
 }
 
-export interface MemoryPromotionTicketV6 {
+export type MemoryStageRequestV6 = MemoryStageRequestV5;
+
+export interface MemoryPromotionTicketV5 {
   ticketId: string;
   ticketDigest: string;
   semanticDigest: string;
   recordId: string;
-  sourceClass: MemorySourceClassV6;
+  sourceClass: MemoryStageSourceClassV5;
   expiresAt: string;
 }
 
-export interface MemoryPromotionRequestV6 {
+export type MemoryPromotionTicketV6 = MemoryPromotionTicketV5;
+
+export interface StagedMemoryPromotionRequestV5 {
   sessionId: string;
   recordId: string;
   ticketId: string;
@@ -825,7 +833,9 @@ export interface MemoryPromotionRequestV6 {
   approvalId: string;
 }
 
-export interface V6AuthorityCandidate {
+export type MemoryPromotionRequestV6 = StagedMemoryPromotionRequestV5;
+
+export interface V5AuthorityCandidate {
   authorityId: string;
   authorityDigest: string;
   semanticDigest: string;
@@ -835,7 +845,9 @@ export interface V6AuthorityCandidate {
   expiresAt: string;
 }
 
-export interface V6ArtifactRef {
+export type V6AuthorityCandidate = V5AuthorityCandidate;
+
+export interface V5ArtifactRef {
   artifactId: string;
   surfaceKind: ArtifactKind;
   sourceOrigin: string;
@@ -850,37 +862,47 @@ export interface V6ArtifactRef {
   authorityEligible: boolean;
 }
 
-export interface V6ObserveResponse {
+export type V6ArtifactRef = V5ArtifactRef;
+
+export interface V5ObserveResponse {
   compiledObservation: CompiledObservationV5;
   plannerView: PlannerViewV5;
-  authorityCandidates: V6AuthorityCandidate[];
-  artifactRefs: V6ArtifactRef[];
+  authorityCandidates: V5AuthorityCandidate[];
+  artifactRefs: V5ArtifactRef[];
   observationVerdict: SafeVerdict;
   replayEventId: string;
 }
 
-export interface V6ActionEvaluateRequest {
+export type V6ObserveResponse = V5ObserveResponse;
+
+export interface V5ActionEvaluateRequest {
   sessionId: string;
   authorityId: string;
   authorityDigest: string;
   parameters?: Record<string, JsonValue>;
 }
 
-export interface V6ActionEvaluateResponse {
+export type V6ActionEvaluateRequest = V5ActionEvaluateRequest;
+
+export interface V5ActionEvaluateResponse {
   observationDecision: SafeVerdict;
   authorityDecision: SafeVerdict;
   effectDecision: SafeVerdict;
   executionPlan?: Record<string, JsonValue>;
 }
 
-export interface V6ArtifactIngestResponse {
+export type V6ActionEvaluateResponse = V5ActionEvaluateResponse;
+
+export interface V5ArtifactIngestResponse {
   compiledObservation: CompiledObservationV5;
   plannerView: PlannerViewV5;
-  artifactRef: V6ArtifactRef;
+  artifactRef: V5ArtifactRef;
   mismatchSignals: string[];
   artifactVerdict: SafeVerdict;
   replayEventId: string;
 }
+
+export type V6ArtifactIngestResponse = V5ArtifactIngestResponse;
 
 export interface ParserWorkerProbe {
   mode: ParserIsolationMode;
