@@ -15,6 +15,7 @@ npm install @safebrowse/core
 - V6 approval-envelope issuance and connector callback verification
 - V6 staged memory, promotion, and rollback controls
 - Replay bundle construction and shared policy utilities
+- Model-guard request building, assessment application, and authority tightening helpers for the private Python sidecar
 
 See the repository README for full architecture and user guidance:
 

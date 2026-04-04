@@ -58,6 +58,13 @@ pnpm release:smoke:artifacts
 pnpm release:smoke:docker
 ```
 
+Private model-guard artifacts are not part of the public release contract. Keep these out of npm, PyPI, and GHCR release payloads:
+
+- raw prompt-injection dataset JSONL files
+- training checkpoints and intermediate adapters
+- MLflow run directories and local caches
+- locally packaged private model bundles
+
 ## Tagging Strategy
 
 - prerelease: `vX.Y.Z-rc.N`
@@ -111,5 +118,5 @@ new version rather than trying to retroactively change the old release.
 
 - Deploy containers by digest, not just by tag.
 - Do not publish `@safebrowse/kb-tools`.
-- Do not ship `knowledge_base/signing/private`, `demo-output/`, or threat-lab logs in public artifacts.
+- Do not ship `knowledge_base/signing/private`, `demo-output/`, threat-lab logs, raw prompt-injection datasets, MLflow runs, or private model bundles in public artifacts.
 - Treat missing PyPI/npm Trusted Publisher setup as a release blocker, not a warning.

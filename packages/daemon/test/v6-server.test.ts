@@ -1,4 +1,5 @@
 import { generateKeyPairSync } from "node:crypto";
+import { createServer } from "node:http";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -94,6 +95,7 @@ const verifiedRegistry: VerifiedRegistryBundle = {
 
 const servers: Array<{ close: () => Promise<void> }> = [];
 const brokers: Array<{ close: () => Promise<void> }> = [];
+const modelGuards: Array<{ close: () => Promise<void> }> = [];
 
 async function startTestBroker() {
   const { privateKey } = generateKeyPairSync("ed25519");
@@ -120,7 +122,9 @@ async function startTestBroker() {
   };
 }
 
-async function startTestServer() {
+async function startTestServer(
+  overrides: Partial<Parameters<typeof createSafeBrowseServer>[0]> = {}
+) {
   const broker = await startTestBroker();
   const server = await createSafeBrowseServer({
     policyPack,
@@ -138,7 +142,8 @@ async function startTestServer() {
       incidentPlaybooks: [],
       evaluationScenarios: [],
       sourceRegistry: []
-    }
+    },
+    ...overrides
   });
 
   await new Promise<void>((resolvePromise, rejectPromise) => {
@@ -161,6 +166,72 @@ async function startTestServer() {
     baseUrl: `http://127.0.0.1:${address.port}`,
     broker
   };
+}
+
+async function startMockModelGuard(responseFactory?: (path: string) => unknown) {
+  const server = createServer(async (request, response) => {
+    const path = request.url ?? "/";
+    response.setHeader("content-type", "application/json");
+    if (request.method === "GET" && path === "/health") {
+      response.statusCode = 200;
+      response.end(
+        JSON.stringify({
+          status: "ok",
+          ready: true,
+          runtimeMode: "python_sidecar",
+          enforcementMode: "tighten",
+          bundleVersion: "bundle-test-v1",
+          featureSchemaVersion: "schema-test-v1"
+        })
+      );
+      return;
+    }
+    if (request.method === "POST" && path === "/v1/score/observation") {
+      response.statusCode = 200;
+      response.end(
+        JSON.stringify(
+          responseFactory?.(path) ?? {
+            assessment: {
+              assessmentId: "assessment-test",
+              bundleVersion: "bundle-test-v1",
+              featureSchemaVersion: "schema-test-v1",
+              binaryThreatProbability: 0.82,
+              decisionLabel: "require_user_approval",
+              calibratedDecisionLabel: "require_user_approval",
+              coarseReasonCodes: ["MODEL_GUARD_REQUIRE_USER_APPROVAL"],
+              evidenceChunkIds: ["chunk-1"],
+              pipeline: {
+                runtimeMode: "python_sidecar",
+                enforcementMode: "tighten",
+                scoredAt: "2026-04-03T00:00:00.000Z"
+              }
+            }
+          }
+        )
+      );
+      return;
+    }
+    response.statusCode = 404;
+    response.end(JSON.stringify({ error: "not_found" }));
+  });
+
+  await new Promise<void>((resolvePromise, rejectPromise) => {
+    server.once("error", rejectPromise);
+    server.listen(0, "127.0.0.1", () => resolvePromise());
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Missing model guard address");
+  }
+
+  modelGuards.push({
+    close: () =>
+      new Promise<void>((resolvePromise) => {
+        server.close(() => resolvePromise());
+      })
+  });
+
+  return `http://127.0.0.1:${address.port}`;
 }
 
 async function postJson(baseUrl: string, path: string, payload: unknown) {
@@ -191,6 +262,7 @@ async function signApproval(
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((entry) => entry.close()));
   await Promise.all(brokers.splice(0).map((entry) => entry.close()));
+  await Promise.all(modelGuards.splice(0).map((entry) => entry.close()));
 });
 
 describe("safebrowse daemon v6 routes", () => {
@@ -204,6 +276,8 @@ describe("safebrowse daemon v6 routes", () => {
     expect(health.approvalBroker.mode).toBe("external_service");
     expect(health.parserIsolation.configuredMode).toBe("node_permission_process");
     expect(health.captureAttestation.required).toBe(true);
+    expect(health.modelGuard.configured).toBe(false);
+    expect(health.modelGuard.ready).toBe(false);
 
     const legacy = await postJson(baseUrl, "/v5/session/start", {
       taskId: "legacy-test",
@@ -259,6 +333,89 @@ describe("safebrowse daemon v6 routes", () => {
     expect(smuggled.observationVerdict.decision).toBe("REPLAN_READ_ONLY");
     expect(smuggled.compiledObservation.semanticAuthorityFindings.length).toBeGreaterThan(0);
     expect(smuggled.authorityCandidates).toEqual([]);
+  });
+
+  it("tightens a benign observation to approval when the model guard requires it", async () => {
+    const modelGuardBaseUrl = await startMockModelGuard();
+    const { baseUrl } = await startTestServer({
+      modelGuardBaseUrl,
+      modelGuardEnforcementMode: "tighten"
+    });
+    const health = await fetch(`${baseUrl}/health`).then((response) => response.json());
+    expect(health.modelGuard.configured).toBe(true);
+    expect(health.modelGuard.ready).toBe(true);
+    expect(health.modelGuard.bundleVersion).toBe("bundle-test-v1");
+
+    const session = await postJson(baseUrl, "/v6/session/start", {
+      taskId: "task-v6-model-approval",
+      userGoal: "Review public documentation safely",
+      taskPurposeClass: "docs_navigation",
+      allowedOrigins: ["https://safe.example", "https://docs.python.org"],
+      allowedVerbs: ["navigate"],
+      allowedPathClasses: ["docs_navigation"]
+    });
+
+    const observe = await postJson(baseUrl, "/v6/observe", {
+      sessionId: session.session.sessionId,
+      capture: {
+        surfaceType: "html",
+        url: "https://safe.example/docs",
+        html: `<html><body><a href="https://docs.python.org/3/tutorial/">Docs</a></body></html>`,
+        visibleText: "Visible docs only. Docs",
+        captureAttestation: {
+          captureMethod: "rendered_dom",
+          visibilityAttested: true,
+          frameCoverage: "full",
+          shadowDomCoverage: "full",
+          unsupportedSubtrees: []
+        }
+      }
+    });
+
+    expect(observe.compiledObservation.modelAssessment.calibratedDecisionLabel).toBe(
+      "require_user_approval"
+    );
+    expect(observe.authorityCandidates).toHaveLength(1);
+    expect(observe.authorityCandidates[0].requiresApproval).toBe(true);
+    expect(observe.observationVerdict.reasonCodes).toContain("MODEL_GUARD_REQUIRE_USER_APPROVAL");
+  });
+
+  it("fails safe when the configured model guard is unavailable", async () => {
+    const { baseUrl } = await startTestServer({
+      modelGuardBaseUrl: "http://127.0.0.1:9",
+      modelGuardTimeoutMs: 50,
+      modelGuardEnforcementMode: "tighten"
+    });
+
+    const session = await postJson(baseUrl, "/v6/session/start", {
+      taskId: "task-v6-model-unavailable",
+      userGoal: "Review public documentation safely",
+      taskPurposeClass: "docs_navigation",
+      allowedOrigins: ["https://safe.example", "https://docs.python.org"],
+      allowedVerbs: ["navigate"],
+      allowedPathClasses: ["docs_navigation"]
+    });
+
+    const observe = await postJson(baseUrl, "/v6/observe", {
+      sessionId: session.session.sessionId,
+      capture: {
+        surfaceType: "html",
+        url: "https://safe.example/docs",
+        html: `<html><body><a href="https://docs.python.org/3/tutorial/">Docs</a></body></html>`,
+        visibleText: "Visible docs only. Docs",
+        captureAttestation: {
+          captureMethod: "rendered_dom",
+          visibilityAttested: true,
+          frameCoverage: "full",
+          shadowDomCoverage: "full",
+          unsupportedSubtrees: []
+        }
+      }
+    });
+
+    expect(observe.observationVerdict.decision).toBe("REPLAN_READ_ONLY");
+    expect(observe.observationVerdict.reasonCodes).toContain("MODEL_GUARD_UNAVAILABLE");
+    expect(observe.authorityCandidates).toEqual([]);
   });
 
   it("requires approval for sensitive navigation and then allows it", async () => {

@@ -905,6 +905,100 @@ export interface AuthorityFinding {
   targetPathClass?: TargetPathClass;
 }
 
+export type ModelGuardDecisionLabel =
+  | "allow_read_only"
+  | "require_shadow_replay"
+  | "require_user_approval"
+  | "deny";
+
+export interface ModelGuardPipelineMetadata {
+  runtimeMode: "python_sidecar";
+  enforcementMode: "tighten";
+  scoredAt: string;
+  latencyMs?: number;
+  sentinelVersion?: string;
+  expertVersion?: string;
+  stackerVersion?: string;
+}
+
+export interface ModelGuardAssessment {
+  assessmentId: string;
+  bundleVersion: string;
+  featureSchemaVersion: string;
+  binaryThreatProbability: number;
+  decisionLabel: ModelGuardDecisionLabel;
+  calibratedDecisionLabel: ModelGuardDecisionLabel;
+  coarseReasonCodes: string[];
+  evidenceChunkIds: string[];
+  pipeline: ModelGuardPipelineMetadata;
+}
+
+export interface ModelGuardEvidenceChunk {
+  chunkId: string;
+  score?: number;
+  excerpt: string;
+}
+
+export interface ModelGuardCandidateTarget {
+  kind: "navigate" | "connector_prepare";
+  targetUrl?: string;
+  displayText?: string;
+  selector?: string;
+  targetOrigin?: string;
+  targetPathClass?: TargetPathClass;
+  requiresApproval?: boolean;
+  sourceSpanIds: string[];
+}
+
+export interface ModelGuardObservationRequest {
+  session: {
+    sessionId: string;
+    taskId: string;
+    userGoal: string;
+    taskPurposeClass?: TaskPurposeClass;
+    taskPhase?: string;
+    allowedOrigins: string[];
+    allowedVerbs: string[];
+    allowedPathClasses?: TargetPathClass[];
+    approvalRequiredPathClasses?: TargetPathClass[];
+  };
+  observation: {
+    observationId: string;
+    sourceOrigin: string;
+    frameOrigin: string;
+    surfaceType: V4SurfaceType;
+    parseStatus: CompiledObservation["parseStatus"];
+    visibleText: string;
+    contextText: string;
+    suspicionFlags: string[];
+    matchedPatternIds: string[];
+    riskFindings: string[];
+    semanticAuthorityFindings: string[];
+    policyFindings: string[];
+    blockedChannels: ProvenanceChannel[];
+    channelFlags: Record<string, boolean>;
+    secretRedactionCount: number;
+    captureAttestation: CaptureAttestation;
+    contextChars: number;
+  };
+  targets: ModelGuardCandidateTarget[];
+  structuredFeatures: Record<string, JsonValue>;
+}
+
+export interface ModelGuardObservationResponse {
+  assessment: ModelGuardAssessment;
+  evidenceChunks?: ModelGuardEvidenceChunk[];
+}
+
+export interface ModelGuardHealthResponse {
+  status: "ok" | "error";
+  ready: boolean;
+  runtimeMode: "python_sidecar";
+  enforcementMode: "tighten";
+  bundleVersion?: string;
+  featureSchemaVersion?: string;
+}
+
 export interface CompiledObservationV6 extends CompiledObservationV5 {
   provenanceFindings: AuthorityFinding[];
   semanticAuthorityFindings: AuthorityFinding[];
@@ -913,6 +1007,7 @@ export interface CompiledObservationV6 extends CompiledObservationV5 {
   factsOnlyReasonCodes: string[];
   evidenceSpanIds: string[];
   captureAttestation: CaptureAttestation;
+  modelAssessment?: ModelGuardAssessment;
 }
 
 export interface PlannerViewV6 extends PlannerViewV5 {

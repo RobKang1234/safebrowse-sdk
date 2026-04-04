@@ -5,8 +5,10 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  applyModelGuardAssessment,
   applyV6ObservationMediation,
   buildReplayBundle,
+  buildModelGuardObservationRequest,
   compilePolicy,
   computeToolManifestHash,
   computeToolSchemaHash,
@@ -19,6 +21,7 @@ import {
   promoteMemoryRecordV6,
   rollbackMemoryRecordV6,
   stageMemoryRecordV6,
+  tightenAuthoritiesWithModelGuard,
   verifyApprovalIntentSignatureV6,
   verifyToolCallbackV6,
   type ApprovalEnvelopeV6,
@@ -53,6 +56,7 @@ import {
   loadVerifiedRegistryBundle,
   resolvePolicyLayerFiles
 } from "./loaders.js";
+import { createModelGuardClient } from "./modelGuard.js";
 import { createParserIsolationService } from "./parserIsolation.js";
 
 export interface SafeBrowseDaemonOptions {
@@ -68,6 +72,9 @@ export interface SafeBrowseDaemonOptions {
   approvalBrokerPublicKeyPath?: string;
   approvalBrokerPublicKeyPem?: string;
   approvalBrokerMode?: "signature_verification" | "external_service";
+  modelGuardBaseUrl?: string;
+  modelGuardTimeoutMs?: number;
+  modelGuardEnforcementMode?: "off" | "tighten";
 }
 
 interface SessionState {
@@ -215,6 +222,9 @@ async function buildRuntimeContext(
     approvalBrokerPublicKey?: KeyObject;
     approvalBrokerConfigured: boolean;
     approvalBrokerMode: "signature_verification" | "external_service";
+    modelGuardBaseUrl?: string;
+    modelGuardTimeoutMs: number;
+    modelGuardEnforcementMode: "off" | "tighten";
   }
 > {
   const rootDir = options.rootDir ?? (await resolveDefaultRootDir());
@@ -257,7 +267,10 @@ async function buildRuntimeContext(
       : undefined,
     approvalBrokerConfigured: Boolean(approvalBrokerPublicKeyPem),
     approvalBrokerMode:
-      secureDeployment ? "external_service" : options.approvalBrokerMode ?? "signature_verification"
+      secureDeployment ? "external_service" : options.approvalBrokerMode ?? "signature_verification",
+    modelGuardBaseUrl: options.modelGuardBaseUrl?.trim() || undefined,
+    modelGuardTimeoutMs: options.modelGuardTimeoutMs ?? 2_500,
+    modelGuardEnforcementMode: options.modelGuardEnforcementMode ?? "off"
   };
 }
 
@@ -518,11 +531,17 @@ export async function createSafeBrowseServer(
   options: SafeBrowseDaemonOptions = {}
 ): Promise<Server> {
   const runtime = await buildRuntimeContext(options);
+  const modelGuardClient = createModelGuardClient({
+    baseUrl: runtime.modelGuardBaseUrl,
+    timeoutMs: runtime.modelGuardTimeoutMs,
+    enforcementMode: runtime.modelGuardEnforcementMode
+  });
   const parserIsolationService = createParserIsolationService(runtime.parserIsolationMode, {
     allowlistedEgress: runtime.parserAllowlistedEgress,
     runtime
   });
   let parserProbeSnapshot = await parserIsolationService.refreshProbe();
+  let modelGuardHealthSnapshot = await modelGuardClient.refreshHealth();
   const secureReady = claimBearingReady(runtime, parserProbeSnapshot.probe);
   const sessions = new Map<string, SessionState>();
 
@@ -531,6 +550,12 @@ export async function createSafeBrowseServer(
       .refreshProbe()
       .then((snapshot) => {
         parserProbeSnapshot = snapshot;
+      })
+      .catch(() => undefined);
+    void modelGuardClient
+      .refreshHealth()
+      .then((snapshot) => {
+        modelGuardHealthSnapshot = snapshot;
       })
       .catch(() => undefined);
   }, PARSER_HEALTH_REFRESH_INTERVAL_MS);
@@ -567,6 +592,14 @@ export async function createSafeBrowseServer(
           captureAttestation: {
             htmlDom: true,
             required: true
+          },
+          modelGuard: {
+            configured: modelGuardHealthSnapshot.configured,
+            ready: modelGuardHealthSnapshot.ready,
+            runtimeMode: modelGuardHealthSnapshot.runtimeMode,
+            enforcementMode: modelGuardHealthSnapshot.enforcementMode,
+            bundleVersion: modelGuardHealthSnapshot.bundleVersion,
+            featureSchemaVersion: modelGuardHealthSnapshot.featureSchemaVersion
           }
         });
         return;
@@ -623,10 +656,9 @@ export async function createSafeBrowseServer(
           runtime,
           compilerVersion: "v6"
         });
-        const mediated = applyV6ObservationMediation(
-          parsed.compiledObservation,
-          parsed.plannerView!
-        );
+        let compiledObservation = parsed.compiledObservation;
+        let plannerView = parsed.plannerView!;
+        let mediated = applyV6ObservationMediation(compiledObservation, plannerView);
         const verifiedRegistryEntry =
           capture.surfaceType === "tool_manifest"
             ? lookupVerifiedRegistryEntry(runtime, capture.toolId, capture.toolId)
@@ -648,13 +680,60 @@ export async function createSafeBrowseServer(
               computeToolSchemaHash(capture.schemaDescriptions)
             : undefined;
 
+        if (modelGuardClient.configured && mediated.verdict.decision === "ALLOW") {
+          try {
+            const scored = await modelGuardClient.scoreObservation(
+              buildModelGuardObservationRequest(sessionState.session, compiledObservation, plannerView)
+            );
+            const applied = applyModelGuardAssessment(
+              compiledObservation,
+              plannerView,
+              mediated.verdict,
+              scored.assessment
+            );
+            compiledObservation = applied.compiledObservation;
+            plannerView = applied.plannerView;
+            mediated = {
+              plannerView,
+              verdict: applied.verdict,
+              failClosed: false
+            };
+          } catch {
+            if (modelGuardClient.enforcementMode === "tighten") {
+              compiledObservation = {
+                ...compiledObservation,
+                authorityEligible: false
+              };
+              plannerView = {
+                ...plannerView,
+                visibleExcerpt: "",
+                riskMarkers: [...new Set([...plannerView.riskMarkers, "model_guard_unavailable"])]
+              };
+              mediated = {
+                plannerView,
+                verdict: {
+                  decision: "REPLAN_READ_ONLY",
+                  reasonCodes: ["MODEL_GUARD_UNAVAILABLE"],
+                  riskScore: Math.max(0.6, compiledObservation.riskScore),
+                  safeConstraints: {
+                    claim_profile: "secure_v6",
+                    authority_eligible: false
+                  },
+                  telemetryTags: ["v6_observation", "model_guard_unavailable"]
+                },
+                failClosed: false
+              };
+            }
+          }
+        }
+
         const authorities =
           mediated.verdict.decision === "BLOCK"
             ? []
             : mintCapabilitiesForObservationV6(
                 sessionState.session,
-                parsed.compiledObservation,
-                mediated.plannerView,
+                compiledObservation,
+                plannerView,
                 capture.surfaceType === "tool_manifest" && verifiedRegistryEntry
                   ? {
                       verifiedRegistryEntry,
@@ -669,16 +748,20 @@ export async function createSafeBrowseServer(
                     }
                   : {}
               );
+        const tightenedAuthorities = tightenAuthoritiesWithModelGuard(
+          authorities,
+          compiledObservation.modelAssessment
+        );
 
-        for (const authority of authorities) {
+        for (const authority of tightenedAuthorities) {
           sessionState.authorities.set(authority.capabilityId, authority);
         }
 
-        sessionState.latestObservation = parsed.compiledObservation;
+        sessionState.latestObservation = compiledObservation;
         sessionState.latestObservationVerdict = mediated.verdict;
         sessionState.observations.set(
-          parsed.compiledObservation.observationId,
-          parsed.compiledObservation
+          compiledObservation.observationId,
+          compiledObservation
         );
 
         const replayEventId = appendReplayEvent(sessionState, {
@@ -686,18 +769,26 @@ export async function createSafeBrowseServer(
           actor: "sdk",
           payload: {
             route: requestUrl,
-            observationId: parsed.compiledObservation.observationId,
-            parseStatus: parsed.compiledObservation.parseStatus,
-            authorityCount: authorities.length,
-            decision: mediated.verdict.decision
+            observationId: compiledObservation.observationId,
+            parseStatus: compiledObservation.parseStatus,
+            authorityCount: tightenedAuthorities.length,
+            decision: mediated.verdict.decision,
+            modelAssessment: compiledObservation.modelAssessment
+              ? {
+                  bundleVersion: compiledObservation.modelAssessment.bundleVersion,
+                  calibratedDecisionLabel: compiledObservation.modelAssessment.calibratedDecisionLabel,
+                  coarseReasonCodes: compiledObservation.modelAssessment.coarseReasonCodes,
+                  evidenceChunkIds: compiledObservation.modelAssessment.evidenceChunkIds
+                }
+              : null
           }
         });
 
         writeJson(response, 200, {
-          compiledObservation: parsed.compiledObservation,
-          plannerView: mediated.plannerView,
-          authorityCandidates: authorities.map(authorityCandidateFromDescriptor),
-          capabilities: authorities.map(authorityCandidateFromDescriptor),
+          compiledObservation,
+          plannerView,
+          authorityCandidates: tightenedAuthorities.map(authorityCandidateFromDescriptor),
+          capabilities: tightenedAuthorities.map(authorityCandidateFromDescriptor),
           artifactRefs: [],
           observationVerdict: mediated.verdict,
           replayEventId: replayEventId ?? randomUUID()
@@ -1155,7 +1246,7 @@ export async function createSafeBrowseServer(
   server.close = ((callback?: (error?: Error) => void) => {
     clearInterval(parserHealthRefreshTimer);
     return originalClose((error?: Error) => {
-      void parserIsolationService.close().finally(() => {
+      void Promise.allSettled([parserIsolationService.close(), modelGuardClient.close()]).finally(() => {
         callback?.(error);
       });
     });

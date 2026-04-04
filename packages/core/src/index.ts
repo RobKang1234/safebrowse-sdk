@@ -2,8 +2,13 @@ export { evaluateAction } from "./action.js";
 export {
   evaluateCapabilityUseV6,
   mintCapabilitiesForObservationV6,
-  mintMemoryPromotionCapabilityV6
+  mintMemoryPromotionCapabilityV6,
+  tightenAuthoritiesWithModelGuard
 } from "./capabilityV6.js";
+export {
+  applyModelGuardAssessment,
+  buildModelGuardObservationRequest
+} from "./modelGuard.js";
 export { compilePolicy } from "./policy.js";
 export {
   promoteMemoryRecordV6,

@@ -13,6 +13,7 @@ Usage:
   safebrowse-daemon [--host 127.0.0.1] [--port 8787] [--root-dir <path>] [--deployment-profile development|secure_v6]
                     [--approval-broker-mode signature_verification|external_service]
                     [--parser-isolation-mode scrubbed_process|node_permission_process]
+                    [--model-guard-url <url>] [--model-guard-timeout-ms <ms>] [--model-guard-enforcement-mode off|tighten]
 
 Environment:
   SAFEBROWSE_HOST
@@ -22,6 +23,9 @@ Environment:
   SAFEBROWSE_APPROVAL_BROKER_PUBLIC_KEY_PATH
   SAFEBROWSE_APPROVAL_BROKER_MODE
   SAFEBROWSE_PARSER_ISOLATION_MODE
+  SAFEBROWSE_MODEL_GUARD_URL
+  SAFEBROWSE_MODEL_GUARD_TIMEOUT_MS
+  SAFEBROWSE_MODEL_GUARD_ENFORCEMENT_MODE
 `;
 
 function parsePort(value: string): number {
@@ -30,6 +34,14 @@ function parsePort(value: string): number {
     throw new Error(`Invalid port: ${value}`);
   }
   return port;
+}
+
+function parsePositiveInt(value: string, field: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`Invalid ${field}: ${value}`);
+  }
+  return parsed;
 }
 
 export function formatDaemonHelp(): string {
@@ -50,6 +62,9 @@ export function parseDaemonOptions(
   const envApprovalBrokerPublicKeyPath = env.SAFEBROWSE_APPROVAL_BROKER_PUBLIC_KEY_PATH?.trim();
   const envApprovalBrokerMode = env.SAFEBROWSE_APPROVAL_BROKER_MODE?.trim();
   const envParserIsolationMode = env.SAFEBROWSE_PARSER_ISOLATION_MODE?.trim();
+  const envModelGuardUrl = env.SAFEBROWSE_MODEL_GUARD_URL?.trim();
+  const envModelGuardTimeoutMs = env.SAFEBROWSE_MODEL_GUARD_TIMEOUT_MS?.trim();
+  const envModelGuardEnforcementMode = env.SAFEBROWSE_MODEL_GUARD_ENFORCEMENT_MODE?.trim();
 
   if (envHost) {
     options.host = envHost;
@@ -77,6 +92,15 @@ export function parseDaemonOptions(
     envParserIsolationMode === "node_permission_process"
   ) {
     options.parserIsolationMode = envParserIsolationMode;
+  }
+  if (envModelGuardUrl) {
+    options.modelGuardBaseUrl = envModelGuardUrl;
+  }
+  if (envModelGuardTimeoutMs) {
+    options.modelGuardTimeoutMs = parsePositiveInt(envModelGuardTimeoutMs, "model guard timeout");
+  }
+  if (envModelGuardEnforcementMode === "off" || envModelGuardEnforcementMode === "tighten") {
+    options.modelGuardEnforcementMode = envModelGuardEnforcementMode;
   }
 
   while (queue.length > 0) {
@@ -150,6 +174,33 @@ export function parseDaemonOptions(
         throw new Error("Invalid value for --parser-isolation-mode");
       }
       options.parserIsolationMode = value as "scrubbed_process" | "node_permission_process";
+      continue;
+    }
+
+    if (arg === "--model-guard-url") {
+      const value = queue.shift();
+      if (!value) {
+        throw new Error("Missing value for --model-guard-url");
+      }
+      options.modelGuardBaseUrl = value;
+      continue;
+    }
+
+    if (arg === "--model-guard-timeout-ms") {
+      const value = queue.shift();
+      if (!value) {
+        throw new Error("Missing value for --model-guard-timeout-ms");
+      }
+      options.modelGuardTimeoutMs = parsePositiveInt(value, "model guard timeout");
+      continue;
+    }
+
+    if (arg === "--model-guard-enforcement-mode") {
+      const value = queue.shift();
+      if (!value || !["off", "tighten"].includes(value)) {
+        throw new Error("Invalid value for --model-guard-enforcement-mode");
+      }
+      options.modelGuardEnforcementMode = value as "off" | "tighten";
       continue;
     }
 

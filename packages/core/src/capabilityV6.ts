@@ -5,6 +5,7 @@ import type {
   CapabilityDescriptorV6,
   CapabilityUseRequestV6,
   CompiledObservationV6,
+  ModelGuardAssessment,
   PlannerViewV6,
   SafeVerdict,
   TaskSession,
@@ -412,6 +413,31 @@ export function mintMemoryPromotionCapabilityV6(
     ...base,
     ...createAuthorityDigests(base)
   };
+}
+
+export function tightenAuthoritiesWithModelGuard(
+  authorities: CapabilityDescriptorV6[],
+  assessment: ModelGuardAssessment | undefined
+): CapabilityDescriptorV6[] {
+  if (!assessment || assessment.calibratedDecisionLabel !== "require_user_approval") {
+    return authorities;
+  }
+
+  return authorities.map((authority) => {
+    if (authority.requiresApproval) {
+      return authority;
+    }
+    const base: Omit<CapabilityDescriptorV6, "capabilityDigest" | "semanticDigest"> = {
+      ...authority,
+      requiresApproval: true,
+      derivedSensitiveSink: true,
+      evidenceSpanIds: uniq([...authority.evidenceSpanIds, ...assessment.evidenceChunkIds])
+    };
+    return {
+      ...base,
+      ...createAuthorityDigests(base)
+    };
+  });
 }
 
 function approvalMatchesAuthority(

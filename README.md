@@ -39,6 +39,7 @@ The repository now ships one canonical secure surface. `secure_v6` owns the clai
 - System-wide secret isolation and noninterference checks
 - Wrapper parity across direct, Python, and npm-installed execution paths in `secure_v6`
 - Planner-safe observations by default
+- Optional private model-guard sidecar that may only tighten decisions; it never weakens deterministic V6 blocks, approval requirements, or fail-closed parse outcomes
 - Explicit authority candidates alongside historical capability descriptors
 - Registry-hash-bound connector preparation and callback verification
 - Artifact references with mismatch metadata and quarantine semantics
@@ -55,6 +56,20 @@ Supported V6 claim surfaces:
 Other supported content surfaces may still be observed and summarized, but they do not directly mint effectful capabilities in the V6 claim-bearing profile. Unsupported or partially parsed surfaces fail closed and are outside the prevention claim.
 
 Older versioned routes are retired from the public claim-bearing surface. Current callers should use `/v6/*` and `secure_v6`.
+
+## Private Model Guard
+
+SafeBrowse V6 can attach a private localhost Python sidecar that scores compiled observations after deterministic parsing and policy extraction.
+
+- The daemon remains the final policy owner.
+- The model is tightener-only:
+  - deterministic `BLOCK` stays `BLOCK`
+  - deterministic approval requirements stay required
+  - model `require_shadow_replay` downgrades to `REPLAN_READ_ONLY`
+  - model `require_user_approval` escalates authorities to `requiresApproval=true`
+  - model `deny` blocks direct authority minting
+- `GET /health` now reports a coarse `modelGuard` block with readiness, runtime mode, bundle version, and enforcement mode.
+- The training dataset directory is manifest-only in git. Raw JSONL payloads resolve from `SAFEBROWSE_DATA_ROOT`, not from committed repo files.
 
 ## Latest Internal Assessment
 
@@ -223,7 +238,7 @@ The localhost daemon in [packages/daemon/src/server.ts](packages/daemon/src/serv
 | `POST /v6/memory/promote` | Promote memory into trusted durable state |
 | `POST /v6/memory/rollback` | Restore a trusted snapshot |
 | `POST /v6/replay/bundle` | Build a replay bundle from actor-attributed runtime events |
-| `GET /health` | Report runtime profile, secure deployment posture, registry metadata, and parser isolation probe |
+| `GET /health` | Report runtime profile, secure deployment posture, registry metadata, parser isolation probe, and private model-guard readiness |
 
 Compatibility routes are retired from the public claim-bearing surface. Archived fixtures may still reference them, but they are no longer part of the release contract.
 
@@ -278,6 +293,16 @@ corepack pnpm demo:watch-live
 
 That mode can use the same local model backend for both the raw agent and the SDK-protected agent when available.
 
+### 8. Start the private model-guard demo sidecar
+
+```powershell
+corepack pnpm model:bundle:demo
+node packages/daemon/dist/index.js --host 127.0.0.1 --port 8787 --deployment-profile secure_v6 --model-guard-url http://127.0.0.1:8788 --model-guard-enforcement-mode tighten --approval-broker-public-key-path knowledge_base/signing/safebrowse_vf_ed25519_public.pem
+corepack pnpm model:serve:demo
+```
+
+For real training and promoted runtime bundles, see [python/safebrowse_model_guard/README.md](python/safebrowse_model_guard/README.md).
+
 ## CI and Release Gates
 
 The repository now treats hostile-corpus coverage as a PR gate, not just a nightly diagnostic.
@@ -287,6 +312,7 @@ Key workflows:
 - [`.github/workflows/pr.yml`](.github/workflows/pr.yml): normal PR validation, including auditor parity
 - [`.github/workflows/auditor-review.yml`](.github/workflows/auditor-review.yml): full auditor review artifacts on PRs and manual dispatch
 - [`.github/workflows/nightly.yml`](.github/workflows/nightly.yml): longer archived nightly runs
+- [`.github/workflows/private-model-guard-retrain.yml`](.github/workflows/private-model-guard-retrain.yml): self-hosted nightly evaluation and weekly private model-guard retraining with MLflow Projects
 - [`.github/workflows/release.yml`](.github/workflows/release.yml): npm, PyPI, GHCR, and release asset publishing on tags
 
 Release smoke and packaging parity are enforced through:

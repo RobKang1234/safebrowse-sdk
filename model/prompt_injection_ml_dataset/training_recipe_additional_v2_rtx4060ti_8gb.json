@@ -1,0 +1,581 @@
+{
+  "version": "additional_v2_rtx4060ti_8gb_v1",
+  "objective": {
+    "primary_goal": "Minimize false negatives on real threat cases while preserving useful read-only decisions.",
+    "deployment_bias": "Conservative; prefer escalating borderline cases over misclassifying a true threat as allow_read_only.",
+    "recommended_operating_point": {
+      "binary_threat_recall_target": 0.995,
+      "max_tolerable_allow_read_only_false_negative_rate": 0.005,
+      "notes": [
+        "Tune the sentinel threshold first for recall, then tune the 4-way head for routing among threat classes.",
+        "Do not optimize for plain accuracy."
+      ]
+    }
+  },
+  "dataset_profile": {
+    "primary_dataset": "prompt_injection_ml_dataset_additional_v2",
+    "train_records": 1000000,
+    "valid_records": 100000,
+    "test_records": 100000,
+    "avg_context_chars_train": 4661.30763,
+    "label_space_recommended": [
+      "allow_read_only",
+      "require_shadow_replay",
+      "require_user_approval",
+      "deny"
+    ],
+    "label_distribution_train": {
+      "allow_read_only": 180517,
+      "require_shadow_replay": 388901,
+      "require_user_approval": 79964,
+      "deny": 350618
+    },
+    "label_prevalence_train": {
+      "allow_read_only": 0.180517,
+      "require_shadow_replay": 0.388901,
+      "require_user_approval": 0.079964,
+      "deny": 0.350618
+    },
+    "threat_positive_definition": "All labels except allow_read_only",
+    "threat_prevalence_train": 0.819483,
+    "languages_balanced_train": {
+      "en": 166708,
+      "es": 166464,
+      "fr": 166952,
+      "de": 166490,
+      "pt": 166668,
+      "ja": 166718
+    },
+    "domains_balanced_train": {
+      "finance": 125340,
+      "devops": 124996,
+      "travel": 125040,
+      "support": 124864,
+      "healthcare_admin": 125104,
+      "shopping": 125451,
+      "productivity": 124831,
+      "hiring": 124374
+    },
+    "high_confusion_attack_families_to_oversample": [
+      "visible_workflow_smuggling",
+      "same_origin_sensitive_path",
+      "approval_spoof_copy",
+      "callback_drift_semantic",
+      "release_notes_resume_workflow",
+      "browser_history_suggestion_poison",
+      "multilingual_mix",
+      "unicode_confusable_smuggling",
+      "typoglycemia_semantic_smuggling",
+      "email_footer_redirect",
+      "calendar_invite_confusion"
+    ],
+    "use_with_legacy_bundle": {
+      "recommended_mapping": {
+        "allow": "allow_read_only"
+      },
+      "optional_auxiliary_head": "Keep a legacy 5-way compatibility head only if you must preserve backward compatibility with older labels."
+    }
+  },
+  "feature_policy": {
+    "safe_runtime_features": [
+      "goal",
+      "setup",
+      "context",
+      "candidate_action",
+      "surface",
+      "channels",
+      "lang",
+      "domain",
+      "context_chars"
+    ],
+    "derived_runtime_features": [
+      "action_type",
+      "target_path",
+      "origin_relation",
+      "target_sensitivity_class",
+      "contains_cross_origin_url",
+      "contains_callback_like_uri",
+      "contains_same_origin_sensitive_path",
+      "channel_flags",
+      "unicode_confusable_score",
+      "typoglycemia_score",
+      "approvalish_language_score",
+      "visible_vs_hidden_ratio_if_available",
+      "partial_parse_flag_if_available",
+      "unsupported_surface_flag_if_available",
+      "secret_redaction_count_if_available"
+    ],
+    "drop_as_label_leakage": [
+      "expected_label",
+      "unauthorized_effect_risk",
+      "reasons",
+      "attack_family",
+      "threat_basis",
+      "difficulty",
+      "research_grounding"
+    ]
+  },
+  "recommended_system": {
+    "name": "ActionGuard-V2-8GB",
+    "why_this_design": [
+      "A single giant long-context model is not the best use of 8GB VRAM.",
+      "A cascade with a high-recall classical sentinel plus a deep long-context expert reduces false negatives better than relying on one model.",
+      "The dataset is long-context, multilingual, and heavily skewed toward threat classes; the system should first separate threat vs allow_read_only, then route within threat classes."
+    ],
+    "pipeline": [
+      {
+        "stage": "S0_optional_rules",
+        "purpose": "Keep deterministic SDK/runtime signals if available; these should be features, not labels.",
+        "outputs": [
+          "rule_scores",
+          "channel_flags",
+          "origin_flags",
+          "callback_flags"
+        ]
+      },
+      {
+        "stage": "S1_high_recall_ml_sentinel",
+        "purpose": "Binary threat-vs-read-only classifier optimized for recall.",
+        "recommended_models": [
+          "SGDClassifier(log_loss) or LogisticRegression on char+word hashing/TF-IDF features",
+          "XGBoost binary classifier on structured + compressed text features"
+        ],
+        "decision_policy": "If either ML sentinel says threat above threshold, do not allow allow_read_only directly."
+      },
+      {
+        "stage": "S2_deep_long_context_expert",
+        "purpose": "4-way action-gating classifier with auxiliary heads.",
+        "recommended_model": "Hierarchical ModernBERT-base + metadata fusion + multi-task heads"
+      },
+      {
+        "stage": "S3_meta_calibrator",
+        "purpose": "Cost-sensitive final routing and calibration.",
+        "recommended_models": [
+          "CatBoostClassifier",
+          "XGBoost multi-class classifier"
+        ],
+        "inputs": [
+          "S1 probabilities",
+          "S2 logits",
+          "S2 embeddings or pooled features",
+          "structured runtime features"
+        ]
+      }
+    ]
+  },
+  "models_to_try": {
+    "ml": [
+      {
+        "name": "Hashing/TF-IDF + LogisticRegression",
+        "role": "Fast high-recall lexical sentinel",
+        "text_features": {
+          "char_ngrams": "3-6",
+          "word_ngrams": "1-2",
+          "vectorizer": "HashingVectorizer or TfidfVectorizer",
+          "recommended_hash_space": {
+            "char": 1048576,
+            "word": 262144
+          }
+        },
+        "notes": [
+          "Char n-grams are critical for Unicode confusables, typoglycemia, and multilingual robustness.",
+          "Use class weights or sample weights to penalize threat->allow_read_only mistakes."
+        ]
+      },
+      {
+        "name": "XGBoost",
+        "role": "Strong structured learner and stacker",
+        "task_configs": [
+          {
+            "task": "binary threat sentinel",
+            "params": {
+              "device": "cuda",
+              "tree_method": "hist",
+              "max_depth": 8,
+              "eta": 0.05,
+              "subsample": 0.8,
+              "colsample_bytree": 0.6,
+              "min_child_weight": 2,
+              "max_bin": 256,
+              "objective": "binary:logistic",
+              "eval_metric": [
+                "aucpr",
+                "logloss"
+              ]
+            }
+          },
+          {
+            "task": "4-way stacker",
+            "params": {
+              "device": "cuda",
+              "tree_method": "hist",
+              "max_depth": 7,
+              "eta": 0.04,
+              "subsample": 0.85,
+              "colsample_bytree": 0.7,
+              "min_child_weight": 2,
+              "max_bin": 256,
+              "objective": "multi:softprob",
+              "num_class": 4,
+              "eval_metric": [
+                "mlogloss",
+                "merror"
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "CatBoost",
+        "role": "Best meta-classifier for mixed numeric/categorical features",
+        "params": {
+          "task_type": "GPU",
+          "loss_function": "MultiClass",
+          "depth": 8,
+          "learning_rate": 0.05,
+          "iterations": 2000,
+          "l2_leaf_reg": 6,
+          "border_count": 128,
+          "eval_metric": "TotalF1"
+        }
+      },
+      {
+        "name": "LightGBM",
+        "role": "Optional alternative if your environment is already configured for OpenCL GPU",
+        "params": {
+          "device": "gpu",
+          "objective": "multiclass",
+          "num_class": 4,
+          "learning_rate": 0.05,
+          "num_leaves": 127,
+          "feature_fraction": 0.7,
+          "bagging_fraction": 0.8,
+          "max_bin": 255
+        }
+      }
+    ],
+    "dl": [
+      {
+        "name": "answerdotai/ModernBERT-base",
+        "role": "Primary deep expert for English-heavy long-context classification",
+        "preferred": true
+      },
+      {
+        "name": "microsoft/mdeberta-v3-base",
+        "role": "Multilingual specialist expert; use if cross-language robustness is more important than long single-window context",
+        "preferred": true
+      },
+      {
+        "name": "allenai/longformer-base-4096",
+        "role": "Alternative single-pass 4k model if you want sparse attention instead of hierarchical chunking",
+        "preferred": false
+      },
+      {
+        "name": "answerdotai/ModernBERT-large",
+        "role": "Accuracy-oriented option for a larger machine; not the primary recommendation for 8GB training",
+        "preferred": false
+      }
+    ]
+  },
+  "deep_architecture": {
+    "primary_model_name": "Hierarchical ActionGuard-ModernBERT",
+    "text_construction": {
+      "template": [
+        "[GOAL] {goal}",
+        "[SETUP] {setup}",
+        "[ACTION] {candidate_action}",
+        "[META] surface={surface} lang={lang} domain={domain} channels={channels}",
+        "[CONTEXT] {context_chunk}"
+      ],
+      "notes": [
+        "Keep the candidate action near the front of every chunk.",
+        "Do not aggressively normalize away punctuation, path segments, Unicode, or misspellings."
+      ]
+    },
+    "chunking": {
+      "strategy": "Sliding windows over context, with goal/setup/action prepended to every chunk.",
+      "train_schedule_tokens": [
+        1024,
+        2048,
+        4096
+      ],
+      "inference_max_tokens": 4096,
+      "stride_fraction": 0.33,
+      "top_k_chunks": 3,
+      "chunk_scoring": [
+        "BM25 or lexical overlap with candidate_action path and goal",
+        "ML sentinel risk score",
+        "Heuristic boost for chunks containing URLs, callback-like strings, or approval language"
+      ]
+    },
+    "encoder": {
+      "backbone": "answerdotai/ModernBERT-base",
+      "parameter_efficient_finetuning": {
+        "method": "LoRA or DoRA",
+        "rank_candidates": [
+          8,
+          16,
+          32
+        ],
+        "alpha_candidates": [
+          16,
+          32,
+          64
+        ],
+        "dropout": 0.05,
+        "target_modules_policy": "Apply to attention and MLP linear projections after inspecting model.named_modules(); do not assume fixed names across backbones."
+      },
+      "memory_optimizations": [
+        "gradient_checkpointing",
+        "fp16 or bf16",
+        "8-bit optimizer",
+        "optional 4-bit/8-bit quantized loading if the backbone supports it"
+      ]
+    },
+    "aggregator": {
+      "type": "2-layer TransformerEncoder or gated-attention pooling over chunk embeddings",
+      "hidden_dim": 512,
+      "dropout": 0.1,
+      "why": "Lets the model learn that one risky chunk can dominate an otherwise benign long document."
+    },
+    "metadata_fusion": {
+      "categorical_embeddings": [
+        "surface",
+        "lang",
+        "domain",
+        "action_type",
+        "origin_relation",
+        "target_sensitivity_class"
+      ],
+      "numeric_features": [
+        "context_chars",
+        "url_count",
+        "cross_origin_url_count",
+        "approvalish_language_score",
+        "unicode_confusable_score",
+        "typoglycemia_score",
+        "secret_redaction_count_if_available",
+        "channel_flag_counts"
+      ],
+      "fusion_mlp": {
+        "layers": [
+          256,
+          128
+        ],
+        "dropout": 0.1,
+        "activation": "GELU"
+      }
+    },
+    "heads": {
+      "decision_head": {
+        "labels": [
+          "allow_read_only",
+          "require_shadow_replay",
+          "require_user_approval",
+          "deny"
+        ],
+        "loss": "Cost-sensitive cross-entropy"
+      },
+      "binary_threat_head": {
+        "labels": [
+          "allow_read_only",
+          "threat"
+        ],
+        "loss": "Asymmetric focal or weighted BCE"
+      },
+      "reason_head": {
+        "examples": [
+          "cross_origin",
+          "same_origin_sensitive",
+          "approval_spoof",
+          "callback_drift",
+          "manifest_schema_mismatch",
+          "memory_promotion_risk",
+          "hidden_channel",
+          "ocr_or_metadata_risk",
+          "unicode_or_typoglycemia"
+        ],
+        "loss": "BCEWithLogits"
+      },
+      "embedding_head_optional": {
+        "purpose": "Supervised contrastive separation of benign vs threat and hard near-miss families",
+        "loss": "SupCon or triplet-style auxiliary loss",
+        "weight": 0.05
+      }
+    }
+  },
+  "training_plan": {
+    "phase_0_smoke_test": {
+      "data": "rendered_sample_10000.jsonl.gz + 20k rows from additional_v2",
+      "goal": "Verify parsing, feature generation, and metric computation."
+    },
+    "phase_1_ml_sentinel": {
+      "data": "all 1,000,000 train rows",
+      "sampling": "no downsampling; use all positives and negatives",
+      "objective": "maximize threat recall",
+      "threshold_selection": "choose threshold on valid to hit >=0.995 threat recall before any 4-way routing"
+    },
+    "phase_2_deep_curriculum": [
+      {
+        "stage": "short_context_warmup",
+        "max_length": 1024,
+        "epochs": 1.0,
+        "train_subset": 300000,
+        "sampling": "balanced by label, with 2x oversampling of high_confusion_attack_families"
+      },
+      {
+        "stage": "mid_context",
+        "max_length": 2048,
+        "epochs": 1.0,
+        "train_subset": 600000,
+        "sampling": "all threat classes + sampled negatives; keep oversampling of hard families"
+      },
+      {
+        "stage": "long_context",
+        "max_length": 4096,
+        "epochs": 0.5,
+        "train_subset": 1000000,
+        "sampling": "full training set with hard-negative replay"
+      }
+    ],
+    "phase_3_hard_negative_mining": {
+      "sources": [
+        "false allow_read_only predictions on any threat label",
+        "false shadow_replay predictions on deny",
+        "false shadow_replay or deny predictions on require_user_approval"
+      ],
+      "replay_factor": 3
+    },
+    "phase_4_stacking_and_calibration": {
+      "inputs": [
+        "ML sentinel probabilities",
+        "deep model logits",
+        "deep pooled embeddings",
+        "structured features"
+      ],
+      "model": "CatBoost or XGBoost",
+      "calibration": [
+        "temperature scaling on deep logits",
+        "isotonic or Platt scaling for binary threat probability if needed"
+      ]
+    }
+  },
+  "losses_and_costs": {
+    "decision_head_cost_matrix": {
+      "gold_allow_read_only": {
+        "pred_allow_read_only": 0.0,
+        "pred_require_shadow_replay": 1.0,
+        "pred_require_user_approval": 1.5,
+        "pred_deny": 2.0
+      },
+      "gold_require_shadow_replay": {
+        "pred_allow_read_only": 8.0,
+        "pred_require_shadow_replay": 0.0,
+        "pred_require_user_approval": 2.0,
+        "pred_deny": 2.5
+      },
+      "gold_require_user_approval": {
+        "pred_allow_read_only": 10.0,
+        "pred_require_shadow_replay": 2.5,
+        "pred_require_user_approval": 0.0,
+        "pred_deny": 3.0
+      },
+      "gold_deny": {
+        "pred_allow_read_only": 12.0,
+        "pred_require_shadow_replay": 2.0,
+        "pred_require_user_approval": 3.0,
+        "pred_deny": 0.0
+      }
+    },
+    "total_loss": {
+      "formula": "1.0 * decision_ce + 0.8 * binary_threat_loss + 0.2 * reason_bce + 0.05 * contrastive_optional + 0.1 * consistency_penalty",
+      "consistency_penalty": "Binary threat head should remain consistent with 4-way head marginals."
+    },
+    "class_weight_starting_point": {
+      "allow_read_only": 1.0,
+      "require_shadow_replay": 1.3,
+      "require_user_approval": 2.0,
+      "deny": 1.6
+    }
+  },
+  "rtx4060ti_8gb_profile": {
+    "precision": "bf16 if stable on your stack, otherwise fp16",
+    "trainer_features": [
+      "gradient_checkpointing=True",
+      "auto_find_batch_size=True",
+      "torch.compile optional after the first stable run"
+    ],
+    "optimizer": "bitsandbytes AdamW 8-bit if supported; otherwise AdamW with smaller batch",
+    "deep_model_batching": {
+      "1024_tokens": {
+        "per_device_batch_size": 4,
+        "gradient_accumulation_steps": 8
+      },
+      "2048_tokens": {
+        "per_device_batch_size": 2,
+        "gradient_accumulation_steps": 16
+      },
+      "4096_tokens": {
+        "per_device_batch_size": 1,
+        "gradient_accumulation_steps": 16
+      }
+    },
+    "notes": [
+      "These are safe starting points, not guaranteed maxima.",
+      "The 4096-token stage is primarily for the final curriculum pass."
+    ]
+  },
+  "metrics": {
+    "primary": [
+      "threat_recall",
+      "threat_false_negative_rate",
+      "deny_recall",
+      "require_user_approval_recall",
+      "require_shadow_replay_recall",
+      "cost_weighted_error"
+    ],
+    "secondary": [
+      "macro_f1",
+      "weighted_f1",
+      "PR_AUC_threat",
+      "ECE",
+      "Brier_score"
+    ],
+    "slice_metrics": [
+      "per_language recall",
+      "per_domain recall",
+      "per_attack_family recall",
+      "per_surface recall",
+      "same_origin_sensitive slice recall",
+      "unicode_confusable slice recall",
+      "typoglycemia slice recall"
+    ],
+    "release_gate": [
+      "threat recall >= target on validation and test",
+      "no catastrophic drop on multilingual slices",
+      "no single high_confusion_attack_family below the threat recall floor"
+    ]
+  },
+  "practical_recommendation": {
+    "best_single_local_build": "Hierarchical ModernBERT-base + metadata fusion + ML sentinel + CatBoost stacker",
+    "best_multilingual_local_build": "mDeBERTa-v3-base hierarchical expert + same sentinel/stacker recipe",
+    "best_cpu_light_baseline": "char/word TF-IDF + LogisticRegression",
+    "what_not_to_do": [
+      "Do not rely on plain accuracy.",
+      "Do not use attack_family or research_grounding as input features.",
+      "Do not insist on single-pass 8k training on 8GB if it destabilizes recall; hierarchical chunking is the better trade-off."
+    ]
+  },
+  "references": {
+    "modernbert": "ModernBERT-base has a native 8,192-token context and 149M parameters; Large is 395M.",
+    "modernbert_limitations": "ModernBERT training data is primarily English and code.",
+    "longformer": "Longformer-base official card supports up to 4,096 tokens.",
+    "mdeberta": "mDeBERTa-v3-base is multilingual and has an 86M-parameter backbone with a large embedding layer.",
+    "bitsandbytes": "bitsandbytes supports 8-bit optimizers and 4-bit/8-bit quantization; QLoRA is the standard 4-bit adaptation path.",
+    "trainer": "Transformers Trainer gradient checkpointing saves memory at the cost of slower training.",
+    "peft": "PEFT supports sequence classification models and DoRA can improve low-rank performance.",
+    "xgboost": "XGBoost supports GPU training with device=cuda and tree_method=hist.",
+    "catboost": "CatBoost supports GPU training.",
+    "lightgbm": "LightGBM supports GPU mode via device=gpu."
+  }
+}

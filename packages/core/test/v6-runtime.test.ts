@@ -3,8 +3,10 @@ import { generateKeyPairSync, sign as signBuffer } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import {
+  applyModelGuardAssessment,
   applyV6ObservationMediation,
   buildReplayBundle,
+  buildModelGuardObservationRequest,
   compileObservationV6,
   compilePolicy,
   createApprovalIntentPayloadV6,
@@ -13,6 +15,7 @@ import {
   mintMemoryPromotionCapabilityV6,
   promoteMemoryRecordV6,
   stageMemoryRecordV6,
+  tightenAuthoritiesWithModelGuard,
   type PolicyPack,
   type TaskSession
 } from "@safebrowse/core";
@@ -216,5 +219,73 @@ describe("safebrowse core v6 runtime", () => {
     expect(replay.metrics.actorCounts?.sdk).toBe(1);
     expect(replay.metrics.actorCounts?.raw).toBe(1);
     expect(replay.metrics.blockingDecisions).toBe(1);
+  });
+
+  it("builds a canonical model-guard request and tightens authorities only upward", () => {
+    const session = buildSession();
+    const observed = compileObservationV6({
+      surfaceType: "html",
+      url: "https://safe.example/docs",
+      html: `<html><body><a href="https://docs.python.org/3/tutorial/">Docs</a></body></html>`,
+      visibleText: "Visible docs only. Docs",
+      captureAttestation: {
+        captureMethod: "rendered_dom",
+        visibilityAttested: true,
+        frameCoverage: "full",
+        shadowDomCoverage: "full",
+        unsupportedSubtrees: []
+      }
+    });
+    const mediated = applyV6ObservationMediation(
+      observed.compiledObservation,
+      observed.plannerView
+    );
+    const authorities = mintCapabilitiesForObservationV6(
+      session,
+      observed.compiledObservation,
+      mediated.plannerView
+    );
+
+    const request = buildModelGuardObservationRequest(
+      session,
+      observed.compiledObservation,
+      mediated.plannerView,
+      authorities
+    );
+
+    expect(request.session.userGoal).toContain("Review public documentation safely");
+    expect(request.observation.visibleText).toContain("Visible docs only");
+    expect(request.targets[0].targetPathClass).toBe("docs_navigation");
+
+    const assessed = applyModelGuardAssessment(
+      observed.compiledObservation,
+      mediated.plannerView,
+      mediated.verdict,
+      {
+        assessmentId: "assessment-v6",
+        bundleVersion: "bundle-v1",
+        featureSchemaVersion: "schema-v1",
+        binaryThreatProbability: 0.73,
+        decisionLabel: "require_user_approval",
+        calibratedDecisionLabel: "require_user_approval",
+        coarseReasonCodes: ["MODEL_GUARD_REQUIRE_USER_APPROVAL"],
+        evidenceChunkIds: ["chunk-1"],
+        pipeline: {
+          runtimeMode: "python_sidecar",
+          enforcementMode: "tighten",
+          scoredAt: "2026-04-03T00:00:00.000Z"
+        }
+      }
+    );
+    const tightened = tightenAuthoritiesWithModelGuard(
+      authorities,
+      assessed.compiledObservation.modelAssessment
+    );
+
+    expect(assessed.verdict.decision).toBe("ALLOW");
+    expect(assessed.compiledObservation.modelAssessment?.bundleVersion).toBe("bundle-v1");
+    expect(tightened).toHaveLength(1);
+    expect(tightened[0].requiresApproval).toBe(true);
+    expect(tightened[0].derivedSensitiveSink).toBe(true);
   });
 });
