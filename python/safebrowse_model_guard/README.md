@@ -16,6 +16,7 @@ node scripts/run-python-module.mjs -m pip install -e python/safebrowse_model_gua
 node scripts/run-python-module.mjs scripts/python/run_model_guard_cli.py prepare_data --manifest model/prompt_injection_ml_dataset/manifest.json
 node scripts/run-python-module.mjs scripts/python/run_model_guard_cli.py train_sentinel --manifest model/prompt_injection_ml_dataset/manifest.json --output-dir .local/model_guard/sentinel
 node scripts/run-python-module.mjs scripts/python/run_model_guard_cli.py train_expert --manifest model/prompt_injection_ml_dataset/manifest.json --output-dir .local/model_guard/expert --backbone answerdotai/ModernBERT-base
+node scripts/run-python-module.mjs scripts/python/run_model_guard_cli.py train_recipe --manifest model/prompt_injection_ml_dataset/manifest.json --recipe model/prompt_injection_ml_dataset/training_recipe_additional_v2_rtx4060ti_8gb.json --output-dir .local/model_guard/full_recipe --backbone answerdotai/ModernBERT-base --resume
 node scripts/run-python-module.mjs scripts/python/run_model_guard_cli.py train_stacker --manifest model/prompt_injection_ml_dataset/manifest.json --sentinel-dir .local/model_guard/sentinel --expert-dir .local/model_guard/expert --output-dir .local/model_guard/stacker
 node scripts/run-python-module.mjs scripts/python/run_model_guard_cli.py package_runtime_bundle --sentinel-dir .local/model_guard/sentinel --expert-dir .local/model_guard/expert --stacker-dir .local/model_guard/stacker --output-dir .local/model_guard/runtime_bundle --bundle-version runtime-bundle-v1
 node scripts/run-python-module.mjs scripts/python/run_model_guard_cli.py serve --bundle-dir .local/model_guard/runtime_bundle --host 127.0.0.1 --port 8788
@@ -29,7 +30,16 @@ Use `corepack pnpm model:data:migrate` once per workstation to move local datase
 
 ## Current trainer shape
 
-The checked-in package now defaults `train_expert` to a real transformer-backed chunk expert around `answerdotai/ModernBERT-base`, paired with the char-ngram sentinel and CatBoost stacker.
+The checked-in package now supports the exact staged recipe for the private `additional_v2` corpus:
+
+- sentinel on the recipe-declared train count with resumable checkpoints
+- hierarchical grouped-chunk `ModernBERT-base` expert stages at `1024 -> 2048 -> 4096`
+- RTX 4060 Ti batch and gradient accumulation settings taken from the recipe JSON
+- hard-negative replay before the final long-context stage
+- CatBoost stacker plus packaged runtime bundle and validation/test evaluation
+- resumable expert checkpoints saved during the long transformer stages
+
+Use `train_recipe` for the expert-authored pipeline. `train_expert` remains available for bounded experiments and targeted stage work.
 
 - default expert backend: `transformers`
 - explicit fast fallback for tests and low-dependency environments: `--backend smoke`

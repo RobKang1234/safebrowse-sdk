@@ -10,6 +10,7 @@ from .training import (
     evaluate,
     package_runtime_bundle,
     prepare_data,
+    train_recipe,
     train_expert,
     train_sentinel,
     train_stacker,
@@ -35,6 +36,9 @@ def build_parser() -> argparse.ArgumentParser:
     sentinel_parser.add_argument("--data-root")
     sentinel_parser.add_argument("--limit", type=int)
     sentinel_parser.add_argument("--threat-threshold", type=float, default=0.55)
+    sentinel_parser.add_argument("--checkpoint-dir")
+    sentinel_parser.add_argument("--checkpoint-batches", type=int, default=32)
+    sentinel_parser.add_argument("--resume", action="store_true")
 
     expert_parser = subparsers.add_parser("train_expert")
     expert_parser.add_argument("--manifest", required=True)
@@ -47,7 +51,24 @@ def build_parser() -> argparse.ArgumentParser:
     expert_parser.add_argument("--top-k-chunks", type=int, default=3)
     expert_parser.add_argument("--epochs", type=float, default=1.0)
     expert_parser.add_argument("--batch-size", type=int, default=1)
+    expert_parser.add_argument("--gradient-accumulation-steps", type=int, default=1)
     expert_parser.add_argument("--learning-rate", type=float, default=2e-5)
+    expert_parser.add_argument("--checkpoint-dir")
+    expert_parser.add_argument("--checkpoint-steps", type=int, default=500)
+    expert_parser.add_argument("--resume", action="store_true")
+    expert_parser.add_argument("--stage-name")
+
+    recipe_parser = subparsers.add_parser("train_recipe")
+    recipe_parser.add_argument("--manifest", required=True)
+    recipe_parser.add_argument("--recipe", required=True)
+    recipe_parser.add_argument("--output-dir", required=True)
+    recipe_parser.add_argument("--data-root")
+    recipe_parser.add_argument("--backbone", default="answerdotai/ModernBERT-base")
+    recipe_parser.add_argument("--backend", default="transformers", choices=["transformers", "smoke"])
+    recipe_parser.add_argument("--threat-threshold", type=float, default=0.55)
+    recipe_parser.add_argument("--checkpoint-steps", type=int, default=500)
+    recipe_parser.add_argument("--bundle-version")
+    recipe_parser.add_argument("--resume", action="store_true")
 
     stacker_parser = subparsers.add_parser("train_stacker")
     stacker_parser.add_argument("--manifest", required=True)
@@ -100,6 +121,9 @@ def main() -> None:
                 data_root=args.data_root,
                 limit=args.limit,
                 threat_threshold=args.threat_threshold,
+                checkpoint_dir=args.checkpoint_dir,
+                checkpoint_batches=args.checkpoint_batches,
+                resume=args.resume,
             )
         )
         return
@@ -116,7 +140,28 @@ def main() -> None:
                 top_k_chunks=args.top_k_chunks,
                 epochs=args.epochs,
                 batch_size=args.batch_size,
+                gradient_accumulation_steps=args.gradient_accumulation_steps,
                 learning_rate=args.learning_rate,
+                checkpoint_dir=args.checkpoint_dir,
+                checkpoint_steps=args.checkpoint_steps,
+                resume=args.resume,
+                stage_name=args.stage_name,
+            )
+        )
+        return
+    if args.command == "train_recipe":
+        _print_json(
+            train_recipe(
+                args.manifest,
+                recipe_path=args.recipe,
+                output_dir=args.output_dir,
+                data_root=args.data_root,
+                backbone=args.backbone,
+                backend=args.backend,
+                threat_threshold=args.threat_threshold,
+                checkpoint_steps=args.checkpoint_steps,
+                bundle_version=args.bundle_version,
+                resume=args.resume,
             )
         )
         return

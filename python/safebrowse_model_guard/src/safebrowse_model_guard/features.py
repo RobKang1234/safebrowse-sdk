@@ -40,6 +40,16 @@ class CanonicalExample:
     structured: dict[str, Any]
     reasons: list[str]
     candidate_action: str
+    goal: str
+    setup: str
+    context: str
+    lang: str
+    domain: str
+    surface: str
+    channels: list[str]
+    attack_family: str
+    target_class: str
+    target_url: str | None
 
 
 def normalize_text(value: str) -> str:
@@ -182,8 +192,16 @@ def example_from_dataset_row(record: dict[str, Any]) -> CanonicalExample:
     candidate_action = candidate_action_from_record(record)
     candidate = record.get("candidate_action", {})
     target_url = candidate.get("target") if isinstance(candidate, dict) else None
+    goal = str(record.get("goal", ""))
+    setup = str(record.get("setup", ""))
+    context = str(record.get("context", ""))
+    lang = str(record.get("lang", "unknown"))
+    domain = str(record.get("domain", "unknown"))
+    surface = str(record.get("surface", "unknown"))
+    channels = [str(value) for value in record.get("channels", [])]
+    attack_family = str(record.get("attack_family", "none"))
+    target_class = str(record.get("target_class", "unknown"))
     source_origin = None
-    context = record.get("context", "")
     if "Current primary origin:" in context:
         fragment = context.split("Current primary origin:", 1)[1].splitlines()[0].strip()
         source_origin = fragment
@@ -191,11 +209,11 @@ def example_from_dataset_row(record: dict[str, Any]) -> CanonicalExample:
         text,
         source_origin=source_origin,
         target_url=target_url,
-        target_class=record.get("target_class"),
-        channels=record.get("channels"),
-        surface=record.get("surface"),
-        lang=record.get("lang"),
-        domain=record.get("domain"),
+        target_class=target_class,
+        channels=channels,
+        surface=surface,
+        lang=lang,
+        domain=domain,
     )
     return CanonicalExample(
         example_id=str(record.get("id", "")),
@@ -205,6 +223,16 @@ def example_from_dataset_row(record: dict[str, Any]) -> CanonicalExample:
         structured=structured,
         reasons=list(record.get("reasons", [])),
         candidate_action=candidate_action,
+        goal=goal,
+        setup=setup,
+        context=context,
+        lang=lang,
+        domain=domain,
+        surface=surface,
+        channels=channels,
+        attack_family=attack_family,
+        target_class=target_class,
+        target_url=target_url,
     )
 
 
@@ -255,6 +283,20 @@ def example_from_observation_request(request_payload: dict[str, Any]) -> Canonic
         reasons=list(observation.get("semanticAuthorityFindings", []))
         + list(observation.get("policyFindings", [])),
         candidate_action=action_text,
+        goal=str(session.get("userGoal", "")),
+        setup="",
+        context=str(observation.get("contextText", "")),
+        lang=str(session.get("lang", "unknown")),
+        domain=str(session.get("domain", "unknown")),
+        surface=str(observation.get("surfaceType", "unknown")),
+        channels=[
+            key.removeprefix("channel_")
+            for key, value in observation.get("channelFlags", {}).items()
+            if value is True
+        ],
+        attack_family="runtime_observation",
+        target_class=str(primary.get("targetPathClass", "unknown")),
+        target_url=primary.get("targetUrl"),
     )
 
 
