@@ -22,12 +22,14 @@ describe("safebrowse daemon cli", () => {
     const parsed = parseDaemonOptions([], {
       SAFEBROWSE_HOST: "127.0.0.2",
       SAFEBROWSE_PORT: "9001",
-      SAFEBROWSE_ROOT_DIR: "."
+      SAFEBROWSE_ROOT_DIR: ".",
+      SAFEBROWSE_DEPLOYMENT_PROFILE: "secure_v6"
     });
 
     expect(parsed.host).toBe("127.0.0.2");
     expect(parsed.port).toBe(9001);
     expect(parsed.rootDir).toMatch(/[\\/]safebrowse-sdk$/);
+    expect(parsed.deploymentProfile).toBe("secure_v6");
   });
 
   it("formats help text for the public bin", () => {

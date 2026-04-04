@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { extractTextFromHtml } from "@safebrowse/core";
+import { extractTextFromHtml } from "../src/htmlText.js";
 
 describe("extractTextFromHtml", () => {
   it("drops script and style content even when closing tags are malformed", () => {

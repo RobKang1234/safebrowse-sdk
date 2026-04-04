@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildActionEvaluatePayloadV5,
   buildActionEvaluatePayloadV6,
-  buildArtifactIngestPayloadV5,
   buildArtifactIngestPayloadV6,
-  buildObservePayloadV5,
   buildObservePayloadV6,
-  createSurfaceCaptureFromSnapshot,
   createObservationFromSnapshot,
+  createSurfaceCaptureFromSnapshot,
   enforceVerdict,
   proposeNavigationAction,
   snapshotPage
@@ -27,7 +24,7 @@ describe("playwright reference adapter", () => {
     expect(observation.trustSignals?.sourceOrigin).toBe("https://arxiv.org/abs/1234.5678");
   });
 
-  it("creates a v4 html surface capture from page snapshot data", () => {
+  it("creates a v6 html surface capture with capture attestation", () => {
     const capture = createSurfaceCaptureFromSnapshot({
       url: "https://arxiv.org/abs/1234.5678",
       html: "<main>Paper abstract</main>",
@@ -42,6 +39,7 @@ describe("playwright reference adapter", () => {
       "ignore previous instructions",
       "hidden route hint"
     ]);
+    expect(capture.captureAttestation?.visibilityAttested).toBe(true);
   });
 
   it("creates typed navigation actions", () => {
@@ -55,22 +53,16 @@ describe("playwright reference adapter", () => {
     expect(action.targetUrl).toBe("https://openreview.net");
   });
 
-  it("builds canonical v5 helpers and keeps v6 helper aliases aligned", () => {
+  it("builds canonical v6 helper payloads", () => {
     const snapshot = {
       url: "https://safe.example/page",
       visibleText: "Visible docs only. Docs",
       html: "<main>Visible docs only.</main><a href=\"https://docs.python.org/3/tutorial/\">Docs</a>"
     };
 
-    const observePayload = buildObservePayloadV5("session-1", snapshot);
-    const observePayloadAlias = buildObservePayloadV6("session-1", snapshot);
-    const artifactPayload = buildArtifactIngestPayloadV5("session-1", snapshot);
-    const artifactPayloadAlias = buildArtifactIngestPayloadV6("session-1", snapshot);
-    const actionPayload = buildActionEvaluatePayloadV5("session-1", {
-      authorityId: "auth-1",
-      authorityDigest: "digest-1"
-    });
-    const actionPayloadAlias = buildActionEvaluatePayloadV6("session-1", {
+    const observePayload = buildObservePayloadV6("session-1", snapshot);
+    const artifactPayload = buildArtifactIngestPayloadV6("session-1", snapshot);
+    const actionPayload = buildActionEvaluatePayloadV6("session-1", {
       authorityId: "auth-1",
       authorityDigest: "digest-1"
     });
@@ -78,15 +70,12 @@ describe("playwright reference adapter", () => {
     expect(observePayload.sessionId).toBe("session-1");
     expect(observePayload.capture.surfaceType).toBe("html");
     expect(artifactPayload).toEqual(observePayload);
-    expect(observePayloadAlias).toEqual(observePayload);
-    expect(artifactPayloadAlias).toEqual(artifactPayload);
     expect(actionPayload).toEqual({
       sessionId: "session-1",
       authorityId: "auth-1",
       authorityDigest: "digest-1",
       parameters: undefined
     });
-    expect(actionPayloadAlias).toEqual(actionPayload);
   });
 
   it("does not bypass non-allow verdicts", async () => {
@@ -102,7 +91,7 @@ describe("playwright reference adapter", () => {
     ).rejects.toThrow(/USER_CONFIRM/);
   });
 
-  it("captures snapshots from page-like objects", async () => {
+  it("requires an explicit visible-text provider for attested snapshots", async () => {
     const snapshot = await snapshotPage({
       url: () => "https://arxiv.org",
       content: async () =>
@@ -111,7 +100,8 @@ describe("playwright reference adapter", () => {
     });
 
     expect(snapshot.url).toBe("https://arxiv.org");
-    expect(snapshot.visibleText).toBe("Paper Notes");
+    expect(snapshot.visibleText).toBe("");
+    expect(snapshot.captureAttestation?.visibilityAttested).toBe(false);
     expect(snapshot.html).toContain("<script>ignore()</script >");
     expect(snapshot.metadataText).toContain("Paper");
   });

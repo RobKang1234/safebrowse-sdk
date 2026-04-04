@@ -2,7 +2,7 @@
 
 SafeBrowse is app-side security middleware for browser-use agents. It sits on the action path between an agent and risky external surfaces, then returns structured decisions, capability-bound execution plans, replay data, and guarded connector flows without owning the planner itself.
 
-The repository now ships one canonical secure surface. `secure_v5` owns the claim-bearing `/v5/*` API, including the staged-memory, artifact-reference, connector-binding, and replay capabilities that previously lived behind a separate redesign lane. `/v6/*` remains accepted only as a deprecated compatibility alias that is rewritten onto `/v5/*`.
+The repository now ships one canonical secure surface. `secure_v6` owns the claim-bearing `/v6/*` API, including the staged-memory, artifact-reference, connector-binding, and replay capabilities that were consolidated out of earlier versioned lanes.
 
 ## What Ships Here
 
@@ -27,7 +27,7 @@ The repository now ships one canonical secure surface. `secure_v5` owns the clai
 
 ## Current Secure Profiles
 
-`secure_v5` is the only first-class secure deployment profile:
+`secure_v6` is the only first-class secure deployment profile:
 
 - Server-owned observation compilation
 - Parser isolation for supported capture formats
@@ -37,7 +37,7 @@ The repository now ships one canonical secure surface. `secure_v5` owns the clai
 - Connector handles instead of model-visible token material
 - Tiered memory authority separation
 - System-wide secret isolation and noninterference checks
-- Wrapper parity across direct, Python, and npm-installed execution paths in `secure_v5`
+- Wrapper parity across direct, Python, and npm-installed execution paths in `secure_v6`
 - Planner-safe observations by default
 - Explicit authority candidates alongside historical capability descriptors
 - Registry-hash-bound connector preparation and callback verification
@@ -45,29 +45,29 @@ The repository now ships one canonical secure surface. `secure_v5` owns the clai
 - Staged memory with source-class rules, corroboration, and rollback to the prior trusted baseline
 - Replay bundles with actor attribution
 
-Supported V5 claim surfaces:
+Supported V6 claim surfaces:
 
 - HTML and DOM captures
 - Verified tool manifests
 - OAuth and connector flows
 - Server-owned memory promotion paths
 
-Other supported content surfaces may still be observed and summarized, but they do not directly mint effectful capabilities in the V5 claim-bearing profile. Unsupported or partially parsed surfaces fail closed and are outside the prevention claim.
+Other supported content surfaces may still be observed and summarized, but they do not directly mint effectful capabilities in the V6 claim-bearing profile. Unsupported or partially parsed surfaces fail closed and are outside the prevention claim.
 
-`secure_v6` is no longer a separate product surface in this repository. If older callers still send `/v6/*` routes or `secure_v6`, the daemon rewrites them onto `secure_v5` for compatibility.
+Older versioned routes are retired from the public claim-bearing surface. Current callers should use `/v6/*` and `secure_v6`.
 
 ## Latest Internal Assessment
 
-The latest repo-generated V5 internal assessment bundle is preserved in [demo-output/latest/report.html](demo-output/latest/report.html), [demo-output/latest/report.md](demo-output/latest/report.md), [demo-output/latest/summary.json](demo-output/latest/summary.json), [demo-output/latest/internal-assessment.md](demo-output/latest/internal-assessment.md), and [demo-output/latest/internal-assessment.json](demo-output/latest/internal-assessment.json).
+The latest repo-generated internal assessment bundle is preserved in [demo-output/latest/report.html](demo-output/latest/report.html), [demo-output/latest/report.md](demo-output/latest/report.md), [demo-output/latest/summary.json](demo-output/latest/summary.json), [demo-output/latest/internal-assessment.md](demo-output/latest/internal-assessment.md), and [demo-output/latest/internal-assessment.json](demo-output/latest/internal-assessment.json).
 
-As of April 2, 2026, against the repo-pinned V5 secure-claim corpus in [config/auditor/v5_secure_claim_suite.json](config/auditor/v5_secure_claim_suite.json):
+As of April 3, 2026, against the repo-pinned secure-claim corpus in [config/auditor/v6_secure_claim_suite.json](config/auditor/v6_secure_claim_suite.json):
 
 - Total cases: `7`
 - Passed: `7`
 - Failed: `0`
 - Verdict: `qualified_positive_pending_external_audit`
 
-The saved V5 bundle is deterministic and claim-scoped: it checks hidden-authority suppression, visible navigation, connector approval binding, callback mismatch rejection, unsigned approval rejection, and legacy-route disablement under `secure_v5`.
+The saved bundle is deterministic and claim-scoped: it checks hidden-authority suppression, visible navigation, connector approval binding, callback mismatch rejection, unsigned approval rejection, and legacy-route disablement under `secure_v6`.
 
 This is intentionally labeled as an internal assessment. External audit status is tracked separately and should not be inferred from repo-generated artifacts alone.
 
@@ -75,7 +75,7 @@ This is intentionally labeled as an internal assessment. External audit status i
 
 In this repository, "fully tested" now means more than unit tests passing.
 
-For the supported V5 prevention surface, the same hostile and benign cases are checked through:
+For the supported V6 prevention surface, the same hostile and benign cases are checked through:
 
 - The direct daemon path
 - The installed Python wrapper and generated template path
@@ -90,14 +90,14 @@ Those three paths must agree on the normalized claim-relevant outputs:
 - Candidate capability kinds
 - Final verdict decision and reason codes
 
-That parity gate runs through [scripts/ci/run-wrapper-parity-v5.mjs](scripts/ci/run-wrapper-parity-v5.mjs). The full deterministic auditor review run is driven by [scripts/threat-demo/run-auditor-suite-v5.ts](scripts/threat-demo/run-auditor-suite-v5.ts).
+That parity gate runs through [scripts/ci/run-wrapper-parity-v6.mjs](scripts/ci/run-wrapper-parity-v6.mjs). The full deterministic auditor review run is driven by [scripts/threat-demo/run-auditor-suite-v6.ts](scripts/threat-demo/run-auditor-suite-v6.ts).
 
 ## Quick Install
 
 ### Daemon
 
 ```bash
-npx @safebrowse/daemon --host 127.0.0.1 --port 8787 --deployment-profile secure_v5 --approval-broker-public-key-path ./knowledge_base/signing/safebrowse_vf_ed25519_public.pem
+npx @safebrowse/daemon --host 127.0.0.1 --port 8787 --deployment-profile secure_v6 --approval-broker-public-key-path ./knowledge_base/signing/safebrowse_vf_ed25519_public.pem
 ```
 
 ### Python client
@@ -119,7 +119,7 @@ npm install @safebrowse/playwright-adapter playwright-core
 docker run --rm -p 8787:8787 ghcr.io/robkang1234/safebrowse-daemon:latest
 ```
 
-## Recommended V5 Flow
+## Recommended V6 Flow
 
 ### 1. Start a session
 
@@ -128,10 +128,10 @@ from safebrowse_client import SafeBrowseClient
 
 client = SafeBrowseClient("http://127.0.0.1:8787")
 
-session = client.start_session_v5(
+session = client.start_session(
     {
         "taskId": "vendor-review-1",
-        "userGoal": "Review the page and stay read-only unless an explicitly granted capability says otherwise.",
+        "userGoal": "Review the page and stay read-only unless an explicitly granted authority says otherwise.",
         "allowedOrigins": ["https://docs.python.org", "https://arxiv.org"],
         "allowedVerbs": ["navigate", "summarize"]
     }
@@ -141,39 +141,38 @@ session = client.start_session_v5(
 ### 2. Compile an observation
 
 ```python
-compiled = client.observe_v5(
+from safebrowse_client import build_html_surface_capture
+
+compiled = client.observe(
     {
         "sessionId": session["session"]["sessionId"],
-        "capture": {
-            "surfaceType": "html",
-            "url": "https://docs.python.org/3/",
-            "html": "<main>Python 3 documentation home page ...</main>",
-            "visibleText": "Python 3 documentation home page ...",
-            "hiddenText": [],
-            "metadataText": []
-        }
+        "capture": build_html_surface_capture(
+            url="https://docs.python.org/3/",
+            html="<main>Python 3 documentation home page ...</main>",
+            visible_text="Python 3 documentation home page ..."
+        )
     }
 )
 ```
 
-### 3. Let the model choose only from minted capabilities
+### 3. Let the model choose only from minted authorities
 
 ```python
 planner_view = compiled["plannerView"]
-capabilities = compiled["capabilities"]
+authorities = compiled["authorityCandidates"]
 
-selected = capabilities[0]
-result = client.action_v5(
+selected = authorities[0]
+result = client.action(
     {
         "sessionId": session["session"]["sessionId"],
-        "capabilityId": selected["capabilityId"],
-        "capabilityDigest": selected["capabilityDigest"],
+        "authorityId": selected["authorityId"],
+        "authorityDigest": selected["authorityDigest"],
         "parameters": {}
     }
 )
 ```
 
-The model does not get to invent a new URL, selector, callback URI, or sink. It may only choose from server-minted capabilities bound to the session, workflow step, origin, target class, parameter schema, digest, and source evidence.
+The model does not get to invent a new URL, selector, callback URI, or sink. It may only choose from server-minted authorities bound to the session, workflow step, origin, target class, parameter schema, digest, and source evidence.
 
 ### 4. Use the packaged starter template
 
@@ -191,22 +190,21 @@ The main runtime entrypoints exported from [packages/core/src/index.ts](packages
 
 | Function | Purpose |
 | --- | --- |
-| `compileObservationV5` | Compile a supported surface into a provenance-aware observation and planner-safe view |
-| `mintCapabilitiesForObservationV5` | Mint session-bound, digest-bound, non-replayable capabilities from supported authority evidence |
-| `evaluateCapabilityUseV5` | Enforce capability-bound action execution |
-| `createApprovalIntentPayloadV5` | Build the broker-signed approval payload that binds capability and workflow intent |
-| `issueApprovalEnvelopeV5` | Enforce broker-signed, semantically bound approval issuance |
-| `prepareToolOnboardingV5` | Enforce registry-backed, approval-envelope-bound connector preparation |
-| `verifyToolCallbackV5` | Verify callback state, origin, registry binding, and allowlisted payload fields |
-| `evaluateMemoryWriteV5` | Place memory into trusted, candidate, or tainted tiers without caller authority metadata |
-| `promoteMemoryRecordV5` | Promote candidate memory into trusted durable state with validation or approval |
-| `rollbackMemoryRecordV5` | Restore a trusted snapshot after contradiction or operator action |
-| `stageMemoryRecordV5` | Stage V5 memory with source-class, corroboration, and lineage metadata |
-| `promoteStagedMemoryRecordV5` | Promote staged V5 memory with approval-bound ticket consumption |
+| `compileObservationV6` | Compile a supported surface into a provenance-aware observation and planner-safe view |
+| `mintCapabilitiesForObservationV6` | Mint session-bound, digest-bound, non-replayable capabilities from supported authority evidence |
+| `evaluateCapabilityUseV6` | Enforce capability-bound action execution |
+| `createApprovalIntentPayloadV6` | Build the broker-signed approval payload that binds capability and workflow intent |
+| `issueApprovalEnvelopeV6` | Enforce broker-signed, semantically bound approval issuance |
+| `prepareToolOnboardingV6` | Enforce registry-backed, approval-envelope-bound connector preparation |
+| `verifyToolCallbackV6` | Verify callback state, origin, registry binding, and allowlisted payload fields |
+| `stageMemoryRecordV6` | Stage V6 memory with source-class, corroboration, and lineage metadata |
+| `promoteStagedMemoryRecordV6` | Promote staged V6 memory with approval-bound ticket consumption |
+| `promoteMemoryRecordV6` | Promote candidate memory into trusted durable state with validation or approval |
+| `rollbackMemoryRecordV6` | Restore a trusted snapshot after contradiction or operator action |
 | `assertNoSecretsInJson` | Enforce secret noninterference for JSON payloads |
 | `buildReplayBundle` | Build replayable forensic bundles from runtime events |
 
-Legacy `v1`, `v2`, and transitional `v4` functions remain exported for compatibility, but they are not part of the V5 prevention claim.
+Legacy `v1`, `v2`, `v4`, and `v5` functions are archived only; they are not part of the V6 prevention claim.
 
 ## Daemon Routes
 
@@ -214,24 +212,20 @@ The localhost daemon in [packages/daemon/src/server.ts](packages/daemon/src/serv
 
 | Route | Purpose |
 | --- | --- |
-| `POST /v5/session/start` | Start a server-owned secure session under `secure_v5` |
-| `POST /v5/observe` | Compile a supported surface into a planner-safe observation; returns capabilities plus canonical V5 authority candidates |
-| `POST /v5/capability/use` | Evaluate a single historical V5 capability use |
-| `POST /v5/action/evaluate` | Evaluate observation, authority, and effect decisions on the canonical action path |
-| `POST /v5/approval/issue` | Issue a broker-signed approval envelope for an exact connector or promotion flow |
-| `POST /v5/tool/prepare` | Prepare a brokered connector or OAuth flow |
-| `POST /v5/tool/callback/verify` | Verify callback origin, state, registry binding, and allowlisted fields |
-| `POST /v5/artifact/ingest` | Ingest an artifact and return the active profile’s fail-closed or artifact-reference response |
-| `POST /v5/memory/write` | Historical V5 memory-write path for user notes |
-| `POST /v5/memory/stage` | Canonical staged memory path with source-class and corroboration semantics |
-| `POST /v5/memory/promote` | Promote memory into trusted durable state |
-| `POST /v5/memory/rollback` | Restore a trusted snapshot |
-| `POST /v5/replay/bundle` | Build a replay bundle from actor-attributed runtime events |
+| `POST /v6/session/start` | Start a server-owned secure session under `secure_v6` |
+| `POST /v6/observe` | Compile a supported surface into a planner-safe observation; returns authority candidates and replay evidence |
+| `POST /v6/action/evaluate` | Evaluate observation, authority, and effect decisions on the canonical action path |
+| `POST /v6/approval/issue` | Issue a broker-signed approval envelope for an exact connector, navigation, or promotion flow |
+| `POST /v6/tool/prepare` | Prepare a brokered connector or OAuth flow |
+| `POST /v6/tool/callback/verify` | Verify callback origin, state, registry binding, and allowlisted fields |
+| `POST /v6/artifact/ingest` | Ingest an artifact and return the active profile's fail-closed or artifact-reference response |
+| `POST /v6/memory/stage` | Canonical staged memory path with source-class and corroboration semantics |
+| `POST /v6/memory/promote` | Promote memory into trusted durable state |
+| `POST /v6/memory/rollback` | Restore a trusted snapshot |
+| `POST /v6/replay/bundle` | Build a replay bundle from actor-attributed runtime events |
 | `GET /health` | Report runtime profile, secure deployment posture, registry metadata, and parser isolation probe |
 
-The deprecated `/v6/*` family remains available only as a compatibility alias for the canonical `/v5/*` routes.
-
-Compatibility routes remain available on `/v1/*`, `/v2/*`, and `/v4/*` in development mode. Under `secure_v5`, they are disabled and explicitly outside the prevention claim.
+Compatibility routes are retired from the public claim-bearing surface. Archived fixtures may still reference them, but they are no longer part of the release contract.
 
 ## User Manual
 
@@ -257,15 +251,15 @@ corepack pnpm test
 ### 4. Start the daemon from source
 
 ```powershell
-node packages/daemon/dist/index.js --host 127.0.0.1 --port 8787 --deployment-profile secure_v5 --approval-broker-public-key-path knowledge_base/signing/safebrowse_vf_ed25519_public.pem
+node packages/daemon/dist/index.js --host 127.0.0.1 --port 8787 --deployment-profile secure_v6 --approval-broker-public-key-path knowledge_base/signing/safebrowse_vf_ed25519_public.pem
 ```
 
-`secure_v5` now forces `approvalBrokerMode=external_service` and `parserIsolationMode=node_permission_process` internally. Passing those flags explicitly is allowed but redundant. `secure_v6` is accepted only as a deprecated alias for `secure_v5`.
+`secure_v6` now forces `approvalBrokerMode=external_service` and `parserIsolationMode=node_permission_process` internally. Passing those flags explicitly is allowed but redundant.
 
 ### 5. Run the auditor-backed threat lab
 
 ```powershell
-corepack pnpm auditor:review
+corepack pnpm auditor:review:v6
 ```
 
 This writes a validated timestamped archive under `demo-output/auditor-suite-<timestamp>` and refreshes the stable latest bundle under `demo-output/latest`.
@@ -273,7 +267,7 @@ This writes a validated timestamped archive under `demo-output/auditor-suite-<ti
 ### 6. Run the wrapper-parity gate
 
 ```powershell
-corepack pnpm auditor:parity
+corepack pnpm auditor:parity:v6
 ```
 
 ### 7. Run the live comparison lab
@@ -299,7 +293,7 @@ Release smoke and packaging parity are enforced through:
 
 - [scripts/release/smoke-public-artifacts.mjs](scripts/release/smoke-public-artifacts.mjs)
 - [scripts/release/audit-public-artifacts.mjs](scripts/release/audit-public-artifacts.mjs)
-- [scripts/ci/run-wrapper-parity-v5.mjs](scripts/ci/run-wrapper-parity-v5.mjs)
+- [scripts/ci/run-wrapper-parity-v6.mjs](scripts/ci/run-wrapper-parity-v6.mjs)
 
 ## Why SafeBrowse Still Matters With Frontier Models
 
@@ -331,9 +325,9 @@ The practical rule is simple:
 
 The secure profiles are materially stronger than the legacy routes, but there are still important limits:
 
-- The prevention claim applies only to supported `/v5/*` routes under `secure_v5` and supported authority surfaces.
-- Older `secure_v6` and `/v6/*` callers are accepted only as deprecated compatibility aliases and should be migrated to `secure_v5` and `/v5/*`.
-- Legacy `/v1/*`, `/v2/*`, and `/v4/*` paths remain for migration and are explicitly outside the prevention claim.
+- The prevention claim applies only to supported `/v6/*` routes under `secure_v6` and supported authority surfaces.
+- Historical pre-V6 content now lives under `archieve/` for reference only, and it is not part of the active release contract.
+- Legacy `/v1/*`, `/v2/*`, `/v4/*`, and `/v5/*` paths are archived migration artifacts and are explicitly outside the prevention claim.
 - Parser isolation is process-level hardening with denied egress and scrubbed ambient state, not yet a full OS or container sandbox.
 - Repo-generated internal assessments are not a substitute for external audit.
 - The threat lab is a controlled evaluation harness, not a full browser isolation system.
@@ -346,6 +340,6 @@ SafeBrowse is released under the `SafeBrowse Non-Commercial License 1.0`. Copyri
 
 - Security policy: [SECURITY.md](SECURITY.md)
 - Release guide: [RELEASING.md](RELEASING.md)
-- V5 remediation note: [docs/v5-remediation-note.md](docs/v5-remediation-note.md)
-- Historical v1 note: [docs/v1-limitations-and-model-backed-evaluation.md](docs/v1-limitations-and-model-backed-evaluation.md)
+- Archived V5 remediation note: [archieve/docs/v5-remediation-note.md](archieve/docs/v5-remediation-note.md)
+- Archived v1 note: [archieve/docs/v1-limitations-and-model-backed-evaluation.md](archieve/docs/v1-limitations-and-model-backed-evaluation.md)
 - Development source plan: [docs/safebrowse_sdk_vf_development_plan.docx](docs/safebrowse_sdk_vf_development_plan.docx)

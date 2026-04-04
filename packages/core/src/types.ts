@@ -9,6 +9,7 @@ export type SafeDecision =
   | "ALLOW"
   | "BLOCK"
   | "REPLAN_READ_ONLY"
+  | "APPROVAL_REQUIRED"
   | "USER_CONFIRM"
   | "QUARANTINE_ARTIFACT"
   | "ESCALATE_INCIDENT";
@@ -107,9 +108,13 @@ export interface TaskEnvelope {
   taskId: string;
   userGoal: string;
   phase?: string;
+  taskPurposeClass?: TaskPurposeClass;
+  taskPhase?: string;
   allowedOrigins?: string[];
   allowedVerbs?: string[];
   forbiddenSinks?: string[];
+  allowedPathClasses?: TargetPathClass[];
+  approvalRequiredPathClasses?: TargetPathClass[];
 }
 
 export interface ActionProposal {
@@ -352,6 +357,7 @@ export interface HtmlSurfaceCapture extends BaseSurfaceCapture {
   links?: SurfaceLinkCapture[];
   domDigest?: string;
   nestedUnsupportedComponents?: string[];
+  captureAttestation?: CaptureAttestation;
 }
 
 export interface PdfSurfaceCapture extends BaseSurfaceCapture {
@@ -500,16 +506,62 @@ export interface TaskSession {
   taskId: string;
   userGoal: string;
   phase?: string;
+  taskPurposeClass?: TaskPurposeClass;
+  taskPhase?: string;
   allowedOrigins: string[];
   allowedVerbs: string[];
   forbiddenSinks: string[];
+  allowedPathClasses?: TargetPathClass[];
+  approvalRequiredPathClasses?: TargetPathClass[];
   workflowHash: string;
   currentStep: number;
   createdAt: string;
   expiresAt: string;
-  claimProfile?: "legacy_compatibility" | "secure_v5";
+  claimProfile?: "secure_v6";
   approvalBrokerRequired?: boolean;
   legacyRoutesDisabled?: boolean;
+}
+
+export type TaskPurposeClass =
+  | "content_read"
+  | "docs_navigation"
+  | "workflow_continue"
+  | "reconciliation_review"
+  | "connector_setup"
+  | "account_settings"
+  | "admin"
+  | "export"
+  | "finalize"
+  | "authorize"
+  | "billing"
+  | "payment";
+
+export type TargetPathClass =
+  | "content_read"
+  | "docs_navigation"
+  | "workflow_continue"
+  | "reconciliation_review"
+  | "account_settings"
+  | "admin"
+  | "export"
+  | "finalize"
+  | "authorize"
+  | "billing"
+  | "payment"
+  | "connector_setup"
+  | "reconciliation"
+  | "logout"
+  | "delete"
+  | "destructive_action"
+  | "credential_reset";
+
+export interface CaptureAttestation {
+  captureMethod: "rendered_dom" | "ax_tree" | "api" | "download" | "ocr";
+  visibilityAttested: boolean;
+  frameCoverage: "none" | "partial" | "full";
+  shadowDomCoverage: "none" | "partial" | "full";
+  unsupportedSubtrees: string[];
+  evidenceHash?: string;
 }
 
 export interface CapabilityDescriptor {
@@ -845,7 +897,64 @@ export interface V5AuthorityCandidate {
   expiresAt: string;
 }
 
-export type V6AuthorityCandidate = V5AuthorityCandidate;
+export interface AuthorityFinding {
+  findingId: string;
+  code: string;
+  severity: "low" | "medium" | "high";
+  evidenceSpanIds: string[];
+  targetPathClass?: TargetPathClass;
+}
+
+export interface CompiledObservationV6 extends CompiledObservationV5 {
+  provenanceFindings: AuthorityFinding[];
+  semanticAuthorityFindings: AuthorityFinding[];
+  policyFindings: AuthorityFinding[];
+  authorityReductionReasonIds: string[];
+  factsOnlyReasonCodes: string[];
+  evidenceSpanIds: string[];
+  captureAttestation: CaptureAttestation;
+}
+
+export interface PlannerViewV6 extends PlannerViewV5 {
+  authorityReductionReasonIds: string[];
+  factsOnlyReasonCodes: string[];
+  evidenceSpanIds: string[];
+}
+
+export interface CapabilityDescriptorV6 extends CapabilityDescriptorV5 {
+  targetPathClass: TargetPathClass;
+  requiresApproval: boolean;
+  evidenceSpanIds: string[];
+}
+
+export interface CapabilityUseRequestV6 {
+  sessionId: string;
+  authorityId: string;
+  authorityDigest: string;
+  approvalId?: string;
+  parameters?: Record<string, JsonValue>;
+}
+
+export interface ApprovalEnvelopeV6 extends Omit<ApprovalEnvelopeV5, "sinkClass"> {
+  sinkClass: "browser_navigation" | "connector_oauth" | "memory_promotion";
+  targetPathClass?: TargetPathClass;
+  evidenceSpanIds?: string[];
+}
+
+export interface ToolOnboardingSessionV6 extends ToolOnboardingSessionV5 {}
+
+export interface V6AuthorityCandidate {
+  authorityId: string;
+  authorityDigest: string;
+  semanticDigest: string;
+  title: string;
+  kind: CapabilityDescriptorV6["kind"];
+  targetPathClass: TargetPathClass;
+  requiresApproval: boolean;
+  evidenceSpanIds: string[];
+  parameterSchema: Record<string, JsonValue>;
+  expiresAt: string;
+}
 
 export interface V5ArtifactRef {
   artifactId: string;
@@ -873,7 +982,14 @@ export interface V5ObserveResponse {
   replayEventId: string;
 }
 
-export type V6ObserveResponse = V5ObserveResponse;
+export interface V6ObserveResponse {
+  compiledObservation: CompiledObservationV6;
+  plannerView: PlannerViewV6;
+  authorityCandidates: V6AuthorityCandidate[];
+  artifactRefs: V6ArtifactRef[];
+  observationVerdict: SafeVerdict;
+  replayEventId: string;
+}
 
 export interface V5ActionEvaluateRequest {
   sessionId: string;
@@ -882,7 +998,13 @@ export interface V5ActionEvaluateRequest {
   parameters?: Record<string, JsonValue>;
 }
 
-export type V6ActionEvaluateRequest = V5ActionEvaluateRequest;
+export interface V6ActionEvaluateRequest {
+  sessionId: string;
+  authorityId: string;
+  authorityDigest: string;
+  approvalId?: string;
+  parameters?: Record<string, JsonValue>;
+}
 
 export interface V5ActionEvaluateResponse {
   observationDecision: SafeVerdict;
@@ -891,7 +1013,12 @@ export interface V5ActionEvaluateResponse {
   executionPlan?: Record<string, JsonValue>;
 }
 
-export type V6ActionEvaluateResponse = V5ActionEvaluateResponse;
+export interface V6ActionEvaluateResponse {
+  observationDecision: SafeVerdict;
+  authorityDecision: SafeVerdict;
+  effectDecision: SafeVerdict;
+  executionPlan?: Record<string, JsonValue>;
+}
 
 export interface V5ArtifactIngestResponse {
   compiledObservation: CompiledObservationV5;
@@ -902,7 +1029,14 @@ export interface V5ArtifactIngestResponse {
   replayEventId: string;
 }
 
-export type V6ArtifactIngestResponse = V5ArtifactIngestResponse;
+export interface V6ArtifactIngestResponse {
+  compiledObservation: CompiledObservationV6;
+  plannerView: PlannerViewV6;
+  artifactRef: V6ArtifactRef;
+  mismatchSignals: string[];
+  artifactVerdict: SafeVerdict;
+  replayEventId: string;
+}
 
 export interface ParserWorkerProbe {
   mode: ParserIsolationMode;

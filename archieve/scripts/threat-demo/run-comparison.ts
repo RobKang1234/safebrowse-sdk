@@ -4,14 +4,10 @@ import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 
 import {
-  brokerArtifact,
   buildReplayBundle,
   compilePolicy,
-  extractTextFromHtml,
   evaluateAction,
-  evaluateMemoryWrite,
   parseThreatPageHtml,
-  evaluateToolRequest,
   sanitizeObservation,
   type JsonValue,
   type RawObservationInput,
@@ -21,6 +17,10 @@ import {
   type RuntimeContext,
   type ToolRequest
 } from "../../packages/core/dist/index.js";
+import { brokerArtifact } from "../../packages/core/dist/artifact.js";
+import { extractTextFromHtml } from "../../packages/core/dist/htmlText.js";
+import { evaluateMemoryWrite } from "../../packages/core/dist/memory.js";
+import { evaluateToolRequest } from "../../packages/core/dist/toolProtocol.js";
 import { buildScenarios, type ScenarioDefinition } from "./scenarios.js";
 
 type AgentMode = "raw" | "sdk";

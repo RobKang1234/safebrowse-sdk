@@ -20,8 +20,10 @@ def build_html_surface_capture(
     annotations: list[str] | None = None,
     user_shared: bool = False,
     nested_unsupported_components: list[str] | None = None,
+    capture_attestation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     effective_frame_url = frame_url or url
+    unsupported_subtrees = nested_unsupported_components or []
     return {
         "surfaceType": "html",
         "url": url,
@@ -32,7 +34,15 @@ def build_html_surface_capture(
         "metadataText": metadata_text or [],
         "annotations": annotations or [],
         "userShared": user_shared,
-        "nestedUnsupportedComponents": nested_unsupported_components,
+        "nestedUnsupportedComponents": unsupported_subtrees,
+        "captureAttestation": capture_attestation
+        or {
+            "captureMethod": "rendered_dom",
+            "visibilityAttested": bool(visible_text.strip()),
+            "frameCoverage": "full",
+            "shadowDomCoverage": "full",
+            "unsupportedSubtrees": unsupported_subtrees,
+        },
         "trustSignals": {
             "sourceOrigin": _origin_of(url),
             "frameOrigin": _origin_of(effective_frame_url),

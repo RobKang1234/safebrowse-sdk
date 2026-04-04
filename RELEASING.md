@@ -1,4 +1,4 @@
-# Releasing SafeBrowse v3
+# Releasing SafeBrowse v6
 
 This repo is set up for coordinated public release across npm, PyPI, and GHCR.
 
@@ -40,6 +40,8 @@ pnpm release:version
 ```
 
 That flow keeps the public npm packages, the internal workspace packages, the root version, and `python/safebrowse_client/pyproject.toml` aligned.
+
+For the current claim-bearing release line, the manual auditor gates are `pnpm auditor:review:v6` and `pnpm auditor:parity:v6`.
 
 ## Local Validation
 

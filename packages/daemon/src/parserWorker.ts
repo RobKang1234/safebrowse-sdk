@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 import type { RuntimeContext, SurfaceCapture } from "@safebrowse/core";
 
@@ -63,7 +64,8 @@ async function probeIsolation(): Promise<{
 
   const permissionModelEnabled = Boolean(process.permission);
   const fsReadRestricted = permissionModelEnabled
-    ? !process.permission!.has("fs.read", os.tmpdir()) && !process.permission!.has("fs.read", os.homedir())
+    ? !process.permission!.has("fs.read", os.tmpdir()) &&
+      !process.permission!.has("fs.read", os.homedir())
     : false;
   return {
     mode: permissionModelEnabled ? "node_permission_process" : "scrubbed_process",
@@ -82,8 +84,7 @@ lockDownEnvironment();
 let cachedProbePromise: Promise<Awaited<ReturnType<typeof probeIsolation>>> | undefined;
 let cachedCoreRuntimePromise:
   | Promise<{
-      compileObservation: typeof import("@safebrowse/core").compileObservation;
-      compileObservationV5: typeof import("@safebrowse/core").compileObservationV5;
+      compileObservationV6: typeof import("@safebrowse/core").compileObservationV6;
       computeToolManifestHash: typeof import("@safebrowse/core").computeToolManifestHash;
       computeToolSchemaHash: typeof import("@safebrowse/core").computeToolSchemaHash;
     }>
@@ -99,11 +100,8 @@ async function getCachedProbe() {
   return cachedProbePromise;
 }
 
-async function loadCoreRuntime(
-  parserIsolationMode?: "scrubbed_process" | "node_permission_process"
-): Promise<{
-  compileObservation: typeof import("@safebrowse/core").compileObservation;
-  compileObservationV5: typeof import("@safebrowse/core").compileObservationV5;
+async function loadCoreRuntime(): Promise<{
+  compileObservationV6: typeof import("@safebrowse/core").compileObservationV6;
   computeToolManifestHash: typeof import("@safebrowse/core").computeToolManifestHash;
   computeToolSchemaHash: typeof import("@safebrowse/core").computeToolSchemaHash;
 }> {
@@ -113,12 +111,9 @@ async function loadCoreRuntime(
 
   cachedCoreRuntimePromise = (async () => {
     if (import.meta.url.endsWith(".ts")) {
-      if (parserIsolationMode === "node_permission_process") {
-        const distEntryUrl = new URL("../../core/dist/index.js", import.meta.url);
-        if (existsSync(distEntryUrl)) {
-          return import(distEntryUrl.href);
-        }
-        throw new Error("secure profile parser worker requires a built @safebrowse/core dist runtime");
+      const distEntryUrl = new URL("../../core/dist/index.js", import.meta.url);
+      if (existsSync(fileURLToPath(distEntryUrl))) {
+        return import(distEntryUrl.href);
       }
       const sourceEntryUrl = new URL("../../core/src/index.ts", import.meta.url).href;
       return import(sourceEntryUrl);
@@ -150,7 +145,7 @@ type ParserWorkerMessage =
       requestId: string;
       payload: {
         kind: "parse";
-        compilerVersion?: "v4" | "v5";
+        compilerVersion?: "v6";
         parserIsolationMode?: "scrubbed_process" | "node_permission_process";
         capture: SurfaceCapture;
         workflowHash?: string;
@@ -166,9 +161,8 @@ function sendResponse(
         ok: true;
         probe?: Awaited<ReturnType<typeof probeIsolation>>;
         result?: {
-          compiledObservation: ReturnType<typeof import("@safebrowse/core").compileObservation>["compiledObservation"];
-          plannerInput?: ReturnType<typeof import("@safebrowse/core").compileObservation>["plannerInput"];
-          plannerView?: ReturnType<typeof import("@safebrowse/core").compileObservationV5>["plannerView"];
+          compiledObservation: ReturnType<typeof import("@safebrowse/core").compileObservationV6>["compiledObservation"];
+          plannerView?: ReturnType<typeof import("@safebrowse/core").compileObservationV6>["plannerView"];
           toolManifestDigests?: {
             manifestHash?: string;
             schemaHash?: string;
@@ -193,7 +187,7 @@ process.on("message", async (message: ParserWorkerMessage) => {
       workerRuntimeDefaults = payload.runtime;
       workerAllowlistedEgress = payload.allowlistedEgress ?? [];
       workerParserIsolationMode = payload.parserIsolationMode;
-      await loadCoreRuntime(workerParserIsolationMode);
+      await loadCoreRuntime();
       sendResponse(message.requestId, {
         ok: true
       });
@@ -212,18 +206,14 @@ process.on("message", async (message: ParserWorkerMessage) => {
       payload.parserIsolationMode ??
       workerParserIsolationMode ??
       (await getCachedProbe()).mode;
-    const {
-      compileObservation,
-      compileObservationV5,
-      computeToolManifestHash,
-      computeToolSchemaHash
-    } =
-      await loadCoreRuntime(parserIsolationMode);
-    const compiler = payload.compilerVersion === "v5" ? compileObservationV5 : compileObservation;
+    void parserIsolationMode;
+
+    const { compileObservationV6, computeToolManifestHash, computeToolSchemaHash } =
+      await loadCoreRuntime();
     const probe = await getCachedProbe();
     const runtime = payload.runtime ?? workerRuntimeDefaults ?? {};
     const allowlistedEgress = payload.allowlistedEgress ?? workerAllowlistedEgress;
-    const result = compiler(payload.capture, runtime, {
+    const result = compileObservationV6(payload.capture, runtime, {
       workflowHash: payload.workflowHash,
       parserIsolation: {
         mode: probe.mode,

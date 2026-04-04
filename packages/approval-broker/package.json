@@ -2,7 +2,7 @@
   "name": "@safebrowse/approval-broker",
   "private": true,
   "version": "0.1.3",
-  "description": "Internal approval-signing broker for SafeBrowse secure_v5 flows",
+  "description": "Internal approval-signing broker for SafeBrowse secure_v6 flows",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "dist/index.js",

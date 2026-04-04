@@ -1,10 +1,10 @@
 import type {
   ActionProposal,
+  CaptureAttestation,
   HtmlSurfaceCapture,
   RawObservationInput,
   SafeVerdict
 } from "@safebrowse/core";
-import { extractTextFromHtml } from "@safebrowse/core";
 
 export interface PageLike {
   url(): string;
@@ -24,14 +24,13 @@ export interface PlaywrightPageSnapshot {
   renderedText?: string;
   extractedText?: string;
   userShared?: boolean;
+  captureAttestation?: CaptureAttestation;
 }
 
-export interface V5AuthorityCandidateRef {
+export interface V6AuthorityCandidateRef {
   authorityId: string;
   authorityDigest: string;
 }
-
-export type V6AuthorityCandidateRef = V5AuthorityCandidateRef;
 
 export function createObservationFromSnapshot(
   snapshot: PlaywrightPageSnapshot
@@ -95,39 +94,29 @@ export function createSurfaceCaptureFromSnapshot(
     hiddenText,
     metadataText: snapshot.metadataText,
     annotations: snapshot.annotations,
-    userShared: snapshot.userShared
+    userShared: snapshot.userShared,
+    captureAttestation:
+      snapshot.captureAttestation ?? {
+        captureMethod: "rendered_dom",
+        visibilityAttested: Boolean(snapshot.visibleText.trim()),
+        frameCoverage: "full",
+        shadowDomCoverage: "full",
+        unsupportedSubtrees: []
+      }
   };
 }
 
-export function buildObservePayloadV5(sessionId: string, snapshot: PlaywrightPageSnapshot) {
+export function buildObservePayloadV6(sessionId: string, snapshot: PlaywrightPageSnapshot) {
   return {
     sessionId,
     capture: createSurfaceCaptureFromSnapshot(snapshot)
   };
 }
 
-export function buildObservePayloadV6(sessionId: string, snapshot: PlaywrightPageSnapshot) {
-  return buildObservePayloadV5(sessionId, snapshot);
-}
-
-export function buildArtifactIngestPayloadV5(sessionId: string, snapshot: PlaywrightPageSnapshot) {
-  return buildObservePayloadV5(sessionId, snapshot);
-}
-
 export function buildArtifactIngestPayloadV6(sessionId: string, snapshot: PlaywrightPageSnapshot) {
-  return buildArtifactIngestPayloadV5(sessionId, snapshot);
-}
-
-export function buildActionEvaluatePayloadV5(
-  sessionId: string,
-  authority: V5AuthorityCandidateRef,
-  parameters?: Record<string, unknown>
-) {
   return {
     sessionId,
-    authorityId: authority.authorityId,
-    authorityDigest: authority.authorityDigest,
-    parameters
+    capture: createSurfaceCaptureFromSnapshot(snapshot)
   };
 }
 
@@ -136,7 +125,12 @@ export function buildActionEvaluatePayloadV6(
   authority: V6AuthorityCandidateRef,
   parameters?: Record<string, unknown>
 ) {
-  return buildActionEvaluatePayloadV5(sessionId, authority, parameters);
+  return {
+    sessionId,
+    authorityId: authority.authorityId,
+    authorityDigest: authority.authorityDigest,
+    parameters
+  };
 }
 
 export function proposeNavigationAction(input: {
@@ -165,15 +159,20 @@ export async function snapshotPage(page: PageLike): Promise<PlaywrightPageSnapsh
     page.content?.() ?? Promise.resolve(""),
     page.title?.() ?? Promise.resolve("")
   ]);
-  const visibleText = page.visibleText
-    ? await page.visibleText()
-    : extractTextFromHtml(html);
+  const visibleText = page.visibleText ? await page.visibleText() : "";
 
   return {
     url: page.url(),
     visibleText,
     html,
-    metadataText: title ? [title] : []
+    metadataText: title ? [title] : [],
+    captureAttestation: {
+      captureMethod: "rendered_dom",
+      visibilityAttested: Boolean(visibleText.trim()),
+      frameCoverage: "full",
+      shadowDomCoverage: "full",
+      unsupportedSubtrees: []
+    }
   };
 }
 
@@ -188,4 +187,3 @@ export async function enforceVerdict<T>(
   }
   return allowedAction();
 }
-

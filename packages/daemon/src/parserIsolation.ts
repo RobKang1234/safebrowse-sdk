@@ -5,11 +5,11 @@ import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
 
 import type {
-  CompiledObservation,
+  CompiledObservationV6,
   ParserIsolationMode,
   ParserWorkerProbe,
+  PlannerViewV6,
   RuntimeContext,
-  StructuredPlannerInput,
   SurfaceCapture
 } from "@safebrowse/core";
 
@@ -30,7 +30,7 @@ type WorkerPayload =
     }
   | {
       kind: "parse";
-      compilerVersion?: "v4" | "v5";
+      compilerVersion?: "v6";
       parserIsolationMode?: ParserIsolationMode;
       capture: SurfaceCapture;
       workflowHash?: string;
@@ -54,9 +54,8 @@ type WorkerResponseEnvelope =
       ok: true;
       probe?: ParserWorkerProbe;
       result?: {
-        compiledObservation: CompiledObservation;
-        plannerInput?: StructuredPlannerInput;
-        plannerView?: unknown;
+        compiledObservation: CompiledObservationV6;
+        plannerView?: PlannerViewV6;
         toolManifestDigests?: ToolManifestDigests;
       };
     }
@@ -77,12 +76,11 @@ export interface ParserIsolationService {
     workflowHash?: string;
     allowlistedEgress?: string[];
     runtime?: Partial<RuntimeContext>;
-    compilerVersion?: "v4" | "v5";
+    compilerVersion?: "v6";
     parserIsolationMode?: ParserIsolationMode;
   }): Promise<{
-    compiledObservation: CompiledObservation;
-    plannerInput?: StructuredPlannerInput;
-    plannerView?: unknown;
+    compiledObservation: CompiledObservationV6;
+    plannerView?: PlannerViewV6;
     toolManifestDigests?: ToolManifestDigests;
   }>;
   getCachedProbe(): Promise<ParserIsolationProbeSnapshot>;
@@ -142,18 +140,16 @@ class ParserIsolationServiceImpl implements ParserIsolationService {
     workflowHash?: string;
     allowlistedEgress?: string[];
     runtime?: Partial<RuntimeContext>;
-    compilerVersion?: "v4" | "v5";
+    compilerVersion?: "v6";
     parserIsolationMode?: ParserIsolationMode;
   }): Promise<{
-    compiledObservation: CompiledObservation;
-    plannerInput?: StructuredPlannerInput;
-    plannerView?: unknown;
+    compiledObservation: CompiledObservationV6;
+    plannerView?: PlannerViewV6;
     toolManifestDigests?: ToolManifestDigests;
   }> {
     const result = await this.sendRequest<{
-      compiledObservation: CompiledObservation;
-      plannerInput?: StructuredPlannerInput;
-      plannerView?: unknown;
+      compiledObservation: CompiledObservationV6;
+      plannerView?: PlannerViewV6;
       toolManifestDigests?: ToolManifestDigests;
     }>({
       kind: "parse",
@@ -351,12 +347,11 @@ export function compileObservationInIsolation(input: {
   workflowHash?: string;
   allowlistedEgress?: string[];
   runtime?: Partial<RuntimeContext>;
-  compilerVersion?: "v4" | "v5";
+  compilerVersion?: "v6";
   parserIsolationMode?: ParserIsolationMode;
 }): Promise<{
-  compiledObservation: CompiledObservation;
-  plannerInput?: StructuredPlannerInput;
-  plannerView?: unknown;
+  compiledObservation: CompiledObservationV6;
+  plannerView?: PlannerViewV6;
   toolManifestDigests?: ToolManifestDigests;
 }> {
   const mode = input.parserIsolationMode ?? "scrubbed_process";

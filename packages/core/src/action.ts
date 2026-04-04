@@ -8,14 +8,16 @@ function decisionRank(decision: SafeDecision): number {
       return 0;
     case "REPLAN_READ_ONLY":
       return 1;
-    case "USER_CONFIRM":
+    case "APPROVAL_REQUIRED":
       return 2;
-    case "QUARANTINE_ARTIFACT":
+    case "USER_CONFIRM":
       return 3;
-    case "ESCALATE_INCIDENT":
+    case "QUARANTINE_ARTIFACT":
       return 4;
-    case "BLOCK":
+    case "ESCALATE_INCIDENT":
       return 5;
+    case "BLOCK":
+      return 6;
   }
 }
 

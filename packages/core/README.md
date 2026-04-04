@@ -10,12 +10,11 @@ npm install @safebrowse/core
 
 ## What it provides
 
-- Observation sanitization
-- Action evaluation
-- Artifact brokering
-- Tool onboarding and callback verification
-- Memory write evaluation
-- Replay bundle construction
+- V6 observation compilation with visibility attestation and semantic authority reduction
+- V6 authority minting and action evaluation
+- V6 approval-envelope issuance and connector callback verification
+- V6 staged memory, promotion, and rollback controls
+- Replay bundle construction and shared policy utilities
 
 See the repository README for full architecture and user guidance:
 
