@@ -143,3 +143,16 @@ def iter_records(
 ) -> Iterator[dict[str, Any]]:
     manifest = load_manifest(manifest_path)
     yield from iter_jsonl(resolve_split_files(manifest, split, data_root=data_root))
+
+
+def manifest_record_count(manifest: dict[str, Any], split: str) -> int | None:
+    record_counts = manifest.get("record_counts", {})
+    key_map = {
+        "train": "train_specs",
+        "valid": "valid_specs",
+        "test": "test_specs",
+        "rendered_sample": "rendered_sample",
+    }
+    key = key_map.get(split)
+    value = record_counts.get(key) if key is not None else None
+    return int(value) if isinstance(value, (int, float)) else None

@@ -33,6 +33,7 @@ The checked-in package now defaults `train_expert` to a real transformer-backed 
 
 - default expert backend: `transformers`
 - explicit fast fallback for tests and low-dependency environments: `--backend smoke`
+- the sentinel stage now streams mini-batches with `partial_fit` instead of buffering the full train split in memory before the first log line
 - bounded local smoke run example:
 
 ```bash

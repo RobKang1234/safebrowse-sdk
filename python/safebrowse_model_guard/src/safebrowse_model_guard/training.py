@@ -12,7 +12,7 @@ from .bundle import (
     write_bundle_manifest,
     write_pickle,
 )
-from .data import load_manifest, manifest_storage_summary, resolve_split_files
+from .data import load_manifest, manifest_record_count, manifest_storage_summary, resolve_split_files
 from .features import LABEL_TO_ID, chunk_text, example_from_dataset_row, rank_chunks, structured_feature_dict
 
 _TRANSFORMER_ARTIFACT_CACHE: dict[str, dict[str, Any]] = {}
@@ -52,7 +52,7 @@ def _require_training_dependencies() -> dict[str, Any]:
 def _require_transformer_dependencies() -> dict[str, Any]:
     try:
         import torch
-        from torch.utils.data import DataLoader, Dataset
+        from torch.utils.data import DataLoader, IterableDataset
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
     except ModuleNotFoundError as exc:  # pragma: no cover
         raise RuntimeError(
@@ -62,7 +62,7 @@ def _require_transformer_dependencies() -> dict[str, Any]:
     return {
         "torch": torch,
         "DataLoader": DataLoader,
-        "Dataset": Dataset,
+        "IterableDataset": IterableDataset,
         "AutoModelForSequenceClassification": AutoModelForSequenceClassification,
         "AutoTokenizer": AutoTokenizer,
     }
@@ -93,6 +93,25 @@ def _iter_examples(
                 emitted += 1
                 if limit is not None and emitted >= limit:
                     return
+
+
+def _total_examples(
+    manifest_path: str | Path,
+    split: str,
+    *,
+    limit: int | None = None,
+) -> int | None:
+    manifest = load_manifest(manifest_path)
+    total = manifest_record_count(manifest, split)
+    if total is None:
+        return limit
+    if limit is not None:
+        return min(total, limit)
+    return total
+
+
+def _maybe_report(message: str) -> None:
+    print(message, flush=True)
 
 
 def prepare_data(
@@ -139,18 +158,54 @@ def train_sentinel(
         norm="l2",
     )
     classifier = SGDClassifier(loss="log_loss", alpha=1e-5, random_state=7)
+    batch_size = 2048
+    total_examples = _total_examples(manifest_path, "train", limit=limit)
+    processed_examples = 0
+    processed_batches = 0
+    fitted = False
     texts: list[str] = []
     labels: list[int] = []
 
+    def fit_batch() -> None:
+        nonlocal fitted, processed_batches, texts, labels
+        if not texts:
+            return
+        matrix = hstack(
+            [char_vectorizer.transform(texts), word_vectorizer.transform(texts)],
+            format="csr",
+        )
+        if not fitted:
+            classifier.partial_fit(matrix, labels, classes=[0, 1])
+            fitted = True
+        else:
+            classifier.partial_fit(matrix, labels)
+        processed_batches += 1
+        texts = []
+        labels = []
+
+    if total_examples is not None:
+        _maybe_report(f"starting streaming sentinel training for {total_examples} examples")
+    else:
+        _maybe_report("starting streaming sentinel training")
     for example in _iter_examples(manifest_path, "train", data_root=data_root, limit=limit):
         texts.append(example.text)
         labels.append(int(example.threat_positive or 0))
+        processed_examples += 1
+        if len(texts) >= batch_size:
+            fit_batch()
+            if processed_batches == 1 or processed_batches % 16 == 0:
+                if total_examples is not None:
+                    _maybe_report(
+                        f"processed {processed_examples}/{total_examples} training examples across {processed_batches} batches"
+                    )
+                else:
+                    _maybe_report(
+                        f"processed {processed_examples} training examples across {processed_batches} batches"
+                    )
+    fit_batch()
+    if not fitted:
+        raise RuntimeError("No training examples were available for sentinel training.")
 
-    matrix = hstack(
-        [char_vectorizer.transform(texts), word_vectorizer.transform(texts)],
-        format="csr",
-    )
-    classifier.fit(matrix, labels)
     artifact_path = write_pickle(
         output_path / "sentinel.pkl",
         {
@@ -165,7 +220,9 @@ def train_sentinel(
         "artifact": str(artifact_path),
         "backend": "sklearn_binary",
         "threshold": threat_threshold,
-        "examples": len(labels),
+        "examples": processed_examples,
+        "batches": processed_batches,
+        "batchSize": batch_size,
     }
     (output_path / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     return summary
@@ -199,6 +256,21 @@ def _build_chunk_samples(
     return samples
 
 
+def _iter_chunk_samples(
+    manifest_path: str | Path,
+    *,
+    split: str = "train",
+    data_root: str | Path | None = None,
+    limit: int | None = None,
+    top_k_chunks: int = 3,
+) -> Iterable[ExpertChunkSample]:
+    for example in _iter_examples(manifest_path, split, data_root=data_root, limit=limit):
+        if example.decision_label not in LABEL_TO_ID:
+            continue
+        for chunk in _top_ranked_chunks(example, top_k_chunks=top_k_chunks):
+            yield ExpertChunkSample(text=chunk, label=LABEL_TO_ID[example.decision_label])
+
+
 def _train_smoke_expert(
     manifest_path: str | Path,
     *,
@@ -223,12 +295,20 @@ def _train_smoke_expert(
     classifier = SGDClassifier(loss="log_loss", alpha=1e-5, random_state=7)
     texts: list[str] = []
     labels: list[str] = []
+    total_examples = _total_examples(manifest_path, "train", limit=limit)
+    processed_examples = 0
 
     for example in _iter_examples(manifest_path, "train", data_root=data_root, limit=limit):
         if example.decision_label not in LABEL_TO_ID:
             continue
         texts.append(_hierarchical_text(example, top_k_chunks=top_k_chunks))
         labels.append(example.decision_label)
+        processed_examples += 1
+        if processed_examples == 1 or processed_examples % 5000 == 0:
+            if total_examples is not None:
+                _maybe_report(f"prepared {processed_examples}/{total_examples} expert examples for smoke backend")
+            else:
+                _maybe_report(f"prepared {processed_examples} expert examples for smoke backend")
 
     matrix = vectorizer.fit_transform(texts)
     classifier.fit(matrix, labels)
@@ -299,20 +379,14 @@ def _train_transformer_expert(
     deps = _require_transformer_dependencies()
     torch = deps["torch"]
     DataLoader = deps["DataLoader"]
-    Dataset = deps["Dataset"]
+    IterableDataset = deps["IterableDataset"]
     AutoTokenizer = deps["AutoTokenizer"]
     AutoModelForSequenceClassification = deps["AutoModelForSequenceClassification"]
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    samples = _build_chunk_samples(
-        manifest_path,
-        data_root=data_root,
-        limit=limit,
-        top_k_chunks=top_k_chunks,
-    )
-    if not samples:
-        raise RuntimeError("No chunk samples were produced for expert training.")
+    total_examples = _total_examples(manifest_path, "train", limit=limit)
+    approx_total_samples = total_examples * top_k_chunks if total_examples is not None else None
 
     tokenizer = AutoTokenizer.from_pretrained(backbone)
     model = AutoModelForSequenceClassification.from_pretrained(
@@ -330,16 +404,15 @@ def _train_transformer_expert(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    class ChunkDataset(Dataset):  # type: ignore[misc]
-        def __init__(self, items: list[ExpertChunkSample]) -> None:
-            self.items = items
-
-        def __len__(self) -> int:
-            return len(self.items)
-
-        def __getitem__(self, index: int) -> dict[str, Any]:
-            item = self.items[index]
-            return {"text": item.text, "label": item.label}
+    class ChunkIterableDataset(IterableDataset):  # type: ignore[misc]
+        def __iter__(self) -> Iterable[dict[str, Any]]:
+            for item in _iter_chunk_samples(
+                manifest_path,
+                data_root=data_root,
+                limit=limit,
+                top_k_chunks=top_k_chunks,
+            ):
+                yield {"text": item.text, "label": item.label}
 
     def collate(batch: list[dict[str, Any]]) -> dict[str, Any]:
         encoded = tokenizer(
@@ -352,15 +425,23 @@ def _train_transformer_expert(
         encoded["labels"] = torch.tensor([item["label"] for item in batch], dtype=torch.long)
         return encoded
 
-    loader = DataLoader(ChunkDataset(samples), batch_size=batch_size, shuffle=True, collate_fn=collate)
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     total_loss = 0.0
     total_steps = 0
+    total_samples_seen = 0
     epochs_to_run = max(1, int(round(epochs)))
 
-    for _ in range(epochs_to_run):
+    if approx_total_samples is not None:
+        _maybe_report(
+            f"starting transformer expert training on {device} with about {approx_total_samples} chunk samples"
+        )
+    else:
+        _maybe_report(f"starting transformer expert training on {device}")
+
+    for epoch_index in range(epochs_to_run):
         model.train()
         optimizer.zero_grad(set_to_none=True)
+        loader = DataLoader(ChunkIterableDataset(), batch_size=batch_size, collate_fn=collate)
         for batch in loader:
             batch = {key: value.to(device) for key, value in batch.items()}
             outputs = model(**batch)
@@ -370,11 +451,23 @@ def _train_transformer_expert(
             optimizer.zero_grad(set_to_none=True)
             total_loss += float(loss.detach().cpu())
             total_steps += 1
+            batch_examples = int(batch["labels"].shape[0])
+            total_samples_seen += batch_examples
+            if total_steps == 1 or total_steps % 250 == 0:
+                average_loss = total_loss / max(1, total_steps)
+                _maybe_report(
+                    (
+                        f"epoch {epoch_index + 1}/{epochs_to_run}, step {total_steps}, "
+                        f"samples {total_samples_seen}, avg_loss={average_loss:.6f}"
+                    )
+                )
 
     model_dir = output_path / "expert_model"
     model.save_pretrained(model_dir)
     tokenizer.save_pretrained(model_dir)
-    return _save_transformer_expert_metadata(
+    if total_steps == 0:
+        raise RuntimeError("No chunk samples were produced for expert training.")
+    summary = _save_transformer_expert_metadata(
         output_path,
         backbone=backbone,
         top_k_chunks=top_k_chunks,
@@ -383,9 +476,12 @@ def _train_transformer_expert(
         batch_size=batch_size,
         learning_rate=learning_rate,
         device_name=str(device),
-        example_count=len(samples),
+        example_count=total_samples_seen,
         average_loss=(total_loss / max(1, total_steps)),
     )
+    if str(device) == "cuda":
+        torch.cuda.empty_cache()
+    return summary
 
 
 def train_expert(
@@ -539,6 +635,8 @@ def train_stacker(
     expert_summary = _load_expert_summary(expert_dir)
     feature_rows: list[dict[str, Any]] = []
     labels: list[str] = []
+    total_examples = _total_examples(manifest_path, "train", limit=limit)
+    processed_examples = 0
 
     for example in _iter_examples(manifest_path, "train", data_root=data_root, limit=limit):
         if example.decision_label not in LABEL_TO_ID:
@@ -546,6 +644,12 @@ def train_stacker(
         features, label = _build_meta_example(example, sentinel_artifact, expert_dir, expert_summary)
         feature_rows.append(features)
         labels.append(label)
+        processed_examples += 1
+        if processed_examples == 1 or processed_examples % 2500 == 0:
+            if total_examples is not None:
+                _maybe_report(f"built {processed_examples}/{total_examples} stacker feature rows")
+            else:
+                _maybe_report(f"built {processed_examples} stacker feature rows")
 
     vectorizer = DictVectorizer(sparse=False)
     matrix = vectorizer.fit_transform(feature_rows)
@@ -657,6 +761,8 @@ def evaluate(
     predicted_labels: list[str] = []
     gold_threat: list[int] = []
     predicted_threat: list[int] = []
+    total_examples = _total_examples(manifest_path, split, limit=limit)
+    processed_examples = 0
 
     for example in _iter_examples(manifest_path, split, data_root=data_root, limit=limit):
         request = {
@@ -713,6 +819,12 @@ def evaluate(
         predicted_labels.append(predicted)
         gold_threat.append(0 if gold == "allow_read_only" else 1)
         predicted_threat.append(0 if predicted == "allow_read_only" else 1)
+        processed_examples += 1
+        if processed_examples == 1 or processed_examples % 1000 == 0:
+            if total_examples is not None:
+                _maybe_report(f"evaluated {processed_examples}/{total_examples} {split} examples")
+            else:
+                _maybe_report(f"evaluated {processed_examples} {split} examples")
 
     threat_recall = float(recall_score(gold_threat, predicted_threat))
     threat_false_negative_rate = float(

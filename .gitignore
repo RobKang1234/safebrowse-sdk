@@ -23,7 +23,9 @@ model/prompt_injection_ml_dataset/*
 !model/prompt_injection_ml_dataset/manifest.json
 !model/prompt_injection_ml_dataset/training_recipe*.json
 !model/prompt_injection_ml_dataset/training_recipe*.md
+# local-only model-guard training runs and dashboards
 .local/model_guard/
+.local/model_guard_dashboard/
 .local/mlflow/
 mlruns/
 python/safebrowse_model_guard/artifacts/
