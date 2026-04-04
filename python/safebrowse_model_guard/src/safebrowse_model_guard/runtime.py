@@ -133,6 +133,64 @@ class ModelGuardRuntime:
             scores["require_shadow_replay"] += 0.6
         return softmax(scores)
 
+    def _score_transformer_expert(self, component: LoadedComponent, chunks: list[str]) -> dict[str, float]:
+        try:
+            import torch
+            from transformers import AutoModelForSequenceClassification, AutoTokenizer
+        except ModuleNotFoundError as exc:  # pragma: no cover
+            raise RuntimeError(
+                "Transformer expert runtime requires torch and transformers to be installed."
+            ) from exc
+
+        payload = component.payload
+        if "tokenizer" not in payload or "model" not in payload:
+            model_dir = self.bundle_dir / payload["artifact_dir"]
+            tokenizer = AutoTokenizer.from_pretrained(model_dir)
+            model = AutoModelForSequenceClassification.from_pretrained(model_dir)
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            model.to(device)
+            model.eval()
+            payload["tokenizer"] = tokenizer
+            payload["model"] = model
+            payload["device"] = device
+
+        tokenizer = payload["tokenizer"]
+        model = payload["model"]
+        device = payload["device"]
+        max_length = int(payload.get("max_length", 1024))
+        encoded = tokenizer(
+            chunks,
+            truncation=True,
+            padding=True,
+            max_length=max_length,
+            return_tensors="pt",
+        )
+        encoded = {key: value.to(device) for key, value in encoded.items()}
+        with torch.no_grad():
+            logits = model(**encoded).logits
+            probabilities = torch.softmax(logits, dim=-1).detach().cpu().tolist()
+
+        id2label = model.config.id2label
+        per_label: dict[str, list[float]] = {
+            "allow_read_only": [],
+            "require_shadow_replay": [],
+            "require_user_approval": [],
+            "deny": [],
+        }
+        for chunk_probs in probabilities:
+            for index, value in enumerate(chunk_probs):
+                label = str(id2label[index])
+                if label in per_label:
+                    per_label[label].append(float(value))
+
+        aggregated = {
+            "allow_read_only": sum(per_label["allow_read_only"]) / max(1, len(per_label["allow_read_only"])),
+            "require_shadow_replay": max(per_label["require_shadow_replay"], default=0.0),
+            "require_user_approval": max(per_label["require_user_approval"], default=0.0),
+            "deny": max(per_label["deny"], default=0.0),
+        }
+        return softmax(aggregated)
+
     def _ranked_chunks(self, example: Any) -> list[tuple[int, str]]:
         lines = [line for line in example.text.split("\n") if line.strip()]
         if not lines:
@@ -150,6 +208,12 @@ class ModelGuardRuntime:
 
         if component is None or component.backend == "heuristic":
             return self._heuristic_expert_probs(example, sentinel_probability), evidence
+
+        if component.backend == "transformers_modernbert_chunk_expert":
+            return self._score_transformer_expert(
+                component,
+                [entry["excerpt"] for entry in evidence] or [chunk_text],
+            ), evidence
 
         payload = component.payload["artifact_payload"]
         vectorizer = payload["vectorizer"]

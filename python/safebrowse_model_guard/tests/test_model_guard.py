@@ -230,7 +230,12 @@ class ModelGuardRuntimeTest(unittest.TestCase):
             os.environ[env_name] = str(data_root)
             try:
                 train_sentinel(manifest_path, output_dir=sentinel_dir)
-                train_expert(manifest_path, output_dir=expert_dir, backbone="answerdotai/ModernBERT-base")
+                train_expert(
+                    manifest_path,
+                    output_dir=expert_dir,
+                    backbone="answerdotai/ModernBERT-base",
+                    backend="smoke",
+                )
                 train_stacker(
                     manifest_path,
                     sentinel_dir=sentinel_dir,

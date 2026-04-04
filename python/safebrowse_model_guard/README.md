@@ -29,6 +29,12 @@ Use `corepack pnpm model:data:migrate` once per workstation to move local datase
 
 ## Current trainer shape
 
-The checked-in package already supports the private sidecar, dataset privacy boundary, bundle packaging, bounded smoke training, and CatBoost-backed stacking.
+The checked-in package now defaults `train_expert` to a real transformer-backed chunk expert around `answerdotai/ModernBERT-base`, paired with the char-ngram sentinel and CatBoost stacker.
 
-The current local `train_expert` implementation is a smoke-safe hierarchical lexical expert that records the intended backbone name. It is the seam where a private GPU runner can swap in the heavier long-context ModernBERT fine-tune without changing the daemon-side contract or bundle layout.
+- default expert backend: `transformers`
+- explicit fast fallback for tests and low-dependency environments: `--backend smoke`
+- bounded local smoke run example:
+
+```bash
+node scripts/run-python-module.mjs scripts/python/run_model_guard_cli.py train_expert --manifest model/prompt_injection_ml_dataset/manifest.json --output-dir .local/model_guard/expert --backbone answerdotai/ModernBERT-base --backend transformers --limit 8 --max-length 1024 --top-k-chunks 3 --epochs 1 --batch-size 1
+```

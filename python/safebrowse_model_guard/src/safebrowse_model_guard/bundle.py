@@ -45,6 +45,15 @@ def copy_component_file(source: str | Path, output_dir: str | Path, filename: st
     return destination
 
 
+def copy_component_tree(source: str | Path, output_dir: str | Path, dirname: str | None = None) -> Path:
+    source_path = Path(source)
+    destination_dir = Path(output_dir)
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    destination = destination_dir / (dirname or source_path.name)
+    shutil.copytree(source_path, destination, dirs_exist_ok=True)
+    return destination
+
+
 def create_demo_bundle(bundle_dir: str | Path) -> Path:
     directory = Path(bundle_dir)
     directory.mkdir(parents=True, exist_ok=True)

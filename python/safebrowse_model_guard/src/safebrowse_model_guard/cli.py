@@ -42,6 +42,12 @@ def build_parser() -> argparse.ArgumentParser:
     expert_parser.add_argument("--data-root")
     expert_parser.add_argument("--limit", type=int)
     expert_parser.add_argument("--backbone", default="answerdotai/ModernBERT-base")
+    expert_parser.add_argument("--backend", default="transformers", choices=["transformers", "smoke"])
+    expert_parser.add_argument("--max-length", type=int, default=1024)
+    expert_parser.add_argument("--top-k-chunks", type=int, default=3)
+    expert_parser.add_argument("--epochs", type=float, default=1.0)
+    expert_parser.add_argument("--batch-size", type=int, default=1)
+    expert_parser.add_argument("--learning-rate", type=float, default=2e-5)
 
     stacker_parser = subparsers.add_parser("train_stacker")
     stacker_parser.add_argument("--manifest", required=True)
@@ -105,6 +111,12 @@ def main() -> None:
                 data_root=args.data_root,
                 limit=args.limit,
                 backbone=args.backbone,
+                backend=args.backend,
+                max_length=args.max_length,
+                top_k_chunks=args.top_k_chunks,
+                epochs=args.epochs,
+                batch_size=args.batch_size,
+                learning_rate=args.learning_rate,
             )
         )
         return

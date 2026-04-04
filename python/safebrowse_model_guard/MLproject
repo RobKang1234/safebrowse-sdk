@@ -19,7 +19,13 @@ entry_points:
       manifest: {type: path, default: "../../model/prompt_injection_ml_dataset/manifest.json"}
       output_dir: {type: path, default: "./artifacts/expert"}
       backbone: {type: str, default: "answerdotai/ModernBERT-base"}
-    command: "python -m safebrowse_model_guard.cli train_expert --manifest {manifest} --output-dir {output_dir} --backbone {backbone}"
+      backend: {type: str, default: "transformers"}
+      max_length: {type: int, default: 1024}
+      top_k_chunks: {type: int, default: 3}
+      epochs: {type: float, default: 1.0}
+      batch_size: {type: int, default: 1}
+      learning_rate: {type: float, default: 2e-5}
+    command: "python -m safebrowse_model_guard.cli train_expert --manifest {manifest} --output-dir {output_dir} --backbone {backbone} --backend {backend} --max-length {max_length} --top-k-chunks {top_k_chunks} --epochs {epochs} --batch-size {batch_size} --learning-rate {learning_rate}"
 
   train_stacker:
     parameters:
