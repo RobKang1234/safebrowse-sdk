@@ -88,6 +88,7 @@ describe("playwright reference adapter", () => {
       providerId: "mail-safe",
       subject: "Quarterly check-in",
       bodyText: "Reply with the approved summary.",
+      rawMimeBase64: "ZW1s",
       to: ["analyst@safe.example"],
       actionCandidates: [
         {
@@ -99,6 +100,7 @@ describe("playwright reference adapter", () => {
     const officePayload = buildOfficeArtifactIngestPayloadV6("session-1", {
       surfaceType: "docx",
       url: "https://safe.example/files/report.docx",
+      contentBase64: "ZG9jeA==",
       visibleText: "Visible report text",
       comments: ["Hidden review note"],
       unsupportedSubtrees: ["embedded-active-content"]
@@ -124,10 +126,12 @@ describe("playwright reference adapter", () => {
     });
 
     expect(emailPayload.capture.surfaceType).toBe("email_message");
+    expect(emailPayload.capture.rawMimeBase64).toBe("ZW1s");
     expect(emailPayload.capture.extractionAttestation.extractorId).toBe(
       "playwright-email-extractor"
     );
     expect(officePayload.capture.surfaceType).toBe("docx");
+    expect(officePayload.capture.contentBase64).toBe("ZG9jeA==");
     expect(officePayload.capture.extractionAttestation.extractorId).toBe(
       "playwright-docx-extractor"
     );

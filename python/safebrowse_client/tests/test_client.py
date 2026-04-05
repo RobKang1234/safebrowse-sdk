@@ -214,11 +214,13 @@ class SafeBrowseClientTest(unittest.TestCase):
                     "recipients": ["analyst@safe.example"],
                 }
             ],
+            raw_mime_bytes=b"Subject: Test\r\n\r\nHello",
         )
         docx_capture = build_docx_surface_capture(
             url="https://safe.example/files/report.docx",
             visible_text="Visible report text",
             comments=["Review note"],
+            content_bytes=b"docx-bytes",
         )
         xlsx_capture = build_xlsx_surface_capture(
             url="https://safe.example/files/data.xlsx",
@@ -252,8 +254,10 @@ class SafeBrowseClientTest(unittest.TestCase):
 
         self.assertEqual(email_capture["surfaceType"], "email_message")
         self.assertEqual(email_capture["providerId"], "mail-safe")
+        self.assertIsNotNone(email_capture["rawMimeBase64"])
         self.assertEqual(email_capture["extractionAttestation"]["extractorId"], "python-email-extractor")
         self.assertEqual(docx_capture["surfaceType"], "docx")
+        self.assertIsNotNone(docx_capture["contentBase64"])
         self.assertEqual(xlsx_capture["surfaceType"], "xlsx")
         self.assertEqual(pptx_capture["surfaceType"], "pptx")
         self.assertEqual(api_capture["surfaceType"], "external_api_response")

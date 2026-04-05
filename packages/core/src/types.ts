@@ -523,6 +523,8 @@ export interface ImageSurfaceCapture extends BaseSurfaceCapture {
 }
 
 interface OfficeDocumentSurfaceCaptureBase extends BaseSurfaceCapture {
+  filename?: string;
+  contentBase64?: string;
   visibleText?: string;
   metadataText?: string[];
   comments?: string[];
@@ -554,6 +556,8 @@ export interface PptxSurfaceCapture extends OfficeDocumentSurfaceCaptureBase {
 export interface EmailSurfaceCapture extends BaseSurfaceCapture {
   surfaceType: "email_message";
   providerId: string;
+  filename?: string;
+  rawMimeBase64?: string;
   mailboxId?: string;
   accountId?: string;
   messageId?: string;

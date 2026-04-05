@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from typing import Any
 from urllib.parse import urlparse
 
@@ -91,6 +92,8 @@ def build_email_surface_capture(
     remote_content: list[str] | None = None,
     action_candidates: list[dict[str, Any]] | None = None,
     attachments: list[dict[str, Any]] | None = None,
+    raw_mime_base64: str | None = None,
+    raw_mime_bytes: bytes | None = None,
     extraction_attestation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
@@ -112,6 +115,12 @@ def build_email_surface_capture(
         "remoteContent": remote_content or [],
         "actionCandidates": action_candidates or [],
         "attachments": attachments or [],
+        "rawMimeBase64": raw_mime_base64
+        or (
+            base64.b64encode(raw_mime_bytes).decode("ascii")
+            if raw_mime_bytes is not None
+            else None
+        ),
         "extractionAttestation": extraction_attestation
         or _default_extraction_attestation("python-email-extractor"),
     }
@@ -133,11 +142,19 @@ def _build_office_surface_capture(
     links: list[dict[str, Any]] | None = None,
     attachments: list[dict[str, Any]] | None = None,
     unsupported_subtrees: list[str] | None = None,
+    content_base64: str | None = None,
+    content_bytes: bytes | None = None,
     extraction_attestation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "surfaceType": surface_type,
         "url": url,
+        "contentBase64": content_base64
+        or (
+            base64.b64encode(content_bytes).decode("ascii")
+            if content_bytes is not None
+            else None
+        ),
         "visibleText": visible_text,
         "metadataText": metadata_text or [],
         "comments": comments or [],

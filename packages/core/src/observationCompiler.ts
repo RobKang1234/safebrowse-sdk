@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { parse as parseHtmlDocument } from "parse5";
 
+import { materializeBinarySurfaceCapture } from "./binarySurfaceIngest.js";
 import { extractTextFromHtml } from "./htmlText.js";
 import { redactSecretsInText } from "./secretIsolation.js";
 import { sanitizeObservation } from "./sanitize.js";
@@ -1672,6 +1673,7 @@ export function compileObservation(
   compiledObservation: CompiledObservation;
   plannerInput: StructuredPlannerInput;
 } {
+  capture = materializeBinarySurfaceCapture(capture);
   const trustSignals = normalizeTrustSignals({
     sourceOrigin: capture.url,
     frameOrigin: capture.frameUrl ?? capture.url,

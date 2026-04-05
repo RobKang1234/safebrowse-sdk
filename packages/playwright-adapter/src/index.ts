@@ -37,6 +37,7 @@ export interface EmailSnapshot {
   providerId: string;
   subject: string;
   bodyText: string;
+  rawMimeBase64?: string;
   mailboxId?: string;
   accountId?: string;
   messageId?: string;
@@ -55,6 +56,7 @@ export interface OfficeDocumentSnapshot {
   surfaceType: "docx" | "xlsx" | "pptx";
   url: string;
   visibleText: string;
+  contentBase64?: string;
   metadataText?: string[];
   comments?: string[];
   notes?: string[];
@@ -187,6 +189,7 @@ export function buildEmailObservePayloadV6(sessionId: string, snapshot: EmailSna
       providerId: snapshot.providerId,
       subject: snapshot.subject,
       bodyText: snapshot.bodyText,
+      rawMimeBase64: snapshot.rawMimeBase64,
       mailboxId: snapshot.mailboxId,
       accountId: snapshot.accountId,
       messageId: snapshot.messageId,

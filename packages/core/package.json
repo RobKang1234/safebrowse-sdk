@@ -45,6 +45,8 @@
   },
   "sideEffects": false,
   "dependencies": {
+    "fast-xml-parser": "^5.5.10",
+    "fflate": "^0.8.2",
     "parse5": "8.0.0"
   }
 }
