@@ -1,119 +1,105 @@
 # SafeBrowse SDK
 
-SafeBrowse is app-side security middleware for browser-use agents. It sits on the action path between an agent and risky external surfaces, then returns structured decisions, capability-bound execution plans, replay data, and guarded connector flows without owning the planner itself.
+SafeBrowse is app-side security middleware for agents that browse pages, inspect artifacts, and call risky external systems. It sits between a planner and effectful sinks, then returns planner-safe observations, authority candidates, approval-bound execution plans, artifact verdicts, and replay evidence without owning the planner itself.
 
-The repository now ships one canonical secure surface. `secure_v6` owns the claim-bearing `/v6/*` API, including the staged-memory, artifact-reference, connector-binding, and replay capabilities that were consolidated out of earlier versioned lanes.
+As of April 5, 2026:
+
+- The canonical secure API in source is `/v6/*` under `secure_v6`.
+- The latest published public release is [`v0.1.4`](releases/manifest.json).
+- This `V6` branch is ahead of the latest public release.
 
 ## What Ships Here
 
-- A TypeScript core runtime
-- A localhost HTTP daemon
-- A thin Python client
-- A Playwright reference adapter
-- Policy and knowledge-base tooling
-- A model-backed threat lab, wrapper-parity gate, and auditor-review pipeline
+- `@safebrowse/core`: TypeScript security runtime
+- `@safebrowse/daemon`: localhost HTTP daemon
+- `safebrowse-client`: thin Python client
+- `@safebrowse/playwright-adapter`: reference payload builder for Playwright hosts
+- KB tooling, release gates, parity tests, and internal assessment tooling
 
-## Public Surfaces
+`@safebrowse/kb-tools`, the approval broker, and the private model-guard sidecar are repo components, but they are not all public publish surfaces.
 
-| Surface | Name | Purpose |
-| --- | --- | --- |
-| PyPI | `safebrowse-client` | Thin Python client for the daemon |
-| npm | `@safebrowse/core` | Core runtime library |
-| npm | `@safebrowse/daemon` | Installable daemon package with `safebrowse-daemon` |
-| npm | `@safebrowse/playwright-adapter` | Reference adapter package |
-| GHCR | `ghcr.io/robkang1234/safebrowse-daemon` | Containerized daemon image |
+## Secure V6 Contract
 
-`@safebrowse/kb-tools` remains internal-only.
+`secure_v6` is the claim-bearing runtime profile in the current source tree. It forces:
 
-## Current Secure Profiles
+- parser isolation via `node_permission_process`
+- external-service approval broker mode
+- verified registry enforcement
+- session-bound, digest-bound, non-replayable authorities
+- planner-safe observations by default
+- replay bundles with actor attribution
 
-`secure_v6` is the only first-class secure deployment profile:
+The daemon exposes:
 
-- Server-owned observation compilation
-- Parser isolation for supported capture formats
-- DOM-aware capability minting from supported authority surfaces only
-- Session-bound, digest-bound, non-replayable capabilities
-- Broker-signed, semantically bound approval envelopes
-- Connector handles instead of model-visible token material
-- Tiered memory authority separation
-- System-wide secret isolation and noninterference checks
-- Wrapper parity across direct, Python, and npm-installed execution paths in `secure_v6`
-- Planner-safe observations by default
-- Optional private model-guard sidecar that may only tighten decisions; it never weakens deterministic V6 blocks, approval requirements, or fail-closed parse outcomes
-- Explicit authority candidates alongside historical capability descriptors
-- Registry-hash-bound connector preparation and callback verification
-- Artifact references with mismatch metadata and quarantine semantics
-- Staged memory with source-class rules, corroboration, and rollback to the prior trusted baseline
-- Replay bundles with actor attribution
+- `POST /v6/session/start`
+- `POST /v6/observe`
+- `POST /v6/action/evaluate`
+- `POST /v6/approval/issue`
+- `POST /v6/tool/prepare`
+- `POST /v6/tool/callback/verify`
+- `POST /v6/artifact/ingest`
+- `POST /v6/artifact/extract`
+- `POST /v6/memory/stage`
+- `POST /v6/memory/promote`
+- `POST /v6/memory/rollback`
+- `POST /v6/replay/bundle`
+- `GET /health`
 
-Supported V6 claim surfaces:
+## Supported Secure Surfaces
 
-- HTML and DOM captures
-- Verified tool manifests
-- OAuth and connector flows
-- Server-owned memory promotion paths
+The V6 runtime currently understands these capture and artifact surfaces:
 
-Other supported content surfaces may still be observed and summarized, but they do not directly mint effectful capabilities in the V6 claim-bearing profile. Unsupported or partially parsed surfaces fail closed and are outside the prevention claim.
+- `html`
+- `pdf`
+- `image`
+- `tool_manifest`
+- `memory_candidate`
+- `email_message`
+- `docx`
+- `xlsx`
+- `pptx`
+- `attachment_bundle`
+- `external_api_response`
 
-Older versioned routes are retired from the public claim-bearing surface. Current callers should use `/v6/*` and `secure_v6`.
+Direct raw binary ingestion is now supported for:
 
-## Private Model Guard
+- `.eml`
+- `.docx`
+- `.xlsx`
+- `.pptx`
 
-SafeBrowse V6 can attach a private localhost Python sidecar that scores compiled observations after deterministic parsing and policy extraction.
+That means callers can either provide already-extracted structured captures or send raw MIME / OOXML bytes as base64 on the V6 surface and let SafeBrowse materialize the secure capture before policy evaluation.
 
-- The daemon remains the final policy owner.
-- The model is tightener-only:
-  - deterministic `BLOCK` stays `BLOCK`
-  - deterministic approval requirements stay required
-  - model `require_shadow_replay` downgrades to `REPLAN_READ_ONLY`
-  - model `require_user_approval` escalates authorities to `requiresApproval=true`
-  - model `deny` blocks direct authority minting
-- `GET /health` now reports a coarse `modelGuard` block with readiness, runtime mode, bundle version, and enforcement mode.
-- The training dataset directory is manifest-only in git. Raw JSONL payloads resolve from `SAFEBROWSE_DATA_ROOT`, not from committed repo files.
+## Authority Model
 
-## Latest Internal Assessment
+The current authority system can mint or evaluate:
 
-The latest repo-generated internal assessment bundle is preserved in [demo-output/latest/report.html](demo-output/latest/report.html), [demo-output/latest/report.md](demo-output/latest/report.md), [demo-output/latest/summary.json](demo-output/latest/summary.json), [demo-output/latest/internal-assessment.md](demo-output/latest/internal-assessment.md), and [demo-output/latest/internal-assessment.json](demo-output/latest/internal-assessment.json).
+- `navigate`
+- `connector_prepare`
+- `memory_promote`
+- `email_send`
+- `email_reply`
+- `email_forward`
+- `api_read`
+- `api_write`
+- `api_delete`
+- `api_export`
 
-As of April 3, 2026, against the repo-pinned secure-claim corpus in [config/auditor/v6_secure_claim_suite.json](config/auditor/v6_secure_claim_suite.json):
+Authorities stay bound to the session, workflow step, provider or origin, operation class, target metadata, and source evidence digests. Connector, email, and API flows are approval-capable and non-replayable.
 
-- Total cases: `7`
-- Passed: `7`
-- Failed: `0`
-- Verdict: `qualified_positive_pending_external_audit`
-
-The saved bundle is deterministic and claim-scoped: it checks hidden-authority suppression, visible navigation, connector approval binding, callback mismatch rejection, unsigned approval rejection, and legacy-route disablement under `secure_v6`.
-
-This is intentionally labeled as an internal assessment. External audit status is tracked separately and should not be inferred from repo-generated artifacts alone.
-
-## What "Fully Tested" Means Here
-
-In this repository, "fully tested" now means more than unit tests passing.
-
-For the supported V6 prevention surface, the same hostile and benign cases are checked through:
-
-- The direct daemon path
-- The installed Python wrapper and generated template path
-- The npm-installed daemon and adapter path
-
-Those three paths must agree on the normalized claim-relevant outputs:
-
-- Parse status
-- Planner-safe visible excerpt and structured facts
-- Quoted untrusted blocks
-- Risk markers and blocked channels
-- Candidate capability kinds
-- Final verdict decision and reason codes
-
-That parity gate runs through [scripts/ci/run-wrapper-parity-v6.mjs](scripts/ci/run-wrapper-parity-v6.mjs). The full deterministic auditor review run is driven by [scripts/threat-demo/run-auditor-suite-v6.ts](scripts/threat-demo/run-auditor-suite-v6.ts).
-
-## Quick Install
+## Quick Start
 
 ### Daemon
 
 ```bash
-npx @safebrowse/daemon --host 127.0.0.1 --port 8787 --deployment-profile secure_v6 --approval-broker-public-key-path ./knowledge_base/signing/safebrowse_vf_ed25519_public.pem
+npx @safebrowse/daemon \
+  --host 127.0.0.1 \
+  --port 8787 \
+  --deployment-profile secure_v6 \
+  --approval-broker-public-key-path ./knowledge_base/signing/safebrowse_vf_ed25519_public.pem
 ```
+
+When `--deployment-profile secure_v6` is set, the daemon forces the strict broker and parser posture internally. You do not need to pass those flags again unless you want the startup command to be explicit.
 
 ### Python client
 
@@ -121,251 +107,81 @@ npx @safebrowse/daemon --host 127.0.0.1 --port 8787 --deployment-profile secure_
 pip install safebrowse-client
 ```
 
-### npm libraries
-
-```bash
-npm install @safebrowse/core
-npm install @safebrowse/playwright-adapter playwright-core
-```
-
-### Docker
-
-```bash
-docker run --rm -p 8787:8787 ghcr.io/robkang1234/safebrowse-daemon:latest
-```
-
-## Recommended V6 Flow
-
-### 1. Start a session
-
 ```python
-from safebrowse_client import SafeBrowseClient
+from safebrowse_client import SafeBrowseClient, build_email_surface_capture
 
 client = SafeBrowseClient("http://127.0.0.1:8787")
-
 session = client.start_session(
     {
-        "taskId": "vendor-review-1",
-        "userGoal": "Review the page and stay read-only unless an explicitly granted authority says otherwise.",
-        "allowedOrigins": ["https://docs.python.org", "https://arxiv.org"],
-        "allowedVerbs": ["navigate", "summarize"]
+        "taskId": "mail-review-1",
+        "userGoal": "Inspect the message and stay read-only unless explicitly approved.",
+        "allowedOrigins": ["https://mail.example.com"],
+        "allowedVerbs": ["navigate", "email_reply", "api_read"],
     }
 )
-```
-
-### 2. Compile an observation
-
-```python
-from safebrowse_client import build_html_surface_capture
 
 compiled = client.observe(
     {
         "sessionId": session["session"]["sessionId"],
-        "capture": build_html_surface_capture(
-            url="https://docs.python.org/3/",
-            html="<main>Python 3 documentation home page ...</main>",
-            visible_text="Python 3 documentation home page ..."
-        )
+        "capture": build_email_surface_capture(
+            url="https://mail.example.com/message/123",
+            provider_id="mail.example.com",
+            subject="Quarterly report",
+            body_text="Please review the attached workbook.",
+            raw_mime_bytes=b"From: ...",
+        ),
     }
 )
 ```
 
-### 3. Let the model choose only from minted authorities
+### npm packages
 
-```python
-planner_view = compiled["plannerView"]
-authorities = compiled["authorityCandidates"]
-
-selected = authorities[0]
-result = client.action(
-    {
-        "sessionId": session["session"]["sessionId"],
-        "authorityId": selected["authorityId"],
-        "authorityDigest": selected["authorityDigest"],
-        "parameters": {}
-    }
-)
+```bash
+npm install @safebrowse/core
+npm install @safebrowse/daemon
+npm install @safebrowse/playwright-adapter playwright-core
 ```
 
-The model does not get to invent a new URL, selector, callback URI, or sink. It may only choose from server-minted authorities bound to the session, workflow step, origin, target class, parameter schema, digest, and source evidence.
+## Public Release State
 
-### 4. Use the packaged starter template
+The published public packages are tracked in [releases/manifest.json](releases/manifest.json). As of April 3, 2026, the latest published release is:
 
-The Python package also ships a model-connected browser template helper:
+- Git tag: `v0.1.4`
+- npm: `@safebrowse/core`, `@safebrowse/daemon`, `@safebrowse/playwright-adapter`
+- PyPI: `safebrowse-client`
+- GHCR: `ghcr.io/robkang1234/safebrowse-daemon`
 
-```python
-from safebrowse_client import write_model_connected_browser_agent_template
+This branch contains newer V6 functionality than `v0.1.4`. Do not assume every feature described in this branch README is already present in the latest published artifacts until the next release is cut.
 
-write_model_connected_browser_agent_template("model_connected_browser_agent.py")
-```
+## Internal Assessment vs External Audit
 
-## Core Runtime Functions
+Repo-generated review output is labeled as an internal assessment, not an external audit opinion. The latest saved internal bundle lives under:
 
-The main runtime entrypoints exported from [packages/core/src/index.ts](packages/core/src/index.ts) include:
+- [demo-output/latest/report.md](demo-output/latest/report.md)
+- [demo-output/latest/internal-assessment.md](demo-output/latest/internal-assessment.md)
 
-| Function | Purpose |
-| --- | --- |
-| `compileObservationV6` | Compile a supported surface into a provenance-aware observation and planner-safe view |
-| `mintCapabilitiesForObservationV6` | Mint session-bound, digest-bound, non-replayable capabilities from supported authority evidence |
-| `evaluateCapabilityUseV6` | Enforce capability-bound action execution |
-| `createApprovalIntentPayloadV6` | Build the broker-signed approval payload that binds capability and workflow intent |
-| `issueApprovalEnvelopeV6` | Enforce broker-signed, semantically bound approval issuance |
-| `prepareToolOnboardingV6` | Enforce registry-backed, approval-envelope-bound connector preparation |
-| `verifyToolCallbackV6` | Verify callback state, origin, registry binding, and allowlisted payload fields |
-| `stageMemoryRecordV6` | Stage V6 memory with source-class, corroboration, and lineage metadata |
-| `promoteStagedMemoryRecordV6` | Promote staged V6 memory with approval-bound ticket consumption |
-| `promoteMemoryRecordV6` | Promote candidate memory into trusted durable state with validation or approval |
-| `rollbackMemoryRecordV6` | Restore a trusted snapshot after contradiction or operator action |
-| `assertNoSecretsInJson` | Enforce secret noninterference for JSON payloads |
-| `buildReplayBundle` | Build replayable forensic bundles from runtime events |
+Those files are useful release evidence, but they are not a substitute for a separate external audit statement.
 
-Legacy `v1`, `v2`, `v4`, and `v5` functions are archived only; they are not part of the V6 prevention claim.
+## Developer Commands
 
-## Daemon Routes
-
-The localhost daemon in [packages/daemon/src/server.ts](packages/daemon/src/server.ts) exposes:
-
-| Route | Purpose |
-| --- | --- |
-| `POST /v6/session/start` | Start a server-owned secure session under `secure_v6` |
-| `POST /v6/observe` | Compile a supported surface into a planner-safe observation; returns authority candidates and replay evidence |
-| `POST /v6/action/evaluate` | Evaluate observation, authority, and effect decisions on the canonical action path |
-| `POST /v6/approval/issue` | Issue a broker-signed approval envelope for an exact connector, navigation, or promotion flow |
-| `POST /v6/tool/prepare` | Prepare a brokered connector or OAuth flow |
-| `POST /v6/tool/callback/verify` | Verify callback origin, state, registry binding, and allowlisted fields |
-| `POST /v6/artifact/ingest` | Ingest an artifact and return the active profile's fail-closed or artifact-reference response |
-| `POST /v6/memory/stage` | Canonical staged memory path with source-class and corroboration semantics |
-| `POST /v6/memory/promote` | Promote memory into trusted durable state |
-| `POST /v6/memory/rollback` | Restore a trusted snapshot |
-| `POST /v6/replay/bundle` | Build a replay bundle from actor-attributed runtime events |
-| `GET /health` | Report runtime profile, secure deployment posture, registry metadata, parser isolation probe, and private model-guard readiness |
-
-Compatibility routes are retired from the public claim-bearing surface. Archived fixtures may still reference them, but they are no longer part of the release contract.
-
-## User Manual
-
-### 1. Prerequisites
-
-- Node `22+`
-- `pnpm` via `corepack`
-- Python `3.12+`
-
-### 2. Install dependencies from source
-
-```powershell
+```bash
 corepack pnpm install
-```
-
-### 3. Build and test
-
-```powershell
 corepack pnpm build
 corepack pnpm test
+corepack pnpm release:ready
 ```
 
-### 4. Start the daemon from source
+Useful V6-specific gates:
 
-```powershell
-node packages/daemon/dist/index.js --host 127.0.0.1 --port 8787 --deployment-profile secure_v6 --approval-broker-public-key-path knowledge_base/signing/safebrowse_vf_ed25519_public.pem
-```
+- `corepack pnpm auditor:review:v6`
+- `corepack pnpm auditor:parity:v6`
+- `node scripts/ci/benchmark-daemon-routes.mjs --assert-thresholds`
 
-`secure_v6` now forces `approvalBrokerMode=external_service` and `parserIsolationMode=node_permission_process` internally. Passing those flags explicitly is allowed but redundant.
+## More Docs
 
-### 5. Run the auditor-backed threat lab
-
-```powershell
-corepack pnpm auditor:review:v6
-```
-
-This writes a validated timestamped archive under `demo-output/auditor-suite-<timestamp>` and refreshes the stable latest bundle under `demo-output/latest`.
-
-### 6. Run the wrapper-parity gate
-
-```powershell
-corepack pnpm auditor:parity:v6
-```
-
-### 7. Run the live comparison lab
-
-```powershell
-corepack pnpm demo:watch-live
-```
-
-That mode can use the same local model backend for both the raw agent and the SDK-protected agent when available.
-
-### 8. Start the private model-guard demo sidecar
-
-```powershell
-corepack pnpm model:bundle:demo
-node packages/daemon/dist/index.js --host 127.0.0.1 --port 8787 --deployment-profile secure_v6 --model-guard-url http://127.0.0.1:8788 --model-guard-enforcement-mode tighten --approval-broker-public-key-path knowledge_base/signing/safebrowse_vf_ed25519_public.pem
-corepack pnpm model:serve:demo
-```
-
-For real training and promoted runtime bundles, see [python/safebrowse_model_guard/README.md](python/safebrowse_model_guard/README.md).
-
-## CI and Release Gates
-
-The repository now treats hostile-corpus coverage as a PR gate, not just a nightly diagnostic.
-
-Key workflows:
-
-- [`.github/workflows/pr.yml`](.github/workflows/pr.yml): normal PR validation, including auditor parity
-- [`.github/workflows/auditor-review.yml`](.github/workflows/auditor-review.yml): full auditor review artifacts on PRs and manual dispatch
-- [`.github/workflows/nightly.yml`](.github/workflows/nightly.yml): longer archived nightly runs
-- [`.github/workflows/private-model-guard-retrain.yml`](.github/workflows/private-model-guard-retrain.yml): self-hosted nightly evaluation and weekly private model-guard retraining with MLflow Projects
-- [`.github/workflows/release.yml`](.github/workflows/release.yml): npm, PyPI, GHCR, and release asset publishing on tags
-
-Release smoke and packaging parity are enforced through:
-
-- [scripts/release/smoke-public-artifacts.mjs](scripts/release/smoke-public-artifacts.mjs)
-- [scripts/release/audit-public-artifacts.mjs](scripts/release/audit-public-artifacts.mjs)
-- [scripts/ci/run-wrapper-parity-v6.mjs](scripts/ci/run-wrapper-parity-v6.mjs)
-
-## Why SafeBrowse Still Matters With Frontier Models
-
-Hosted models can be better at resisting obvious prompt injection, but SafeBrowse is useful for a different reason: it is the deterministic reference monitor on the action path.
-
-Model-side safety helps with:
-
-- Better refusal behavior
-- Better resistance to obvious jailbreaks
-- Guardrail and moderation layers
-- Tool approval primitives
-
-SafeBrowse adds app-side enforcement for:
-
-- Capability-bound action execution
-- Connector registry verification
-- Approval-envelope-bound onboarding
-- Callback origin and payload enforcement
-- Secret isolation and replay hygiene
-- Memory authority separation
-- Auditable, reproducible outcomes
-
-The practical rule is simple:
-
-- The model decides what it wants to do
-- SafeBrowse decides what it is allowed to do
-
-## Limitations
-
-The secure profiles are materially stronger than the legacy routes, but there are still important limits:
-
-- The prevention claim applies only to supported `/v6/*` routes under `secure_v6` and supported authority surfaces.
-- Historical pre-V6 content now lives under `archieve/` for reference only, and it is not part of the active release contract.
-- Legacy `/v1/*`, `/v2/*`, `/v4/*`, and `/v5/*` paths are archived migration artifacts and are explicitly outside the prevention claim.
-- Parser isolation is process-level hardening with denied egress and scrubbed ambient state, not yet a full OS or container sandbox.
-- Repo-generated internal assessments are not a substitute for external audit.
-- The threat lab is a controlled evaluation harness, not a full browser isolation system.
-
-## License
-
-SafeBrowse is released under the `SafeBrowse Non-Commercial License 1.0`. Copyright is retained by the author, and all rights not expressly granted are reserved. See [LICENSE](LICENSE).
-
-## Documentation
-
-- Security policy: [SECURITY.md](SECURITY.md)
-- Release guide: [RELEASING.md](RELEASING.md)
-- Archived V5 remediation note: [archieve/docs/v5-remediation-note.md](archieve/docs/v5-remediation-note.md)
-- Archived v1 note: [archieve/docs/v1-limitations-and-model-backed-evaluation.md](archieve/docs/v1-limitations-and-model-backed-evaluation.md)
-- Development source plan: [docs/safebrowse_sdk_vf_development_plan.docx](docs/safebrowse_sdk_vf_development_plan.docx)
+- [RELEASING.md](RELEASING.md)
+- [SECURITY.md](SECURITY.md)
+- [packages/core/README.md](packages/core/README.md)
+- [packages/daemon/README.md](packages/daemon/README.md)
+- [packages/playwright-adapter/README.md](packages/playwright-adapter/README.md)
+- [python/safebrowse_client/README.md](python/safebrowse_client/README.md)

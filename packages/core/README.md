@@ -1,6 +1,6 @@
 # `@safebrowse/core`
 
-Core SafeBrowse runtime for browser-use agents.
+Core SafeBrowse runtime for secure observation compilation, authority minting, approval binding, artifact handling, and replay construction.
 
 ## Install
 
@@ -8,15 +8,47 @@ Core SafeBrowse runtime for browser-use agents.
 npm install @safebrowse/core
 ```
 
-## What it provides
+## Current V6 Coverage
 
-- V6 observation compilation with visibility attestation and semantic authority reduction
-- V6 authority minting and action evaluation
-- V6 approval-envelope issuance and connector callback verification
-- V6 staged memory, promotion, and rollback controls
-- Replay bundle construction and shared policy utilities
-- Model-guard request building, assessment application, and authority tightening helpers for the private Python sidecar
+- HTML observation compilation and action evaluation
+- connector preparation, approval issuance, and callback verification
+- staged memory, promotion, and rollback
+- replay bundle construction
+- email-message and external-API surfaces
+- DOCX, XLSX, PPTX, and attachment-bundle surfaces
+- raw MIME and OOXML materialization before policy evaluation
 
-See the repository README for full architecture and user guidance:
+## Key Exports
 
-- https://github.com/RobKang1234/safebrowse-sdk#readme
+- `compileObservationV6`
+- `mintCapabilitiesForObservationV6`
+- `evaluateCapabilityUseV6`
+- `createApprovalIntentPayloadV6`
+- `issueApprovalEnvelopeV6`
+- `prepareToolOnboardingV6`
+- `verifyToolCallbackV6`
+- `stageMemoryRecordV6`
+- `promoteStagedMemoryRecordV6`
+- `rollbackMemoryRecordV6`
+- `extractAttachmentGraphV6`
+- `materializeBinarySurfaceCapture`
+- `buildReplayBundle`
+
+## Capability Classes
+
+The V6 runtime can evaluate:
+
+- `navigate`
+- `connector_prepare`
+- `memory_promote`
+- `email_send`
+- `email_reply`
+- `email_forward`
+- `api_read`
+- `api_write`
+- `api_delete`
+- `api_export`
+
+See the repository README for daemon routes, release state, and operational guidance:
+
+- [https://github.com/RobKang1234/safebrowse-sdk](https://github.com/RobKang1234/safebrowse-sdk)

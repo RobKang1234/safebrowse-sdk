@@ -2,39 +2,67 @@
 
 ## Supported Releases
 
-SafeBrowse is currently pre-`1.0`. The active hardening branch is `v3`, and the supported public release line will be the latest published `0.y.z` release after launch.
+As of April 5, 2026, SafeBrowse is still pre-`1.0`.
+
+Support applies to the latest published public release line from `main`, plus the next unreleased hardening work on `main` when a fix is in progress. Long-lived development branches, including `V6`, may contain newer mitigations but are not the stable public support target until they are merged and released.
+
+The latest published release recorded in [releases/manifest.json](releases/manifest.json) is `v0.1.4`.
 
 ## Reporting a Vulnerability
 
-Please do not open a public GitHub issue for a new security vulnerability.
+Do not open a public GitHub issue for a new vulnerability.
 
-Use GitHub Security Advisories for private reporting if enabled on the repository. If you cannot use that path, contact the maintainer through a private channel referenced in the repository profile.
+Preferred path:
 
-When reporting, include:
+- GitHub Security Advisories for private reporting, if enabled
 
-- affected package or image name
+Fallback:
+
+- contact the maintainer through a private channel listed on the repository profile
+
+Include:
+
+- affected package, image, or route surface
 - SafeBrowse version or image digest
 - environment details
 - reproduction steps
 - expected vs actual behavior
 - whether the issue can exfiltrate secrets, bypass policy, or weaken provenance
 
+## Scope
+
+In-scope components include:
+
+- `@safebrowse/core`
+- `@safebrowse/daemon`
+- `safebrowse-client`
+- `@safebrowse/playwright-adapter`
+- approval and callback binding
+- verified registry enforcement
+- raw MIME and OOXML ingestion
+- attachment extraction
+- email and external-API authority binding
+- replay and redaction logic
+- public release artifacts on npm, PyPI, and GHCR
+
+The live threat lab and demo output are research surfaces, not production isolation boundaries, but vulnerabilities that weaken the real daemon or runtime through those paths are still in scope.
+
 ## Response Goals
 
 - acknowledge receipt within 5 business days
-- triage severity and impact before requesting public disclosure
-- publish a fix or mitigation note before public advisory details when feasible
+- triage severity before public disclosure
+- ship a fix or mitigation before full advisory details when feasible
 
 ## Release Security Baseline
 
 Public releases are expected to use:
 
-- PyPI Trusted Publishing
 - npm Trusted Publishing
+- PyPI Trusted Publishing or scoped token fallback
 - GHCR provenance and SBOM attestations
 - keyless Cosign image signing
 - protected GitHub environments for prerelease and production publishing
 
-## Scope Notes
+## Disclosure Notes
 
-The live threat lab is a research/demo surface, not a production isolation boundary. Vulnerabilities in the daemon, core runtime, connector enforcement, provenance validation, or release artifacts should be treated as in scope.
+Repo-generated internal assessment files are not external auditor opinions. If a vulnerability affects a release claim, update the public docs, release notes, and version manifest together so users can tell which published versions are impacted.
