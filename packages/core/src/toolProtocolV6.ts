@@ -112,7 +112,20 @@ export function issueApprovalEnvelopeV6(input: {
       reasonCodes.push("AUTHORITY_DOES_NOT_REQUIRE_APPROVAL");
       riskScore = 0.95;
     }
-    if (!["navigate", "connector_prepare", "memory_promote"].includes(input.capability.kind)) {
+    if (
+      ![
+        "navigate",
+        "connector_prepare",
+        "memory_promote",
+        "email_send",
+        "email_reply",
+        "email_forward",
+        "api_read",
+        "api_write",
+        "api_delete",
+        "api_export"
+      ].includes(input.capability.kind)
+    ) {
       decision = "BLOCK";
       reasonCodes.push("AUTHORITY_NOT_APPROVABLE");
       riskScore = 0.99;
@@ -181,10 +194,19 @@ export function issueApprovalEnvelopeV6(input: {
         ? "memory_promotion"
         : input.capability.kind === "connector_prepare"
           ? "connector_oauth"
-          : "browser_navigation",
+          : input.capability.kind === "navigate"
+            ? "browser_navigation"
+            : input.capability.kind === "email_send" ||
+                input.capability.kind === "email_reply" ||
+                input.capability.kind === "email_forward"
+              ? "email_outbound"
+              : "api_operation",
+    operationClass: input.capability.operationClass,
     targetPathClass: input.capability.targetPathClass,
     evidenceSpanIds: input.capability.evidenceSpanIds,
     connectorId: input.capability.connectorId,
+    providerId: input.capability.providerId,
+    operationId: input.capability.operationId,
     registryEntryId: input.capability.registryEntryId,
     registryBundleId: input.capability.registryBundleId,
     registryBundleVersion: input.capability.registryBundleVersion,
@@ -195,6 +217,16 @@ export function issueApprovalEnvelopeV6(input: {
     callbackOrigin: input.capability.callbackOrigin,
     manifestHash: input.capability.manifestHash,
     schemaHash: input.capability.schemaHash,
+    requestSchemaHash: input.capability.requestSchemaHash,
+    responseSchemaHash: input.capability.responseSchemaHash,
+    mailboxId: input.capability.mailboxId,
+    accountId: input.capability.accountId,
+    messageId: input.capability.messageId,
+    threadId: input.capability.threadId,
+    recipientSetHash: input.capability.recipientSetHash,
+    subjectHash: input.capability.subjectHash,
+    bodyDigest: input.capability.bodyDigest,
+    attachmentDigestSet: input.capability.attachmentDigestSet,
     targetOrigin: input.capability.targetOrigin,
     issuedAt,
     expiresAt,

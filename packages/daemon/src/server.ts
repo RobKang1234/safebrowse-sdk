@@ -14,6 +14,7 @@ import {
   computeToolSchemaHash,
   createApprovalIntentPayloadV6,
   evaluateCapabilityUseV6,
+  extractAttachmentGraphV6,
   issueApprovalEnvelopeV6,
   mintCapabilitiesForObservationV6,
   mintMemoryPromotionCapabilityV6,
@@ -45,9 +46,11 @@ import {
   type TaskSession,
   type ToolCallbackVerificationRequest,
   type ToolOnboardingSessionV6,
+  type VerifiedApiProviderEntry,
   type V6ActionEvaluateRequest,
   type VerifiedRegistryBundle,
-  type VerifiedRegistryEntry
+  type VerifiedRegistryEntry,
+  type ArtifactExtractionRequestV6
 } from "@safebrowse/core";
 import {
   buildRegistryDefaults,
@@ -148,6 +151,8 @@ interface ArtifactIngestPayload {
   sessionId: string;
   capture: SurfaceCapture;
 }
+
+interface ArtifactExtractPayload extends ArtifactExtractionRequestV6 {}
 
 interface MemoryPromotePayload {
   sessionId: string;
@@ -420,9 +425,22 @@ function authorityCandidateFromDescriptor(authority: CapabilityDescriptorV6) {
     semanticDigest: authority.semanticDigest,
     title: authority.title,
     kind: authority.kind,
+    operationClass: authority.operationClass,
     targetPathClass: authority.targetPathClass,
     requiresApproval: authority.requiresApproval,
     evidenceSpanIds: authority.evidenceSpanIds,
+    providerId: authority.providerId,
+    operationId: authority.operationId,
+    method: authority.method,
+    pathTemplate: authority.pathTemplate,
+    mailboxId: authority.mailboxId,
+    accountId: authority.accountId,
+    messageId: authority.messageId,
+    threadId: authority.threadId,
+    recipientSetHash: authority.recipientSetHash,
+    subjectHash: authority.subjectHash,
+    bodyDigest: authority.bodyDigest,
+    attachmentDigestSet: authority.attachmentDigestSet,
     parameterSchema: authority.parameterSchema,
     expiresAt: authority.expiresAt
   };
@@ -449,6 +467,13 @@ function lookupVerifiedRegistryEntry(
   );
 }
 
+function lookupVerifiedApiProviderEntry(
+  runtime: { verifiedRegistry?: VerifiedRegistryBundle },
+  providerId?: string
+): VerifiedApiProviderEntry | undefined {
+  return runtime.verifiedRegistry?.apiProviders?.find((entry) => entry.providerId === providerId);
+}
+
 function buildArtifactRef(
   capture: SurfaceCapture,
   observation: CompiledObservationV6
@@ -456,8 +481,18 @@ function buildArtifactRef(
   const extractionMethod =
     capture.surfaceType === "html"
       ? "dom"
+      : capture.surfaceType === "email_message"
+        ? "mime"
+        : capture.surfaceType === "docx" ||
+            capture.surfaceType === "xlsx" ||
+            capture.surfaceType === "pptx"
+          ? "ooxml"
+          : capture.surfaceType === "attachment_bundle"
+            ? "extractor"
       : capture.surfaceType === "tool_manifest" || capture.surfaceType === "memory_candidate"
         ? "api"
+        : capture.surfaceType === "external_api_response"
+          ? "api"
         : capture.surfaceType === "image"
           ? "ocr"
           : "download";
@@ -585,7 +620,9 @@ export async function createSafeBrowseServer(
                 bundleId: runtime.verifiedRegistry.bundleId,
                 version: runtime.verifiedRegistry.version,
                 signer: runtime.verifiedRegistry.signer,
-                signatureVerified: runtime.verifiedRegistry.signatureVerified
+                signatureVerified: runtime.verifiedRegistry.signatureVerified,
+                apiProviderCount: runtime.verifiedRegistry.apiProviders?.length ?? 0,
+                extractorProfileCount: runtime.verifiedRegistry.extractorProfiles?.length ?? 0
               }
             : undefined,
           policyLayers: runtime.policy.layerProvenance,
@@ -659,13 +696,17 @@ export async function createSafeBrowseServer(
         let compiledObservation = parsed.compiledObservation;
         let plannerView = parsed.plannerView!;
         let mediated = applyV6ObservationMediation(compiledObservation, plannerView);
-        const verifiedRegistryEntry =
-          capture.surfaceType === "tool_manifest"
-            ? lookupVerifiedRegistryEntry(runtime, capture.toolId, capture.toolId)
-            : undefined;
-        const manifestHash =
-          capture.surfaceType === "tool_manifest"
-            ? parsed.toolManifestDigests?.manifestHash ??
+          const verifiedRegistryEntry =
+            capture.surfaceType === "tool_manifest"
+              ? lookupVerifiedRegistryEntry(runtime, capture.toolId, capture.toolId)
+              : undefined;
+          const verifiedApiProviderEntry =
+            "providerId" in capture && capture.providerId
+              ? lookupVerifiedApiProviderEntry(runtime, capture.providerId)
+              : undefined;
+          const manifestHash =
+            capture.surfaceType === "tool_manifest"
+              ? parsed.toolManifestDigests?.manifestHash ??
               computeToolManifestHash({
                 toolId: capture.toolId,
                 description: capture.description,
@@ -734,19 +775,26 @@ export async function createSafeBrowseServer(
                 sessionState.session,
                 compiledObservation,
                 plannerView,
-                capture.surfaceType === "tool_manifest" && verifiedRegistryEntry
-                  ? {
-                      verifiedRegistryEntry,
-                      registryEntryId: capture.toolId,
-                      connectorId: capture.toolId,
-                      requestedScopes: capture.requestedScopes,
-                      callbackUri: capture.callbackUri,
-                      callbackOrigin: capture.callbackOrigin,
-                      manifestAuthType: capture.authType,
-                      manifestHash,
-                      schemaHash
-                    }
-                  : {}
+                {
+                  policy: runtime.policy,
+                  ...(capture.surfaceType === "tool_manifest" && verifiedRegistryEntry
+                    ? {
+                        verifiedRegistryEntry,
+                        registryEntryId: capture.toolId,
+                        connectorId: capture.toolId,
+                        requestedScopes: capture.requestedScopes,
+                        callbackUri: capture.callbackUri,
+                        callbackOrigin: capture.callbackOrigin,
+                        manifestAuthType: capture.authType,
+                        manifestHash,
+                        schemaHash
+                      }
+                    : verifiedApiProviderEntry
+                      ? {
+                          verifiedApiProviderEntry
+                        }
+                      : {})
+                }
               );
         const tightenedAuthorities = tightenAuthoritiesWithModelGuard(
           authorities,
@@ -773,6 +821,14 @@ export async function createSafeBrowseServer(
             parseStatus: compiledObservation.parseStatus,
             authorityCount: tightenedAuthorities.length,
             decision: mediated.verdict.decision,
+            surfaceType: capture.surfaceType,
+            providerId: "providerId" in capture ? capture.providerId ?? null : null,
+            extractorIds:
+              "extractionAttestation" in capture && capture.extractionAttestation
+                ? [capture.extractionAttestation.extractorId]
+                : "extractionAttestations" in capture
+                  ? capture.extractionAttestations?.map((entry) => entry.extractorId) ?? []
+                  : [],
             modelAssessment: compiledObservation.modelAssessment
               ? {
                   bundleVersion: compiledObservation.modelAssessment.bundleVersion,
@@ -829,14 +885,17 @@ export async function createSafeBrowseServer(
           payload: {
             route: requestUrl,
             authorityId: payload.authorityId,
-            decision: authorityDecision.decision
+            decision: authorityDecision.decision,
+            operationClass: authority?.operationClass ?? null,
+            providerId: authority?.providerId ?? null,
+            operationId: authority?.operationId ?? null
           }
         });
 
-        writeJson(response, 200, {
-          observationDecision:
-            sessionState?.latestObservationVerdict ?? {
-              decision: "ALLOW",
+          writeJson(response, 200, {
+            observationDecision:
+              sessionState?.latestObservationVerdict ?? {
+                decision: "ALLOW",
               reasonCodes: [],
               riskScore: 0
             },
@@ -846,12 +905,25 @@ export async function createSafeBrowseServer(
             authorityDecision.decision === "ALLOW" && authority
               ? {
                   verb: authority.kind,
+                  operationClass: authority.operationClass,
                   targetUrl: authority.targetUrl,
                   targetOrigin: authority.targetOrigin,
                   selector: authority.selector,
                   targetPathClass: authority.targetPathClass,
                   derivedSinkClass: authority.derivedSinkClass,
-                  derivedSensitiveSink: authority.derivedSensitiveSink
+                  derivedSensitiveSink: authority.derivedSensitiveSink,
+                  providerId: authority.providerId,
+                  operationId: authority.operationId,
+                  method: authority.method,
+                  pathTemplate: authority.pathTemplate,
+                  mailboxId: authority.mailboxId,
+                  accountId: authority.accountId,
+                  messageId: authority.messageId,
+                  threadId: authority.threadId,
+                  recipientSetHash: authority.recipientSetHash,
+                  subjectHash: authority.subjectHash,
+                  bodyDigest: authority.bodyDigest,
+                  attachmentDigestSet: authority.attachmentDigestSet
                 }
               : undefined
         });
@@ -1050,7 +1122,13 @@ export async function createSafeBrowseServer(
           payload: {
             route: requestUrl,
             observationId: parsed.compiledObservation.observationId,
-            decision: mediated.verdict.decision
+            decision: mediated.verdict.decision,
+            surfaceType: capture.surfaceType,
+            providerId: "providerId" in capture ? capture.providerId ?? null : null,
+            extractorIds:
+              "extractionAttestation" in capture && capture.extractionAttestation
+                ? [capture.extractionAttestation.extractorId]
+                : []
           }
         });
 
@@ -1060,6 +1138,43 @@ export async function createSafeBrowseServer(
           artifactRef,
           mismatchSignals: artifactRef.mismatchSignals,
           artifactVerdict: mediated.verdict,
+          replayEventId: replayEventId ?? randomUUID()
+        });
+        return;
+      }
+
+      if (requestUrl === "/v6/artifact/extract") {
+        const payload = await readJson<ArtifactExtractPayload>(request);
+        const sessionState = findSessionState(sessions, payload.sessionId);
+        if (!sessionState) {
+          writeJson(response, 404, { error: "unknown_session" });
+          return;
+        }
+
+        const result = extractAttachmentGraphV6(
+          {
+            ...payload.capture,
+            sessionId: payload.sessionId,
+            taskId: sessionState.session.taskId
+          },
+          runtime
+        );
+
+        const replayEventId = appendReplayEvent(sessionState, {
+          kind: "artifact",
+          actor: "sdk",
+          payload: {
+            route: requestUrl,
+            rootNodeCount: result.artifactGraph.rootNodeIds.length,
+            blockedChildren: result.blockedChildren.length,
+            unsupportedChildren: result.unsupportedChildren.length,
+            extractorIds: result.extractionAttestations.map((entry) => entry.extractorId),
+            decision: result.artifactVerdict.decision
+          }
+        });
+
+        writeJson(response, 200, {
+          ...result,
           replayEventId: replayEventId ?? randomUUID()
         });
         return;

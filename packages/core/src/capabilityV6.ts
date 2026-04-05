@@ -4,12 +4,15 @@ import type {
   ApprovalEnvelopeV6,
   CapabilityDescriptorV6,
   CapabilityUseRequestV6,
+  CompiledPolicy,
   CompiledObservationV6,
   ModelGuardAssessment,
+  OperationClass,
   PlannerViewV6,
   SafeVerdict,
   TaskSession,
   TargetPathClass,
+  VerifiedApiProviderEntry,
   VerifiedRegistryEntry
 } from "./types.js";
 import {
@@ -42,8 +45,9 @@ function createAuthorityDigests(
   const semanticDigest = sha256Hex(
     stableStringify({
       kind: authority.kind,
+      operationClass: authority.operationClass,
       targetClass: authority.targetClass,
-      targetPathClass: authority.targetPathClass,
+      targetPathClass: authority.targetPathClass ?? null,
       requiresApproval: authority.requiresApproval,
       originBoundTo: authority.originBoundTo,
       targetOrigin: authority.targetOrigin,
@@ -63,6 +67,20 @@ function createAuthorityDigests(
       registryBundleVersion: authority.registryBundleVersion ?? null,
       registrySigner: authority.registrySigner ?? null,
       connectorId: authority.connectorId ?? null,
+      providerId: authority.providerId ?? null,
+      operationId: authority.operationId ?? null,
+      method: authority.method ?? null,
+      pathTemplate: authority.pathTemplate ?? null,
+      requestSchemaHash: authority.requestSchemaHash ?? null,
+      responseSchemaHash: authority.responseSchemaHash ?? null,
+      mailboxId: authority.mailboxId ?? null,
+      accountId: authority.accountId ?? null,
+      messageId: authority.messageId ?? null,
+      threadId: authority.threadId ?? null,
+      recipientSetHash: authority.recipientSetHash ?? null,
+      subjectHash: authority.subjectHash ?? null,
+      bodyDigest: authority.bodyDigest ?? null,
+      attachmentDigestSet: authority.attachmentDigestSet ?? [],
       requestedScopes: authority.requestedScopes ?? [],
       callbackUri: authority.callbackUri ?? null,
       callbackOrigin: authority.callbackOrigin ?? null,
@@ -101,9 +119,29 @@ function allSourceSpansVisible(
         span.visibilityClass === "visible" &&
         span.visibleOnlyFlag === true &&
         !span.blockedForAuthority &&
-        !["hidden_text", "comment", "metadata", "annotation", "schema", "memory_candidate"].includes(
-          span.channel
-        )
+        ![
+          "hidden_text",
+          "comment",
+          "metadata",
+          "annotation",
+          "schema",
+          "memory_candidate",
+          "email_header",
+          "quoted_thread",
+          "remote_content",
+          "auth_result",
+          "office_comment",
+          "office_note",
+          "office_formula",
+          "hidden_sheet",
+          "hidden_slide",
+          "tracked_change",
+          "embedded_object",
+          "external_relationship",
+          "api_field",
+          "recipient",
+          "attachment_reference"
+        ].includes(span.channel)
     )
   );
 }
@@ -173,6 +211,7 @@ function buildNavigateAuthority(input: {
     workflowHash: session.workflowHash,
     workflowStep: session.currentStep,
     kind: "navigate",
+    operationClass: "browser_navigation",
     targetClass: "browser_navigation",
     targetPathClass,
     requiresApproval,
@@ -196,6 +235,186 @@ function buildNavigateAuthority(input: {
     expiresAt,
     nonReplayable: true,
     title: target.displayText || target.href
+  };
+
+  return {
+    ...base,
+    ...createAuthorityDigests(base)
+  };
+}
+
+function buildEmailAuthority(input: {
+  session: TaskSession;
+  observation: CompiledObservationV6;
+  target: CompiledObservationV6["extractedTargets"][number];
+  ttlSeconds: number;
+  policy?: CompiledPolicy;
+  verifiedApiProviderEntry: VerifiedApiProviderEntry;
+}): CapabilityDescriptorV6 | undefined {
+  const {
+    session,
+    observation,
+    target,
+    ttlSeconds,
+    policy,
+    verifiedApiProviderEntry: entry
+  } = input;
+  const recipientDomains = (target.recipients ?? [])
+    .map((value) => value.trim().toLowerCase())
+    .map((value) => value.slice(value.lastIndexOf("@") + 1))
+    .filter((value) => value.includes("."));
+  const recipientsAllowed =
+    recipientDomains.length > 0 &&
+    recipientDomains.every(
+      (domain) =>
+        !policy?.forbiddenRecipientDomains.has(domain) &&
+        (policy?.allowedRecipientDomains.size
+          ? policy.allowedRecipientDomains.has(domain)
+          : true)
+    );
+  if (
+    !["email_send", "email_reply", "email_forward"].includes(target.kind) ||
+    !session.allowedVerbs.includes(target.kind) ||
+    !target.providerId ||
+    target.providerId !== entry.providerId ||
+    (policy?.allowedEmailProviders.size ? !policy.allowedEmailProviders.has(entry.providerId.toLowerCase()) : false) ||
+    !recipientsAllowed ||
+    !entry.allowedOperationClasses.includes(target.operationClass) ||
+    !allSourceSpansVisible(observation, target.sourceSpanIds)
+  ) {
+    return undefined;
+  }
+
+  const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+  const base: Omit<CapabilityDescriptorV6, "capabilityDigest" | "semanticDigest"> = {
+    capabilityId: randomUUID(),
+    sessionId: session.sessionId,
+    workflowHash: session.workflowHash,
+    workflowStep: session.currentStep,
+    kind: target.kind as CapabilityDescriptorV6["kind"],
+    operationClass: target.operationClass,
+    targetClass: "email_operation",
+    requiresApproval: true,
+    originBoundTo: normalizeOrigin(target.sourceOrigin),
+    targetOrigin: normalizeOrigin(target.targetOrigin),
+    sourceObservationId: observation.observationId,
+    sourceDigest: observation.sourceDigest,
+    frameOrigins: uniq([normalizeOrigin(target.frameOrigin)]),
+    sourceSpanIds: target.sourceSpanIds,
+    sourceNodePathHash: target.sourceNodePathHash,
+    mintedFromChannels: target.sourceChannelSet ?? ["visible_text"],
+    visibleOnlyFlag: true,
+    parameterSchema: {
+      dryRun: "boolean"
+    },
+    derivedSinkClass: "email_outbound",
+    derivedSensitiveSink: true,
+    evidenceSpanIds: target.sourceSpanIds,
+    providerId: entry.providerId,
+    mailboxId: target.mailboxId,
+    accountId: target.accountId,
+    messageId: target.messageId,
+    threadId: target.threadId,
+    recipientSetHash: target.recipientSetHash,
+    subjectHash: target.subjectHash,
+    bodyDigest: target.bodyDigest,
+    attachmentDigestSet: target.attachmentDigestSet,
+    expiresAt,
+    nonReplayable: true,
+    title: target.displayText
+  };
+
+  return {
+    ...base,
+    ...createAuthorityDigests(base)
+  };
+}
+
+function methodAllowed(method: string | undefined, entry: VerifiedApiProviderEntry): boolean {
+  if (!method) {
+    return false;
+  }
+  return entry.allowedMethods.map((value) => value.toUpperCase()).includes(method.toUpperCase());
+}
+
+function baseUrlAllowed(targetOrigin: string | undefined, entry: VerifiedApiProviderEntry): boolean {
+  if (!targetOrigin) {
+    return false;
+  }
+  return entry.allowedBaseUrls.map((value) => normalizeOrigin(value)).includes(normalizeOrigin(targetOrigin));
+}
+
+function buildApiAuthority(input: {
+  session: TaskSession;
+  observation: CompiledObservationV6;
+  target: CompiledObservationV6["extractedTargets"][number];
+  ttlSeconds: number;
+  policy?: CompiledPolicy;
+  verifiedApiProviderEntry: VerifiedApiProviderEntry;
+}): CapabilityDescriptorV6 | undefined {
+  const {
+    session,
+    observation,
+    target,
+    ttlSeconds,
+    policy,
+    verifiedApiProviderEntry: entry
+  } = input;
+  if (
+    !["api_read", "api_write", "api_delete", "api_export"].includes(target.kind) ||
+    !session.allowedVerbs.includes(target.kind) ||
+    !target.providerId ||
+    target.providerId !== entry.providerId ||
+    (policy?.allowedApiProviders.size ? !policy.allowedApiProviders.has(entry.providerId.toLowerCase()) : false) ||
+    (policy?.allowedApiOperationClasses.size
+      ? !policy.allowedApiOperationClasses.has(target.operationClass)
+      : false) ||
+    !entry.allowedOperationClasses.includes(target.operationClass) ||
+    !methodAllowed(target.method, entry) ||
+    !baseUrlAllowed(target.targetOrigin, entry) ||
+    (entry.requestSchemaHash && target.requestSchemaHash !== entry.requestSchemaHash) ||
+    (entry.responseSchemaHash && target.responseSchemaHash !== entry.responseSchemaHash) ||
+    !allSourceSpansVisible(observation, target.sourceSpanIds)
+  ) {
+    return undefined;
+  }
+
+  const requiresApproval =
+    target.kind === "api_read" ? false : target.kind === "api_export" ? true : true;
+  const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+  const base: Omit<CapabilityDescriptorV6, "capabilityDigest" | "semanticDigest"> = {
+    capabilityId: randomUUID(),
+    sessionId: session.sessionId,
+    workflowHash: session.workflowHash,
+    workflowStep: session.currentStep,
+    kind: target.kind as CapabilityDescriptorV6["kind"],
+    operationClass: target.operationClass,
+    targetClass: "api_operation",
+    requiresApproval,
+    originBoundTo: normalizeOrigin(target.sourceOrigin),
+    targetOrigin: normalizeOrigin(target.targetOrigin),
+    sourceObservationId: observation.observationId,
+    sourceDigest: observation.sourceDigest,
+    frameOrigins: uniq([normalizeOrigin(target.frameOrigin)]),
+    sourceSpanIds: target.sourceSpanIds,
+    sourceNodePathHash: target.sourceNodePathHash,
+    mintedFromChannels: target.sourceChannelSet ?? ["visible_text"],
+    visibleOnlyFlag: true,
+    parameterSchema: {
+      dryRun: "boolean"
+    },
+    derivedSinkClass: "api_operation",
+    derivedSensitiveSink: requiresApproval,
+    evidenceSpanIds: target.sourceSpanIds,
+    providerId: entry.providerId,
+    operationId: target.operationId,
+    method: target.method,
+    pathTemplate: target.pathTemplate,
+    requestSchemaHash: target.requestSchemaHash,
+    responseSchemaHash: target.responseSchemaHash,
+    expiresAt,
+    nonReplayable: true,
+    title: target.displayText
   };
 
   return {
@@ -271,6 +490,7 @@ function buildConnectorAuthority(input: {
     workflowHash: session.workflowHash,
     workflowStep: session.currentStep,
     kind: "connector_prepare",
+    operationClass: "connector_setup",
     targetClass: "connector",
     targetPathClass: "connector_setup",
     requiresApproval: true,
@@ -312,10 +532,12 @@ function buildConnectorAuthority(input: {
 export function mintCapabilitiesForObservationV6(
   session: TaskSession,
   observation: CompiledObservationV6,
-  plannerView: PlannerViewV6,
+  _plannerView: PlannerViewV6,
   options: {
     ttlSeconds?: number;
+    policy?: CompiledPolicy;
     verifiedRegistryEntry?: VerifiedRegistryEntry;
+    verifiedApiProviderEntry?: VerifiedApiProviderEntry;
     registryEntryId?: string;
     connectorId?: string;
     requestedScopes?: string[];
@@ -329,7 +551,6 @@ export function mintCapabilitiesForObservationV6(
   if (
     observation.parseStatus !== "compiled" ||
     !observation.authorityEligible ||
-    plannerView.blockedChannels.length > 0 ||
     observation.secretFindings.length > 0
   ) {
     return [];
@@ -366,6 +587,36 @@ export function mintCapabilitiesForObservationV6(
       return connectorAuthority ? [connectorAuthority] : [];
     }
 
+    if (
+      ["email_send", "email_reply", "email_forward"].includes(target.kind) &&
+      options.verifiedApiProviderEntry
+    ) {
+      const emailAuthority = buildEmailAuthority({
+        session,
+        observation,
+        target,
+        ttlSeconds,
+        policy: options.policy,
+        verifiedApiProviderEntry: options.verifiedApiProviderEntry
+      });
+      return emailAuthority ? [emailAuthority] : [];
+    }
+
+    if (
+      ["api_read", "api_write", "api_delete", "api_export"].includes(target.kind) &&
+      options.verifiedApiProviderEntry
+    ) {
+      const apiAuthority = buildApiAuthority({
+        session,
+        observation,
+        target,
+        ttlSeconds,
+        policy: options.policy,
+        verifiedApiProviderEntry: options.verifiedApiProviderEntry
+      });
+      return apiAuthority ? [apiAuthority] : [];
+    }
+
     return [];
   });
 }
@@ -388,6 +639,7 @@ export function mintMemoryPromotionCapabilityV6(
     workflowHash: session.workflowHash,
     workflowStep: session.currentStep,
     kind: "memory_promote",
+    operationClass: "memory_promotion",
     targetClass: "memory_promotion",
     targetPathClass: "workflow_continue",
     requiresApproval: true,
@@ -470,6 +722,33 @@ function approvalMatchesAuthority(
   }
   if (authority.kind === "connector_prepare") {
     return approvalEnvelope.sinkClass === "connector_oauth";
+  }
+  if (
+    authority.kind === "email_send" ||
+    authority.kind === "email_reply" ||
+    authority.kind === "email_forward"
+  ) {
+    return (
+      approvalEnvelope.sinkClass === "email_outbound" &&
+      approvalEnvelope.providerId === authority.providerId &&
+      approvalEnvelope.recipientSetHash === authority.recipientSetHash &&
+      approvalEnvelope.bodyDigest === authority.bodyDigest &&
+      approvalEnvelope.subjectHash === authority.subjectHash
+    );
+  }
+  if (
+    authority.kind === "api_read" ||
+    authority.kind === "api_write" ||
+    authority.kind === "api_delete" ||
+    authority.kind === "api_export"
+  ) {
+    return (
+      approvalEnvelope.sinkClass === "api_operation" &&
+      approvalEnvelope.providerId === authority.providerId &&
+      approvalEnvelope.operationId === authority.operationId &&
+      approvalEnvelope.requestSchemaHash === authority.requestSchemaHash &&
+      approvalEnvelope.responseSchemaHash === authority.responseSchemaHash
+    );
   }
   return approvalEnvelope.sinkClass === "memory_promotion";
 }
@@ -575,8 +854,9 @@ export function evaluateCapabilityUseV6(
           capability_id: authority.capabilityId,
           capability_digest: authority.capabilityDigest,
           semantic_digest: authority.semanticDigest,
+          operation_class: authority.operationClass,
           target_class: authority.targetClass,
-          target_path_class: authority.targetPathClass,
+          target_path_class: authority.targetPathClass ?? null,
           target_origin: authority.targetOrigin,
           requires_approval: authority.requiresApproval,
           derived_sink_class: authority.derivedSinkClass,

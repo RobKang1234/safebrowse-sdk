@@ -71,29 +71,31 @@ export function buildModelGuardObservationRequest(
       contextChars: contextText.length
     },
     targets: observation.extractedTargets.flatMap((target) => {
-      if (target.kind !== "navigate" && target.kind !== "connector_prepare") {
-        return [];
-      }
       const authority = authorities.find(
         (candidate) =>
           candidate.kind === target.kind &&
           candidate.targetUrl === target.href &&
-          candidate.selector === target.selector
+          candidate.selector === target.selector &&
+          candidate.providerId === target.providerId &&
+          candidate.operationId === target.operationId
       );
       return [
         {
           kind: target.kind,
+          operationClass: target.operationClass,
           targetUrl: target.href,
           displayText: target.displayText,
           selector: target.selector,
           targetOrigin: target.targetOrigin,
           targetPathClass:
             authority?.targetPathClass ??
-            classifyTargetPathClass({
-              targetUrl: target.href,
-              displayText: target.displayText,
-              selector: target.selector
-            }),
+            (target.kind === "navigate" || target.kind === "connector_prepare"
+              ? classifyTargetPathClass({
+                  targetUrl: target.href,
+                  displayText: target.displayText,
+                  selector: target.selector
+                })
+              : undefined),
           requiresApproval: authority?.requiresApproval,
           sourceSpanIds: target.sourceSpanIds
         }

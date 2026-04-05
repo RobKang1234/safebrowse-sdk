@@ -1,4 +1,5 @@
 export { evaluateAction } from "./action.js";
+export { extractAttachmentGraphV6 } from "./attachmentGuard.js";
 export {
   evaluateCapabilityUseV6,
   mintCapabilitiesForObservationV6,

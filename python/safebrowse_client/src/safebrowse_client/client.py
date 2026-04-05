@@ -44,6 +44,9 @@ class SafeBrowseClient:
     def artifact(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post_v6("/artifact/ingest", payload)
 
+    def artifact_extract(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post_v6("/artifact/extract", payload)
+
     def tool(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self.tool_prepare(payload)
 
@@ -77,3 +80,5 @@ class SafeBrowseClient:
     def replay_bundle(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post_v6("/replay/bundle", payload)
 
+    def extract(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.artifact_extract(payload)

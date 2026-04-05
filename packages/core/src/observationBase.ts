@@ -313,6 +313,7 @@ function parseHtmlCaptureV5(
         extractedTargets.push({
           targetId: randomUUID(),
           kind: "navigate",
+          operationClass: "browser_navigation",
           href,
           selector: span.selector,
           sourceSpanIds: [span.spanId],
@@ -440,7 +441,27 @@ function buildPlannerViewV5(compiledObservation: CompiledObservation): PlannerVi
     .filter(
       (span) =>
         span.blockedForAuthority ||
-        ["metadata", "annotation", "schema", "memory_candidate"].includes(span.channel)
+        [
+          "metadata",
+          "annotation",
+          "schema",
+          "memory_candidate",
+          "email_header",
+          "quoted_thread",
+          "remote_content",
+          "auth_result",
+          "office_comment",
+          "office_note",
+          "office_formula",
+          "hidden_sheet",
+          "hidden_slide",
+          "tracked_change",
+          "embedded_object",
+          "external_relationship",
+          "api_field",
+          "recipient",
+          "attachment_reference"
+        ].includes(span.channel)
     )
     .slice(0, 6)
     .map((span) => ({
@@ -489,21 +510,43 @@ export function compileObservationBase(
     userSharedFlag: capture.userShared ?? false,
     sessionDiscoveredFlag: !(capture.userShared ?? false),
     artifactKind:
-      capture.surfaceType === "tool_manifest"
-        ? "tool_manifest"
-        : capture.surfaceType === "memory_candidate"
-          ? "memory"
-          : capture.surfaceType === "html"
-            ? "page"
-            : capture.surfaceType,
+      capture.surfaceType === "email_message"
+        ? "email_message"
+        : capture.surfaceType === "docx"
+          ? "docx"
+          : capture.surfaceType === "xlsx"
+            ? "xlsx"
+            : capture.surfaceType === "pptx"
+              ? "pptx"
+              : capture.surfaceType === "attachment_bundle"
+                ? "attachment_bundle"
+                : capture.surfaceType === "external_api_response"
+                  ? "external_api_response"
+                  : capture.surfaceType === "tool_manifest"
+                    ? "tool_manifest"
+                    : capture.surfaceType === "memory_candidate"
+                      ? "memory"
+                      : capture.surfaceType === "html"
+                        ? "page"
+                        : capture.surfaceType,
     extractionMethod:
       capture.surfaceType === "html"
         ? "dom"
-        : capture.surfaceType === "tool_manifest" || capture.surfaceType === "memory_candidate"
-          ? "api"
-          : capture.surfaceType === "image"
-            ? "ocr"
-            : "download"
+        : capture.surfaceType === "email_message"
+          ? "mime"
+          : capture.surfaceType === "docx" ||
+              capture.surfaceType === "xlsx" ||
+              capture.surfaceType === "pptx"
+            ? "ooxml"
+            : capture.surfaceType === "attachment_bundle"
+              ? "extractor"
+              : capture.surfaceType === "tool_manifest" ||
+                  capture.surfaceType === "memory_candidate" ||
+                  capture.surfaceType === "external_api_response"
+                ? "api"
+                : capture.surfaceType === "image"
+                  ? "ocr"
+                  : "download"
   });
   const sourceDigest = hashSurface(capture);
 
@@ -517,16 +560,15 @@ export function compileObservationBase(
       options
     );
     const normalizedSpans =
-      capture.surfaceType === "tool_manifest"
-        ? base.compiledObservation.spans.map((span) =>
-            span.channel === "visible_text"
-              ? {
-                  ...span,
-                  visibleOnlyFlag: true
-                }
-              : span
-          )
-        : base.compiledObservation.spans;
+      base.compiledObservation.spans.map((span) => ({
+        ...span,
+        visibleOnlyFlag:
+          capture.surfaceType === "tool_manifest" && span.channel === "visible_text"
+            ? true
+            : span.visibleOnlyFlag,
+        blockedForAuthority:
+          span.blockedForAuthority || base.plannerInput.blockedChannels.includes(span.channel)
+      }));
     const normalizedTargets =
       capture.surfaceType === "tool_manifest"
         ? base.compiledObservation.extractedTargets.map((target) => ({

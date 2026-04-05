@@ -1,14 +1,23 @@
 import { randomUUID } from "node:crypto";
 import { parse as parseHtmlDocument } from "parse5";
 
+import { extractTextFromHtml } from "./htmlText.js";
 import { redactSecretsInText } from "./secretIsolation.js";
 import { sanitizeObservation } from "./sanitize.js";
 import { normalizeTrustSignals } from "./trust.js";
 import type {
+  AttachmentBundleSurfaceCapture,
+  AttachmentNodeCapture,
   CompiledObservation,
+  DocxSurfaceCapture,
+  EmailActionCandidateCapture,
+  EmailSurfaceCapture,
+  ExternalApiSurfaceCapture,
   ExtractedTarget,
+  ExtractionAttestation,
   SafeVerdict,
   HtmlSurfaceCapture,
+  PptxSurfaceCapture,
   ParserIsolationReport,
   ProvenanceChannel,
   ProvenanceSpan,
@@ -16,7 +25,8 @@ import type {
   StructuredPlannerInput,
   SurfaceCapture,
   SurfaceLinkCapture,
-  ToolManifestSurfaceCapture
+  ToolManifestSurfaceCapture,
+  XlsxSurfaceCapture
 } from "./types.js";
 import { clamp, normalizeOrigin, normalizeText, overlapScore, sha256Hex, uniq } from "./utils.js";
 
@@ -134,13 +144,24 @@ function hashSurface(capture: SurfaceCapture): string {
       surfaceType: capture.surfaceType,
       url: capture.url,
       frameUrl: capture.frameUrl,
+      providerId: "providerId" in capture ? capture.providerId : undefined,
+      parserId: "parserId" in capture ? capture.parserId : undefined,
+      extractorId: "extractorId" in capture ? capture.extractorId : undefined,
       visibleText: "visibleText" in capture ? capture.visibleText : undefined,
       html: "html" in capture ? capture.html : undefined,
       renderedText: "renderedText" in capture ? capture.renderedText : undefined,
       extractedText: "extractedText" in capture ? capture.extractedText : undefined,
       ocrText: "ocrText" in capture ? capture.ocrText : undefined,
       description: "description" in capture ? capture.description : undefined,
-      key: "key" in capture ? capture.key : undefined
+      key: "key" in capture ? capture.key : undefined,
+      subject: "subject" in capture ? capture.subject : undefined,
+      bodyText: "bodyText" in capture ? capture.bodyText : undefined,
+      responseText: "responseText" in capture ? capture.responseText : undefined,
+      operationId: "operationId" in capture ? capture.operationId : undefined,
+      attachments:
+        "attachments" in capture
+          ? capture.attachments
+          : undefined
     })
   );
 }
@@ -156,6 +177,7 @@ function buildSpan(input: {
   lineageChain: string[];
   selector?: string;
   supportingDigest?: string;
+  visibleOnlyFlag?: boolean;
 }): ProvenanceSpan {
   return {
     spanId: randomUUID(),
@@ -168,8 +190,45 @@ function buildSpan(input: {
     taintClass: input.taintClass,
     lineageChain: input.lineageChain,
     selector: input.selector,
-    supportingDigest: input.supportingDigest
+    supportingDigest: input.supportingDigest,
+    visibleOnlyFlag: input.visibleOnlyFlag
   };
+}
+
+function hashNormalizedValues(values: string[]): string | undefined {
+  const normalized = values.map((value) => normalizeText(value)).filter(Boolean).sort();
+  if (!normalized.length) {
+    return undefined;
+  }
+  return sha256Hex(JSON.stringify(normalized));
+}
+
+function hashNormalizedValue(value: string | undefined): string | undefined {
+  const normalized = normalizeText(value ?? "");
+  return normalized ? sha256Hex(normalized) : undefined;
+}
+
+function hasExtractionAttestation(
+  capture: SurfaceCapture
+): capture is
+  | EmailSurfaceCapture
+  | DocxSurfaceCapture
+  | XlsxSurfaceCapture
+  | PptxSurfaceCapture
+  | AttachmentBundleSurfaceCapture
+  | ExternalApiSurfaceCapture {
+  return "extractionAttestation" in capture;
+}
+
+function extractionAttestationFacts(attestation: ExtractionAttestation | undefined): string[] {
+  if (!attestation) {
+    return [];
+  }
+  return [
+    `extractor: ${attestation.extractorId}`,
+    `extractor version: ${attestation.extractorVersion}`,
+    `network policy: ${attestation.networkPolicy}`
+  ];
 }
 
 function parseHtmlCapture(
@@ -221,6 +280,7 @@ function parseHtmlCapture(
     extractedTargets.push({
       targetId: randomUUID(),
       kind: "navigate",
+      operationClass: "browser_navigation",
       href: link.href,
       selector: link.selector,
       sourceSpanIds: [span.spanId],
@@ -623,7 +683,8 @@ function parsePdfCapture(
     spans,
     extractedFacts: uniq(
       ("attachments" in capture ? capture.attachments ?? [] : []).map(
-        (entry) => `attachment: ${normalizeText(entry)}`
+        (entry) =>
+          `attachment: ${normalizeText(typeof entry === "string" ? entry : entry.filename)}`
       )
     ),
     extractedTargets: [],
@@ -779,6 +840,7 @@ function parseToolManifestCapture(
             {
               targetId: randomUUID(),
               kind: "connector_prepare",
+              operationClass: "connector_setup",
               sourceSpanIds: [spans[0].spanId],
               sourceOrigin,
               frameOrigin,
@@ -839,6 +901,766 @@ function parseMemoryCandidateCapture(
   };
 }
 
+function buildOfficeLinkTarget(
+  link: SurfaceLinkCapture,
+  sourceOrigin: string,
+  frameOrigin: string,
+  trustSignals: ReturnType<typeof normalizeTrustSignals>,
+  sourceDigest: string
+): { span: ProvenanceSpan; target: ExtractedTarget } | undefined {
+  if (!normalizeText(link.href)) {
+    return undefined;
+  }
+  const text = normalizeText(link.text ?? link.href);
+  const span = buildSpan({
+    channel: "link",
+    text,
+    sourceOrigin,
+    frameOrigin,
+    visibilityClass: "visible",
+    extractionMethod: "ooxml",
+    taintClass: trustSignals.taintClass,
+    lineageChain: trustSignals.lineageChain,
+    selector: link.selector,
+    supportingDigest: sourceDigest,
+    visibleOnlyFlag: true
+  });
+  return {
+    span,
+    target: {
+      targetId: randomUUID(),
+      kind: "navigate",
+      operationClass: "browser_navigation",
+      href: link.href,
+      selector: link.selector,
+      sourceSpanIds: [span.spanId],
+      sourceOrigin,
+      frameOrigin,
+      targetOrigin: normalizeOrigin(link.href),
+      displayText: text || link.href,
+      sourceChannelSet: ["link"],
+      visibleOnlyFlag: true
+    }
+  };
+}
+
+function parseOfficeCapture(
+  capture: DocxSurfaceCapture | XlsxSurfaceCapture | PptxSurfaceCapture,
+  trustSignals: ReturnType<typeof normalizeTrustSignals>,
+  sourceDigest: string
+): {
+  spans: ProvenanceSpan[];
+  extractedFacts: string[];
+  extractedTargets: ExtractedTarget[];
+  riskFindings: string[];
+  blockedChannels: ProvenanceChannel[];
+  parseStatus: CompiledObservation["parseStatus"];
+} {
+  const sourceOrigin = normalizeOrigin(capture.url);
+  const frameOrigin = normalizeOrigin(capture.frameUrl ?? capture.url);
+  const spans: ProvenanceSpan[] = [];
+  const extractedFacts: string[] = [...extractionAttestationFacts(capture.extractionAttestation)];
+  const extractedTargets: ExtractedTarget[] = [];
+  const riskFindings: string[] = [];
+  const blockedChannels: ProvenanceChannel[] = [];
+
+  const visibleText = normalizeText(capture.visibleText ?? "");
+  if (visibleText) {
+    spans.push(
+      buildSpan({
+        channel: "visible_text",
+        text: visibleText,
+        sourceOrigin,
+        frameOrigin,
+        visibilityClass: "visible",
+        extractionMethod: "ooxml",
+        taintClass: trustSignals.taintClass,
+        lineageChain: trustSignals.lineageChain,
+        supportingDigest: sourceDigest
+      })
+    );
+  }
+
+  for (const value of capture.hiddenText ?? []) {
+    const text = normalizeText(value);
+    if (!text) {
+      continue;
+    }
+    spans.push(
+      buildSpan({
+        channel: capture.surfaceType === "xlsx" ? "hidden_sheet" : "hidden_slide",
+        text,
+        sourceOrigin,
+        frameOrigin,
+        visibilityClass: "hidden",
+        extractionMethod: "ooxml",
+        taintClass: trustSignals.taintClass,
+        lineageChain: trustSignals.lineageChain,
+        supportingDigest: sourceDigest
+      })
+    );
+    blockedChannels.push(capture.surfaceType === "xlsx" ? "hidden_sheet" : "hidden_slide");
+  }
+
+  for (const value of capture.metadataText ?? []) {
+    const text = normalizeText(value);
+    if (!text) {
+      continue;
+    }
+    spans.push(
+      buildSpan({
+        channel: "metadata",
+        text,
+        sourceOrigin,
+        frameOrigin,
+        visibilityClass: "metadata",
+        extractionMethod: "ooxml",
+        taintClass: trustSignals.taintClass,
+        lineageChain: trustSignals.lineageChain,
+        supportingDigest: sourceDigest
+      })
+    );
+    blockedChannels.push("metadata");
+  }
+
+  for (const value of capture.comments ?? []) {
+    const text = normalizeText(value);
+    if (!text) {
+      continue;
+    }
+    spans.push(
+      buildSpan({
+        channel: "office_comment",
+        text,
+        sourceOrigin,
+        frameOrigin,
+        visibilityClass: "annotation",
+        extractionMethod: "ooxml",
+        taintClass: trustSignals.taintClass,
+        lineageChain: trustSignals.lineageChain,
+        supportingDigest: sourceDigest
+      })
+    );
+    blockedChannels.push("office_comment");
+  }
+
+  for (const value of capture.notes ?? []) {
+    const text = normalizeText(value);
+    if (!text) {
+      continue;
+    }
+    spans.push(
+      buildSpan({
+        channel: "office_note",
+        text,
+        sourceOrigin,
+        frameOrigin,
+        visibilityClass: "annotation",
+        extractionMethod: "ooxml",
+        taintClass: trustSignals.taintClass,
+        lineageChain: trustSignals.lineageChain,
+        supportingDigest: sourceDigest
+      })
+    );
+    blockedChannels.push("office_note");
+  }
+
+  for (const value of capture.trackedChanges ?? []) {
+    const text = normalizeText(value);
+    if (!text) {
+      continue;
+    }
+    spans.push(
+      buildSpan({
+        channel: "tracked_change",
+        text,
+        sourceOrigin,
+        frameOrigin,
+        visibilityClass: "annotation",
+        extractionMethod: "ooxml",
+        taintClass: trustSignals.taintClass,
+        lineageChain: trustSignals.lineageChain,
+        supportingDigest: sourceDigest
+      })
+    );
+    blockedChannels.push("tracked_change");
+  }
+
+  for (const value of capture.formulas ?? []) {
+    const text = normalizeText(value);
+    if (!text) {
+      continue;
+    }
+    spans.push(
+      buildSpan({
+        channel: "office_formula",
+        text,
+        sourceOrigin,
+        frameOrigin,
+        visibilityClass: "metadata",
+        extractionMethod: "ooxml",
+        taintClass: trustSignals.taintClass,
+        lineageChain: trustSignals.lineageChain,
+        supportingDigest: sourceDigest
+      })
+    );
+    blockedChannels.push("office_formula");
+  }
+
+  for (const value of capture.externalRelationships ?? []) {
+    const text = normalizeText(value);
+    if (!text) {
+      continue;
+    }
+    spans.push(
+      buildSpan({
+        channel: "external_relationship",
+        text,
+        sourceOrigin,
+        frameOrigin,
+        visibilityClass: "metadata",
+        extractionMethod: "ooxml",
+        taintClass: trustSignals.taintClass,
+        lineageChain: trustSignals.lineageChain,
+        supportingDigest: sourceDigest
+      })
+    );
+    blockedChannels.push("external_relationship");
+    riskFindings.push("office_external_relationship_present");
+  }
+
+  for (const value of capture.embeddedObjects ?? []) {
+    const text = normalizeText(value);
+    if (!text) {
+      continue;
+    }
+    spans.push(
+      buildSpan({
+        channel: "embedded_object",
+        text,
+        sourceOrigin,
+        frameOrigin,
+        visibilityClass: "metadata",
+        extractionMethod: "ooxml",
+        taintClass: trustSignals.taintClass,
+        lineageChain: trustSignals.lineageChain,
+        supportingDigest: sourceDigest
+      })
+    );
+    blockedChannels.push("embedded_object");
+    riskFindings.push("office_embedded_object_present");
+  }
+
+  for (const attachment of capture.attachments ?? []) {
+    extractedFacts.push(`attachment: ${attachment.filename}`);
+  }
+
+  for (const link of capture.links ?? []) {
+    const parsedLink = buildOfficeLinkTarget(
+      link,
+      sourceOrigin,
+      frameOrigin,
+      trustSignals,
+      sourceDigest
+    );
+    if (!parsedLink) {
+      continue;
+    }
+    spans.push(parsedLink.span);
+    extractedTargets.push(parsedLink.target);
+  }
+
+  if ((capture.hiddenText?.length ?? 0) > 0) {
+    riskFindings.push("hidden_office_content_present");
+  }
+  if (!capture.extractionAttestation) {
+    riskFindings.push("surface_attestation_missing");
+  }
+  if ((capture.unsupportedSubtrees?.length ?? 0) > 0) {
+    riskFindings.push("unsupported_nested_renderer");
+    extractedFacts.push(
+      ...capture.unsupportedSubtrees!.map((entry) => `unsupported subtree: ${normalizeText(entry)}`)
+    );
+  }
+
+  const parseStatus: CompiledObservation["parseStatus"] =
+    (capture.unsupportedSubtrees?.length ?? 0) > 0
+      ? "partial"
+      : spans.length || extractedFacts.length
+        ? "compiled"
+        : "unsupported";
+
+  return {
+    spans,
+    extractedFacts: uniq(extractedFacts),
+    extractedTargets,
+    riskFindings: uniq(riskFindings),
+    blockedChannels: uniq(blockedChannels),
+    parseStatus
+  };
+}
+
+function actionSpanText(action: EmailActionCandidateCapture): string {
+  return `${action.kind.replaceAll("_", " ")} ${action.recipients.join(", ")}`.trim();
+}
+
+function parseEmailCapture(
+  capture: EmailSurfaceCapture,
+  trustSignals: ReturnType<typeof normalizeTrustSignals>,
+  sourceDigest: string
+): {
+  spans: ProvenanceSpan[];
+  extractedFacts: string[];
+  extractedTargets: ExtractedTarget[];
+  riskFindings: string[];
+  blockedChannels: ProvenanceChannel[];
+  parseStatus: CompiledObservation["parseStatus"];
+} {
+  const sourceOrigin = normalizeOrigin(capture.url);
+  const frameOrigin = normalizeOrigin(capture.frameUrl ?? capture.url);
+  const spans: ProvenanceSpan[] = [];
+  const extractedFacts: string[] = [
+    ...extractionAttestationFacts(capture.extractionAttestation),
+    capture.subject ? `subject: ${normalizeText(capture.subject)}` : ""
+  ].filter(Boolean);
+  const extractedTargets: ExtractedTarget[] = [];
+  const riskFindings: string[] = [];
+  const blockedChannels: ProvenanceChannel[] = [];
+  const visibleParts = [
+    normalizeText(capture.subject ?? ""),
+    normalizeText(capture.bodyText ?? ""),
+    capture.bodyHtml ? extractTextFromHtml(capture.bodyHtml) : ""
+  ].filter(Boolean);
+
+  if (visibleParts.length) {
+    spans.push(
+      buildSpan({
+        channel: "visible_text",
+        text: visibleParts.join(" "),
+        sourceOrigin,
+        frameOrigin,
+        visibilityClass: "visible",
+        extractionMethod: "mime",
+        taintClass: trustSignals.taintClass,
+        lineageChain: trustSignals.lineageChain,
+        supportingDigest: sourceDigest
+      })
+    );
+  }
+
+  for (const value of capture.headers ?? []) {
+    const text = normalizeText(value);
+    if (!text) {
+      continue;
+    }
+    spans.push(
+      buildSpan({
+        channel: "email_header",
+        text,
+        sourceOrigin,
+        frameOrigin,
+        visibilityClass: "metadata",
+        extractionMethod: "mime",
+        taintClass: trustSignals.taintClass,
+        lineageChain: trustSignals.lineageChain,
+        supportingDigest: sourceDigest
+      })
+    );
+    blockedChannels.push("email_header");
+  }
+
+  for (const value of capture.authResults ?? []) {
+    const text = normalizeText(value);
+    if (!text) {
+      continue;
+    }
+    spans.push(
+      buildSpan({
+        channel: "auth_result",
+        text,
+        sourceOrigin,
+        frameOrigin,
+        visibilityClass: "metadata",
+        extractionMethod: "mime",
+        taintClass: trustSignals.taintClass,
+        lineageChain: trustSignals.lineageChain,
+        supportingDigest: sourceDigest
+      })
+    );
+    blockedChannels.push("auth_result");
+  }
+
+  for (const value of capture.quotedThreadText ?? []) {
+    const text = normalizeText(value);
+    if (!text) {
+      continue;
+    }
+    spans.push(
+      buildSpan({
+        channel: "quoted_thread",
+        text,
+        sourceOrigin,
+        frameOrigin,
+        visibilityClass: "hidden",
+        extractionMethod: "mime",
+        taintClass: trustSignals.taintClass,
+        lineageChain: trustSignals.lineageChain,
+        supportingDigest: sourceDigest
+      })
+    );
+    blockedChannels.push("quoted_thread");
+  }
+
+  for (const value of capture.remoteContent ?? []) {
+    const text = normalizeText(value);
+    if (!text) {
+      continue;
+    }
+    spans.push(
+      buildSpan({
+        channel: "remote_content",
+        text,
+        sourceOrigin,
+        frameOrigin,
+        visibilityClass: "metadata",
+        extractionMethod: "mime",
+        taintClass: "tainted",
+        lineageChain: trustSignals.lineageChain,
+        supportingDigest: sourceDigest
+      })
+    );
+    blockedChannels.push("remote_content");
+  }
+
+  for (const address of uniq([
+    ...(capture.to ?? []),
+    ...(capture.cc ?? []),
+    ...(capture.bcc ?? [])
+  ])) {
+    const text = normalizeText(address);
+    if (!text) {
+      continue;
+    }
+    spans.push(
+      buildSpan({
+        channel: "recipient",
+        text,
+        sourceOrigin,
+        frameOrigin,
+        visibilityClass: "metadata",
+        extractionMethod: "mime",
+        taintClass: trustSignals.taintClass,
+        lineageChain: trustSignals.lineageChain,
+        supportingDigest: sourceDigest
+      })
+    );
+    blockedChannels.push("recipient");
+  }
+
+  for (const attachment of capture.attachments ?? []) {
+    extractedFacts.push(`attachment: ${attachment.filename}`);
+  }
+
+  for (const link of capture.links ?? []) {
+    const parsedLink = buildOfficeLinkTarget(
+      link,
+      sourceOrigin,
+      frameOrigin,
+      { ...trustSignals, extractionMethod: "mime" },
+      sourceDigest
+    );
+    if (!parsedLink) {
+      continue;
+    }
+    spans.push(parsedLink.span);
+    extractedTargets.push(parsedLink.target);
+  }
+
+  for (const action of capture.actionCandidates ?? []) {
+    const span = buildSpan({
+      channel: "visible_text",
+      text: actionSpanText(action),
+      sourceOrigin,
+      frameOrigin,
+      visibilityClass: "visible",
+      extractionMethod: "mime",
+      taintClass: trustSignals.taintClass,
+      lineageChain: trustSignals.lineageChain,
+      supportingDigest: sourceDigest,
+      visibleOnlyFlag: true
+    });
+    spans.push(span);
+    extractedTargets.push({
+      targetId: randomUUID(),
+      kind: action.kind,
+      operationClass: action.kind,
+      sourceSpanIds: [span.spanId],
+      sourceOrigin,
+      frameOrigin,
+      targetOrigin: normalizeOrigin(capture.url),
+      displayText: actionSpanText(action),
+      providerId: capture.providerId,
+      mailboxId: action.mailboxId ?? capture.mailboxId,
+      accountId: action.accountId ?? capture.accountId,
+      messageId: action.messageId ?? capture.messageId,
+      threadId: action.threadId ?? capture.threadId,
+      recipients: uniq(action.recipients),
+      recipientSetHash: hashNormalizedValues(action.recipients),
+      subjectHash: hashNormalizedValue(action.subject ?? capture.subject),
+      bodyDigest: hashNormalizedValue(action.bodyText ?? capture.bodyText),
+      attachmentDigestSet: uniq(action.attachmentDigests ?? []),
+      sourceChannelSet: ["visible_text"],
+      visibleOnlyFlag: true
+    });
+  }
+
+  if ((capture.remoteContent?.length ?? 0) > 0) {
+    riskFindings.push("email_remote_content_present");
+  }
+  if (!capture.extractionAttestation) {
+    riskFindings.push("surface_attestation_missing");
+  }
+  if ((capture.quotedThreadText?.length ?? 0) > 0) {
+    riskFindings.push("quoted_thread_prompting_present");
+  }
+  if ((capture.unsupportedSubtrees?.length ?? 0) > 0) {
+    riskFindings.push("unsupported_nested_renderer");
+  }
+
+  const parseStatus: CompiledObservation["parseStatus"] =
+    (capture.unsupportedSubtrees?.length ?? 0) > 0
+      ? "partial"
+      : spans.length || extractedFacts.length
+        ? "compiled"
+        : "unsupported";
+
+  return {
+    spans,
+    extractedFacts: uniq(extractedFacts),
+    extractedTargets,
+    riskFindings: uniq(riskFindings),
+    blockedChannels: uniq(blockedChannels),
+    parseStatus
+  };
+}
+
+function parseExternalApiCapture(
+  capture: ExternalApiSurfaceCapture,
+  trustSignals: ReturnType<typeof normalizeTrustSignals>,
+  sourceDigest: string
+): {
+  spans: ProvenanceSpan[];
+  extractedFacts: string[];
+  extractedTargets: ExtractedTarget[];
+  riskFindings: string[];
+  blockedChannels: ProvenanceChannel[];
+  parseStatus: CompiledObservation["parseStatus"];
+} {
+  const sourceOrigin = normalizeOrigin(capture.url);
+  const frameOrigin = normalizeOrigin(capture.frameUrl ?? capture.url);
+  const spans: ProvenanceSpan[] = [];
+  const extractedFacts: string[] = [
+    ...extractionAttestationFacts(capture.extractionAttestation),
+    `provider: ${capture.providerId}`,
+    `operation: ${capture.operationId}`,
+    `method: ${capture.method}`
+  ];
+  const extractedTargets: ExtractedTarget[] = [];
+  const blockedChannels: ProvenanceChannel[] = [];
+  const riskFindings: string[] = [];
+
+  const responseText = normalizeText(capture.responseText ?? "");
+  if (responseText) {
+    spans.push(
+      buildSpan({
+        channel: "visible_text",
+        text: responseText,
+        sourceOrigin,
+        frameOrigin,
+        visibilityClass: "visible",
+        extractionMethod: "api",
+        taintClass: trustSignals.taintClass,
+        lineageChain: trustSignals.lineageChain,
+        supportingDigest: sourceDigest
+      })
+    );
+  }
+
+  for (const value of capture.responseFields ?? []) {
+    const text = normalizeText(value);
+    if (!text) {
+      continue;
+    }
+    spans.push(
+      buildSpan({
+        channel: "api_field",
+        text,
+        sourceOrigin,
+        frameOrigin,
+        visibilityClass: "metadata",
+        extractionMethod: "api",
+        taintClass: trustSignals.taintClass,
+        lineageChain: trustSignals.lineageChain,
+        supportingDigest: sourceDigest
+      })
+    );
+    blockedChannels.push("api_field");
+  }
+
+  for (const url of capture.linkedUrls ?? []) {
+    const parsedLink = buildOfficeLinkTarget(
+      { href: url, text: url, frameOrigin },
+      sourceOrigin,
+      frameOrigin,
+      trustSignals,
+      sourceDigest
+    );
+    if (!parsedLink) {
+      continue;
+    }
+    spans.push(parsedLink.span);
+    extractedTargets.push(parsedLink.target);
+  }
+
+  for (const action of capture.actionCandidates ?? []) {
+    const span = buildSpan({
+      channel: "visible_text",
+      text: `${action.kind.replaceAll("_", " ")} ${action.pathTemplate}`,
+      sourceOrigin,
+      frameOrigin,
+      visibilityClass: "visible",
+      extractionMethod: "api",
+      taintClass: trustSignals.taintClass,
+      lineageChain: trustSignals.lineageChain,
+      supportingDigest: sourceDigest,
+      visibleOnlyFlag: true
+    });
+    spans.push(span);
+    extractedTargets.push({
+      targetId: randomUUID(),
+      kind: action.kind,
+      operationClass: action.kind,
+      sourceSpanIds: [span.spanId],
+      sourceOrigin,
+      frameOrigin,
+      targetOrigin: normalizeOrigin(action.baseUrl),
+      displayText: `${action.method} ${action.pathTemplate}`,
+      providerId: action.providerId,
+      operationId: action.operationId,
+      method: action.method,
+      pathTemplate: action.pathTemplate,
+      requestSchemaHash: action.requestSchemaHash,
+      responseSchemaHash: action.responseSchemaHash,
+      resourceId: action.resourceId,
+      sourceChannelSet: ["visible_text"],
+      visibleOnlyFlag: true
+    });
+  }
+
+  if ((capture.responseFields?.length ?? 0) > 0) {
+    riskFindings.push("api_response_fields_present");
+  }
+  if (!capture.extractionAttestation) {
+    riskFindings.push("surface_attestation_missing");
+  }
+
+  return {
+    spans,
+    extractedFacts: uniq(extractedFacts),
+    extractedTargets,
+    riskFindings: uniq(riskFindings),
+    blockedChannels: uniq(blockedChannels),
+    parseStatus: spans.length || extractedFacts.length ? "compiled" : "unsupported"
+  };
+}
+
+function flattenAttachmentNodes(
+  nodes: AttachmentNodeCapture[],
+  facts: string[],
+  blockedChildren: string[],
+  unsupportedChildren: string[],
+  riskFindings: string[]
+): void {
+  for (const node of nodes) {
+    facts.push(`attachment: ${normalizeText(node.filename)}`);
+    if (node.encrypted || node.passwordProtected) {
+      blockedChildren.push(node.attachmentId);
+      riskFindings.push("encrypted_attachment_present");
+    }
+    if (node.unsupported) {
+      unsupportedChildren.push(node.attachmentId);
+      riskFindings.push("unsupported_nested_renderer");
+    }
+    if (node.blockedActiveContent) {
+      blockedChildren.push(node.attachmentId);
+      riskFindings.push("blocked_active_content_child");
+    }
+    if ((node.externalReferences?.length ?? 0) > 0) {
+      riskFindings.push("external_relationship_hydration_attempt");
+    }
+    flattenAttachmentNodes(
+      node.children ?? [],
+      facts,
+      blockedChildren,
+      unsupportedChildren,
+      riskFindings
+    );
+  }
+}
+
+function parseAttachmentBundleCapture(
+  capture: AttachmentBundleSurfaceCapture,
+  trustSignals: ReturnType<typeof normalizeTrustSignals>,
+  sourceDigest: string
+): {
+  spans: ProvenanceSpan[];
+  extractedFacts: string[];
+  extractedTargets: ExtractedTarget[];
+  riskFindings: string[];
+  blockedChannels: ProvenanceChannel[];
+  parseStatus: CompiledObservation["parseStatus"];
+} {
+  const sourceOrigin = normalizeOrigin(capture.url);
+  const frameOrigin = normalizeOrigin(capture.frameUrl ?? capture.url);
+  const blockedChildren: string[] = [];
+  const unsupportedChildren: string[] = [];
+  const riskFindings: string[] = [];
+  const extractedFacts: string[] = [...extractionAttestationFacts(capture.extractionAttestations?.[0])];
+  flattenAttachmentNodes(
+    capture.attachments,
+    extractedFacts,
+    blockedChildren,
+    unsupportedChildren,
+    riskFindings
+  );
+
+  const spans = uniq([...blockedChildren, ...unsupportedChildren]).map((nodeId) =>
+    buildSpan({
+      channel: "attachment_reference",
+      text: nodeId,
+      sourceOrigin,
+      frameOrigin,
+      visibilityClass: "metadata",
+      extractionMethod: "extractor",
+      taintClass: trustSignals.taintClass,
+      lineageChain: trustSignals.lineageChain,
+      supportingDigest: sourceDigest
+    })
+  );
+
+  return {
+    spans,
+    extractedFacts: uniq(extractedFacts),
+    extractedTargets: [],
+    riskFindings: uniq([
+      ...riskFindings,
+      ...(capture.extractionAttestations?.length ? [] : ["surface_attestation_missing"])
+    ]),
+    blockedChannels: spans.length ? ["attachment_reference"] : [],
+    parseStatus: capture.attachments.length ? "compiled" : "unsupported"
+  };
+}
+
 export function compileObservation(
   capture: SurfaceCapture,
   context: Partial<RuntimeContext> = {},
@@ -856,21 +1678,43 @@ export function compileObservation(
     userSharedFlag: capture.userShared ?? false,
     sessionDiscoveredFlag: !(capture.userShared ?? false),
     artifactKind:
-      capture.surfaceType === "tool_manifest"
-        ? "tool_manifest"
-        : capture.surfaceType === "memory_candidate"
-          ? "memory"
-          : capture.surfaceType === "html"
-            ? "page"
-            : capture.surfaceType,
+      capture.surfaceType === "email_message"
+        ? "email_message"
+        : capture.surfaceType === "docx"
+          ? "docx"
+          : capture.surfaceType === "xlsx"
+            ? "xlsx"
+            : capture.surfaceType === "pptx"
+              ? "pptx"
+              : capture.surfaceType === "attachment_bundle"
+                ? "attachment_bundle"
+                : capture.surfaceType === "external_api_response"
+                  ? "external_api_response"
+                  : capture.surfaceType === "tool_manifest"
+                    ? "tool_manifest"
+                    : capture.surfaceType === "memory_candidate"
+                      ? "memory"
+                      : capture.surfaceType === "html"
+                        ? "page"
+                        : capture.surfaceType,
     extractionMethod:
       capture.surfaceType === "html"
         ? "dom"
-        : capture.surfaceType === "tool_manifest" || capture.surfaceType === "memory_candidate"
-          ? "api"
-          : capture.surfaceType === "image"
-            ? "ocr"
-            : "download",
+        : capture.surfaceType === "email_message"
+          ? "mime"
+          : capture.surfaceType === "docx" ||
+              capture.surfaceType === "xlsx" ||
+              capture.surfaceType === "pptx"
+            ? "ooxml"
+            : capture.surfaceType === "attachment_bundle"
+              ? "extractor"
+              : capture.surfaceType === "tool_manifest" || capture.surfaceType === "memory_candidate"
+                ? "api"
+                : capture.surfaceType === "external_api_response"
+                  ? "api"
+                  : capture.surfaceType === "image"
+                    ? "ocr"
+                    : "download",
     ...(capture.trustSignals ?? {})
   });
   const sourceDigest = hashSurface(capture);
@@ -881,9 +1725,19 @@ export function compileObservation(
         ? parsePdfCapture(capture, trustSignals, sourceDigest)
         : capture.surfaceType === "image"
           ? parseImageCapture(capture, trustSignals, sourceDigest)
-          : capture.surfaceType === "tool_manifest"
-            ? parseToolManifestCapture(capture, trustSignals, sourceDigest)
-            : parseMemoryCandidateCapture(capture, trustSignals, sourceDigest);
+          : capture.surfaceType === "email_message"
+            ? parseEmailCapture(capture, trustSignals, sourceDigest)
+            : capture.surfaceType === "docx" ||
+                capture.surfaceType === "xlsx" ||
+                capture.surfaceType === "pptx"
+              ? parseOfficeCapture(capture, trustSignals, sourceDigest)
+              : capture.surfaceType === "attachment_bundle"
+                ? parseAttachmentBundleCapture(capture, trustSignals, sourceDigest)
+                : capture.surfaceType === "external_api_response"
+                  ? parseExternalApiCapture(capture, trustSignals, sourceDigest)
+                  : capture.surfaceType === "tool_manifest"
+                    ? parseToolManifestCapture(capture, trustSignals, sourceDigest)
+                    : parseMemoryCandidateCapture(capture, trustSignals, sourceDigest);
 
   const aggregateText = parsed.spans.map((span) => span.text).join(" ");
   const legacyObservation = sanitizeObservation(
@@ -895,9 +1749,19 @@ export function compileObservation(
           ? "tool_text"
           : capture.surfaceType === "memory_candidate"
             ? "memory"
-            : capture.surfaceType === "pdf" || capture.surfaceType === "image"
-              ? "document"
-              : "page",
+            : capture.surfaceType === "email_message"
+              ? "email"
+              : capture.surfaceType === "docx" ||
+                  capture.surfaceType === "xlsx" ||
+                  capture.surfaceType === "pptx"
+                ? "office_document"
+                : capture.surfaceType === "attachment_bundle"
+                  ? "attachment_bundle"
+                  : capture.surfaceType === "external_api_response"
+                    ? "api_response"
+                    : capture.surfaceType === "pdf" || capture.surfaceType === "image"
+                      ? "document"
+                      : "page",
       text: aggregateText,
       fragments: parsed.spans.map((span) => ({
         text: span.text,
@@ -928,9 +1792,29 @@ export function compileObservation(
 
   const quotedUntrustedBlocks = parsed.spans
     .filter((span) =>
-      ["hidden_text", "metadata", "annotation", "comment", "schema", "memory_candidate"].includes(
-        span.channel
-      )
+      [
+        "hidden_text",
+        "metadata",
+        "annotation",
+        "comment",
+        "schema",
+        "memory_candidate",
+        "email_header",
+        "quoted_thread",
+        "remote_content",
+        "auth_result",
+        "office_comment",
+        "office_note",
+        "office_formula",
+        "hidden_sheet",
+        "hidden_slide",
+        "tracked_change",
+        "embedded_object",
+        "external_relationship",
+        "api_field",
+        "recipient",
+        "attachment_reference"
+      ].includes(span.channel)
     )
     .slice(0, 6)
     .map((span) => {

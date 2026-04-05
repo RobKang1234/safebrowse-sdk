@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildActionEvaluatePayloadV6,
+  buildAttachmentExtractPayloadV6,
   buildArtifactIngestPayloadV6,
+  buildEmailObservePayloadV6,
+  buildExternalApiObservePayloadV6,
+  buildOfficeArtifactIngestPayloadV6,
   buildObservePayloadV6,
   createObservationFromSnapshot,
   createSurfaceCaptureFromSnapshot,
@@ -76,6 +80,63 @@ describe("playwright reference adapter", () => {
       authorityDigest: "digest-1",
       parameters: undefined
     });
+  });
+
+  it("builds email, office, api, and attachment helper payloads", () => {
+    const emailPayload = buildEmailObservePayloadV6("session-1", {
+      url: "https://mail.safe.example/messages/1",
+      providerId: "mail-safe",
+      subject: "Quarterly check-in",
+      bodyText: "Reply with the approved summary.",
+      to: ["analyst@safe.example"],
+      actionCandidates: [
+        {
+          kind: "email_reply",
+          recipients: ["analyst@safe.example"]
+        }
+      ]
+    });
+    const officePayload = buildOfficeArtifactIngestPayloadV6("session-1", {
+      surfaceType: "docx",
+      url: "https://safe.example/files/report.docx",
+      visibleText: "Visible report text",
+      comments: ["Hidden review note"],
+      unsupportedSubtrees: ["embedded-active-content"]
+    });
+    const apiPayload = buildExternalApiObservePayloadV6("session-1", {
+      url: "https://api.safe.example/tickets/42",
+      providerId: "ticketing-api",
+      operationId: "tickets.get",
+      method: "GET",
+      baseUrl: "https://api.safe.example",
+      pathTemplate: "/tickets/{id}",
+      responseText: "Ticket 42 is open."
+    });
+    const attachmentPayload = buildAttachmentExtractPayloadV6("session-1", {
+      url: "https://mail.safe.example/messages/1/attachments",
+      attachments: [
+        {
+          attachmentId: "attachment-1",
+          filename: "report.pdf",
+          mimeType: "application/pdf"
+        }
+      ]
+    });
+
+    expect(emailPayload.capture.surfaceType).toBe("email_message");
+    expect(emailPayload.capture.extractionAttestation.extractorId).toBe(
+      "playwright-email-extractor"
+    );
+    expect(officePayload.capture.surfaceType).toBe("docx");
+    expect(officePayload.capture.extractionAttestation.extractorId).toBe(
+      "playwright-docx-extractor"
+    );
+    expect(apiPayload.capture.surfaceType).toBe("external_api_response");
+    expect(apiPayload.capture.requestSchemaHash).toBeUndefined();
+    expect(attachmentPayload.capture.surfaceType).toBe("attachment_bundle");
+    expect(attachmentPayload.capture.extractionAttestations[0].extractorId).toBe(
+      "playwright-attachment-extractor"
+    );
   });
 
   it("does not bypass non-allow verdicts", async () => {

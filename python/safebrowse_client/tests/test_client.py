@@ -10,7 +10,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from safebrowse_client import (
     SafeBrowseClient,
+    build_attachment_bundle_surface_capture,
+    build_docx_surface_capture,
+    build_email_surface_capture,
+    build_external_api_surface_capture,
     build_html_surface_capture,
+    build_pptx_surface_capture,
+    build_xlsx_surface_capture,
     get_model_connected_browser_agent_template,
     write_model_connected_browser_agent_template,
 )
@@ -84,6 +90,7 @@ class SafeBrowseClientTest(unittest.TestCase):
             ("observe", {"sessionId": "session-1", "capture": {"surfaceType": "html", "url": "https://safe.example"}}, "/v6/observe", {"compiledObservation": {"observationId": "obs-1"}}),
             ("action", {"sessionId": "session-1", "authorityId": "auth-1", "authorityDigest": "digest-1", "parameters": {}}, "/v6/action/evaluate", {"effectDecision": {"decision": "ALLOW"}}),
             ("artifact", {"sessionId": "session-1", "capture": {"surfaceType": "html"}}, "/v6/artifact/ingest", {"artifactVerdict": {"decision": "ALLOW"}}),
+            ("artifact_extract", {"sessionId": "session-1", "capture": {"surfaceType": "attachment_bundle", "url": "https://safe.example", "attachments": []}}, "/v6/artifact/extract", {"artifactVerdict": {"decision": "ALLOW"}}),
             ("tool_prepare", {"sessionId": "session-1", "approvalId": "approval-1"}, "/v6/tool/prepare", {"verdict": {"decision": "ALLOW"}}),
             ("tool_callback_verify", {"sessionId": "session-1", "approvalId": "approval-1", "onboardingSessionId": "onboarding-1", "request": {"sessionId": "onboarding-1", "callbackUri": "https://safe.example/oauth/callback", "callbackOrigin": "https://safe.example", "state": "state-1", "payload": {"code": "auth-code", "state": "state-1"}}}, "/v6/tool/callback/verify", {"verdict": {"decision": "ALLOW"}}),
             ("approval_issue", {"sessionId": "session-1", "capabilityId": "cap-1", "capabilityDigest": "digest-1", "brokerSignature": "sig"}, "/v6/approval/issue", {"verdict": {"decision": "ALLOW"}}),
@@ -113,6 +120,7 @@ class SafeBrowseClientTest(unittest.TestCase):
             ("tool", {"sessionId": "session-1", "approvalId": "approval-1"}, "/v6/tool/prepare"),
             ("memory", {"sessionId": "session-1", "key": "workflow_hint", "value": {"note": "baseline"}, "sourceClass": "user_note", "durable": True}, "/v6/memory/stage"),
             ("replay", {"sessionId": "session-1"}, "/v6/replay/bundle"),
+            ("extract", {"sessionId": "session-1", "capture": {"surfaceType": "attachment_bundle", "url": "https://safe.example", "attachments": []}}, "/v6/artifact/extract"),
             ("issue_approval_grant", {"sessionId": "session-1", "capabilityId": "cap-1", "capabilityDigest": "digest-1", "brokerSignature": "sig"}, "/v6/approval/issue"),
         ]
 
@@ -191,6 +199,70 @@ class SafeBrowseClientTest(unittest.TestCase):
             capture["captureAttestation"]["unsupportedSubtrees"], ["encrypted nested pdf"]
         )
         self.assertEqual(capture["trustSignals"]["sourceOrigin"], "https://docs.python.org")
+
+    def test_new_surface_capture_builders_cover_email_office_api_and_attachments(self) -> None:
+        email_capture = build_email_surface_capture(
+            url="https://mail.safe.example/messages/1",
+            provider_id="mail-safe",
+            subject="Quarterly check-in",
+            body_text="Reply with the approved summary.",
+            to=["analyst@safe.example"],
+            remote_content=["https://tracker.safe.example/pixel?id=1"],
+            action_candidates=[
+                {
+                    "kind": "email_reply",
+                    "recipients": ["analyst@safe.example"],
+                }
+            ],
+        )
+        docx_capture = build_docx_surface_capture(
+            url="https://safe.example/files/report.docx",
+            visible_text="Visible report text",
+            comments=["Review note"],
+        )
+        xlsx_capture = build_xlsx_surface_capture(
+            url="https://safe.example/files/data.xlsx",
+            visible_text="Sheet summary",
+            formulas=["=SUM(A1:A5)"],
+        )
+        pptx_capture = build_pptx_surface_capture(
+            url="https://safe.example/files/deck.pptx",
+            visible_text="Visible slide text",
+            notes=["Speaker note"],
+        )
+        api_capture = build_external_api_surface_capture(
+            url="https://api.safe.example/tickets/42",
+            provider_id="ticketing-api",
+            operation_id="tickets.get",
+            method="GET",
+            base_url="https://api.safe.example",
+            path_template="/tickets/{id}",
+            response_text="Ticket 42 is open.",
+        )
+        attachment_capture = build_attachment_bundle_surface_capture(
+            url="https://mail.safe.example/messages/1/attachments",
+            attachments=[
+                {
+                    "attachmentId": "attachment-1",
+                    "filename": "report.pdf",
+                    "mimeType": "application/pdf",
+                }
+            ],
+        )
+
+        self.assertEqual(email_capture["surfaceType"], "email_message")
+        self.assertEqual(email_capture["providerId"], "mail-safe")
+        self.assertEqual(email_capture["extractionAttestation"]["extractorId"], "python-email-extractor")
+        self.assertEqual(docx_capture["surfaceType"], "docx")
+        self.assertEqual(xlsx_capture["surfaceType"], "xlsx")
+        self.assertEqual(pptx_capture["surfaceType"], "pptx")
+        self.assertEqual(api_capture["surfaceType"], "external_api_response")
+        self.assertEqual(api_capture["providerId"], "ticketing-api")
+        self.assertEqual(attachment_capture["surfaceType"], "attachment_bundle")
+        self.assertEqual(
+            attachment_capture["extractionAttestations"][0]["extractorId"],
+            "python-attachment-extractor",
+        )
 
 
 if __name__ == "__main__":
