@@ -23,7 +23,8 @@ train = [
   "safetensors>=0.6",
   "scikit-learn>=1.5",
   "torch>=2.6",
-  "transformers>=4.51"
+  "transformers>=4.51",
+  "xgboost>=2.1"
 ]
 
 [project.scripts]

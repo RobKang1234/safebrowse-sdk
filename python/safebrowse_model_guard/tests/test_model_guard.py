@@ -9,7 +9,8 @@ import unittest
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-from safebrowse_model_guard.bundle import create_demo_bundle
+from safebrowse_model_guard.bundle import create_demo_bundle, load_bundle_manifest
+from safebrowse_model_guard.monitor import create_training_monitor_server, load_training_run_state
 from safebrowse_model_guard.runtime import ModelGuardRuntime
 from safebrowse_model_guard.server import create_model_guard_server
 from safebrowse_model_guard.training import (
@@ -114,11 +115,108 @@ class ModelGuardRuntimeTest(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2)
 
+    def test_training_monitor_server_reports_recipe_progress_and_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            run_dir = Path(temporary_directory)
+            (run_dir / "expert" / "short_context_warmup").mkdir(parents=True, exist_ok=True)
+            (run_dir / "bundle").mkdir(parents=True, exist_ok=True)
+            (run_dir / "status.json").write_text(
+                json.dumps({"currentStep": "train_recipe", "currentStage": "short_context_warmup", "state": "running"}),
+                encoding="utf-8",
+            )
+            (run_dir / "progress.json").write_text(
+                json.dumps(
+                    {
+                        "currentStage": "short_context_warmup",
+                        "optimizerStep": 125,
+                        "recordsSeen": 5000,
+                        "totalTargetRecords": 10000,
+                        "latestLoss": 0.8125,
+                        "movingAverageLoss": 0.9032,
+                        "meanConfidence": 0.741,
+                        "gradientNorm": 3.52,
+                        "consecutiveNonfiniteGradients": 0,
+                        "lastCheckpointPath": str(run_dir / "expert" / "short_context_warmup" / "active" / "latest"),
+                        "lastCheckpointAt": "2026-04-05T22:10:00Z",
+                        "state": "running",
+                        "progressFraction": 0.5,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (run_dir / "recipe_summary.json").write_text(
+                json.dumps(
+                    {
+                        "hardNegativeReplayCount": 42,
+                        "metrics": {
+                            "valid": {"threatRecall": 0.99, "macroF1": 0.81},
+                            "test": {"threatRecall": 0.985, "macroF1": 0.79},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (run_dir / "expert" / "short_context_warmup" / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "stageName": "short_context_warmup",
+                        "backend": "peft_hierarchical_modernbert_recipe",
+                        "averageLoss": 0.9032,
+                        "examples": 5000,
+                        "retentionOutcome": "latest_plus_sparse_milestones",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (run_dir / "bundle" / "bundle_manifest.json").write_text(
+                json.dumps({"bundleVersion": "recipe-test-bundle"}),
+                encoding="utf-8",
+            )
+            (run_dir / "train.log").write_text("optimizer_step 125\nmoving_avg_loss 0.9032\n", encoding="utf-8")
+
+            state = load_training_run_state(run_dir)
+            self.assertEqual(state["dashboard"]["currentStage"], "short_context_warmup")
+            self.assertEqual(state["dashboard"]["progressFraction"], 0.5)
+            self.assertEqual(state["dashboard"]["validThreatRecall"], 0.99)
+            self.assertEqual(state["dashboard"]["bundleVersion"], "recipe-test-bundle")
+            self.assertEqual(len(state["stageSummaries"]), 1)
+
+            server = create_training_monitor_server(run_dir, host="127.0.0.1", port=0)
+            port = server.server_address[1]
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                time.sleep(0.1)
+                with urlopen(f"http://127.0.0.1:{port}/health") as response:
+                    health = json.loads(response.read().decode("utf-8"))
+                self.assertTrue(health["ready"])
+
+                with urlopen(f"http://127.0.0.1:{port}/api/state") as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                self.assertEqual(payload["dashboard"]["optimizerStep"], 125)
+                self.assertEqual(payload["dashboard"]["hardNegativeReplayCount"], 42)
+
+                with urlopen(f"http://127.0.0.1:{port}/") as response:
+                    html_payload = response.read().decode("utf-8")
+                self.assertIn("SafeBrowse Model Guard Monitor", html_payload)
+                self.assertIn("short_context_warmup", html_payload)
+                self.assertIn("recipe-test-bundle", html_payload)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
     def test_training_smoke_pipeline_with_tiny_private_dataset(self) -> None:
         try:
             import sklearn  # noqa: F401
         except ModuleNotFoundError:
             self.skipTest("scikit-learn is not installed")
+        try:
+            import xgboost  # noqa: F401
+        except ModuleNotFoundError:
+            xgboost_available = False
+        else:
+            xgboost_available = True
 
         with tempfile.TemporaryDirectory() as temporary_directory:
             temp_root = Path(temporary_directory)
@@ -236,6 +334,7 @@ class ModelGuardRuntimeTest(unittest.TestCase):
                     output_dir=expert_dir,
                     backbone="answerdotai/ModernBERT-base",
                     backend="smoke",
+                    sentinel_dir=sentinel_dir,
                 )
                 train_stacker(
                     manifest_path,
@@ -259,12 +358,38 @@ class ModelGuardRuntimeTest(unittest.TestCase):
 
             self.assertEqual(metrics["examples"], 4)
             self.assertGreaterEqual(metrics["threatRecall"], 0.5)
+            sentinel_summary = json.loads((sentinel_dir / "summary.json").read_text(encoding="utf-8"))
+            expert_summary = json.loads((expert_dir / "summary.json").read_text(encoding="utf-8"))
+            stacker_summary = json.loads((stacker_dir / "summary.json").read_text(encoding="utf-8"))
+            bundle_manifest = load_bundle_manifest(bundle_dir)
+            release_manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
+
+            self.assertEqual(sentinel_summary["backend"], "dual_ml_sentinel")
+            if xgboost_available:
+                self.assertEqual(sentinel_summary["structuredBackend"], "xgboost_binary")
+            self.assertEqual(expert_summary["backend"], "recipe_hierarchical_smoke")
+            self.assertIsNone(expert_summary["finalCheckpointPath"])
+            self.assertIn("calibrationArtifact", stacker_summary)
+            self.assertEqual(bundle_manifest["components"]["sentinel"]["backend"], "dual_ml_sentinel")
+            self.assertEqual(bundle_manifest["components"]["expert"]["backend"], "recipe_hierarchical_smoke")
+            self.assertEqual(release_manifest["retentionOutcome"], "latest_plus_sparse_milestones")
+            self.assertIn("dependencyVersions", release_manifest)
+            self.assertIn("python", release_manifest["dependencyVersions"])
+            self.assertIn("stageSummaries", release_manifest)
+            self.assertEqual(release_manifest["stageSummaries"]["stacker"]["backend"], stacker_summary["backend"])
+            self.assertEqual(release_manifest["calibration"]["binaryThreatCalibrator"], "platt")
 
     def test_recipe_pipeline_smoke_backend_uses_recipe_stage_layout(self) -> None:
         try:
             import sklearn  # noqa: F401
         except ModuleNotFoundError:
             self.skipTest("scikit-learn is not installed")
+        try:
+            import xgboost  # noqa: F401
+        except ModuleNotFoundError:
+            xgboost_available = False
+        else:
+            xgboost_available = True
 
         with tempfile.TemporaryDirectory() as temporary_directory:
             temp_root = Path(temporary_directory)
@@ -455,3 +580,129 @@ class ModelGuardRuntimeTest(unittest.TestCase):
             self.assertEqual(summary["metrics"]["valid"]["examples"], 4)
             self.assertEqual(len(summary["expertStages"]), 3)
             self.assertIn("hardNegativeReplayCount", summary)
+            self.assertEqual(summary["sentinel"]["backend"], "dual_ml_sentinel")
+            if xgboost_available:
+                self.assertEqual(summary["sentinel"]["structuredBackend"], "xgboost_binary")
+            self.assertTrue(all(stage["backend"] == "recipe_hierarchical_smoke" for stage in summary["expertStages"]))
+            self.assertTrue(all(stage["retentionOutcome"] == "none_smoke_backend" for stage in summary["expertStages"]))
+            self.assertIn("calibrationArtifact", summary["stacker"])
+            bundle_manifest = load_bundle_manifest(temp_root / "recipe_run" / "bundle")
+            progress = json.loads((temp_root / "recipe_run" / "progress.json").read_text(encoding="utf-8"))
+            self.assertEqual(bundle_manifest["components"]["sentinel"]["backend"], "dual_ml_sentinel")
+            self.assertEqual(bundle_manifest["components"]["stacker"]["backend"], summary["stacker"]["backend"])
+            self.assertEqual(progress["currentStage"], "completed")
+            self.assertEqual(progress["recordsSeen"], 4)
+            self.assertIsNone(progress["lastCheckpointPath"])
+            self.assertIsNone(progress["lastCheckpointAt"])
+            release_manifest = json.loads((temp_root / "recipe_run" / "bundle" / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(release_manifest["recipePath"], str(recipe_path))
+            self.assertIsNotNone(release_manifest["recipeHash"])
+            self.assertEqual(release_manifest["stageSummaries"]["sentinel"]["backend"], "dual_ml_sentinel")
+
+    def test_monitor_loads_bom_json_and_computes_overall_progress(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            run_root = Path(temporary_directory)
+            (run_root / "expert" / "plans" / "short_context_warmup").mkdir(parents=True, exist_ok=True)
+            (run_root / "expert" / "plans" / "mid_context").mkdir(parents=True, exist_ok=True)
+            (run_root / "expert" / "short_context_warmup").mkdir(parents=True, exist_ok=True)
+            (run_root / "sentinel").mkdir(parents=True, exist_ok=True)
+            (run_root / "stacker").mkdir(parents=True, exist_ok=True)
+            (run_root / "bundle").mkdir(parents=True, exist_ok=True)
+
+            (run_root / "status.json").write_text(
+                json.dumps({"currentStep": "train_recipe", "currentStage": "mid_context", "state": "running"}),
+                encoding="utf-8-sig",
+            )
+            (run_root / "progress.json").write_text(
+                json.dumps(
+                    {
+                        "currentStage": "mid_context",
+                        "state": "running",
+                        "recordsSeen": 50,
+                        "totalTargetRecords": 100,
+                        "optimizerStep": 5,
+                        "latestLoss": 0.5,
+                        "movingAverageLoss": 0.75,
+                        "meanConfidence": 0.8,
+                        "gradientNorm": 1.25,
+                        "labelEntropy": 0.45,
+                        "examplesPerSecond": 12.5,
+                        "batchesPerSecond": 1.5,
+                        "consecutiveNonfiniteGradients": 0,
+                        "currentLabelCounts": {"allow_read_only": 1, "deny": 1},
+                        "lastCheckpointPath": str(run_root / "expert" / "mid_context" / "active" / "latest"),
+                        "lastCheckpointAt": "2026-04-05T22:00:00Z",
+                    }
+                ),
+                encoding="utf-8-sig",
+            )
+            (run_root / "sentinel" / "summary.json").write_text(
+                json.dumps({"backend": "dual_ml_sentinel", "structuredBackend": "xgboost_binary", "threshold": 0.71, "thresholdRecall": 1.0}),
+                encoding="utf-8",
+            )
+            (run_root / "stacker" / "summary.json").write_text(
+                json.dumps({"backend": "catboost_multiclass_cpu"}),
+                encoding="utf-8",
+            )
+            (run_root / "expert" / "plans" / "short_context_warmup" / "plan_summary.json").write_text(
+                json.dumps({"stage": "short_context_warmup", "planEntries": 100, "hardNegativeReplayEntries": 0, "maxLength": 1024, "batchSize": 1}),
+                encoding="utf-8",
+            )
+            (run_root / "expert" / "plans" / "mid_context" / "plan_summary.json").write_text(
+                json.dumps({"stage": "mid_context", "planEntries": 100, "hardNegativeReplayEntries": 4, "maxLength": 2048, "batchSize": 1}),
+                encoding="utf-8",
+            )
+            (run_root / "expert" / "short_context_warmup" / "summary.json").write_text(
+                json.dumps({"stageName": "short_context_warmup", "backend": "peft_hierarchical_modernbert_recipe", "averageLoss": 0.12, "examples": 100, "retentionOutcome": "latest_plus_sparse_milestones"}),
+                encoding="utf-8",
+            )
+            (run_root / "bundle" / "bundle.json").write_text(
+                json.dumps({"bundleVersion": "recipe-bundle-v1"}),
+                encoding="utf-8",
+            )
+            (run_root / "bundle" / "manifest.json").write_text(
+                json.dumps({"retentionOutcome": "latest_plus_sparse_milestones"}),
+                encoding="utf-8",
+            )
+            (run_root / "train.log").write_text("stage mid_context, optimizer_step 5\n", encoding="utf-8")
+            (run_root / "events.jsonl").write_text(
+                json.dumps({"type": "stage_started", "stage": "mid_context"}) + "\n",
+                encoding="utf-8",
+            )
+
+            state = load_training_run_state(run_root)
+
+            self.assertEqual(state["dashboard"]["bundleVersion"], "recipe-bundle-v1")
+            self.assertEqual(state["dashboard"]["currentStage"], "mid_context")
+            self.assertAlmostEqual(state["dashboard"]["stageProgressFraction"], 0.5)
+            self.assertAlmostEqual(state["dashboard"]["overallProgressFraction"], 2.5 / 6.0)
+            self.assertEqual(state["dashboard"]["sentinelStructuredBackend"], "xgboost_binary")
+            self.assertEqual(state["dashboard"]["currentLabelCounts"]["deny"], 1)
+
+    def test_monitor_server_serves_state_and_html(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            run_root = Path(temporary_directory)
+            (run_root / "status.json").write_text(
+                json.dumps({"currentStage": "phase_1_ml_sentinel", "state": "running"}),
+                encoding="utf-8",
+            )
+            (run_root / "progress.json").write_text(
+                json.dumps({"currentStage": "phase_1_ml_sentinel", "state": "running", "recordsSeen": 10, "totalTargetRecords": 100}),
+                encoding="utf-8",
+            )
+            server = create_training_monitor_server(run_root, host="127.0.0.1", port=0)
+            port = server.server_address[1]
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                time.sleep(0.1)
+                with urlopen(f"http://127.0.0.1:{port}/api/state") as response:
+                    state = json.loads(response.read().decode("utf-8"))
+                self.assertEqual(state["dashboard"]["currentStage"], "phase_1_ml_sentinel")
+                with urlopen(f"http://127.0.0.1:{port}/") as response:
+                    html_payload = response.read().decode("utf-8")
+                self.assertIn("SafeBrowse Model Guard Monitor", html_payload)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)

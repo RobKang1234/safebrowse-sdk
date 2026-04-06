@@ -10,11 +10,14 @@ from typing import Any
 from .bundle import BUNDLE_MANIFEST, load_bundle_manifest, load_pickle
 from .features import (
     coarse_reason_codes_from_example,
+    encode_recipe_categorical,
+    encode_recipe_numeric,
     example_from_observation_request,
     rank_chunks,
     softmax,
     structured_feature_dict,
 )
+from .recipe_model import load_recipe_expert_artifact
 
 
 def _sigmoid(value: float) -> float:
@@ -46,8 +49,11 @@ class ModelGuardRuntime:
             backend = component.get("backend", "heuristic")
             payload: dict[str, Any] = dict(component)
             artifact_name = component.get("artifact")
+            artifact_dir = component.get("artifact_dir")
             if artifact_name:
                 payload["artifact_payload"] = load_pickle(self.bundle_dir / artifact_name)
+            if artifact_dir:
+                payload["artifact_path"] = self.bundle_dir / artifact_dir
             components[name] = LoadedComponent(backend=backend, payload=payload)
         return components
 
@@ -64,12 +70,8 @@ class ModelGuardRuntime:
     def _heuristic_sentinel_probability(self, text: str, example: Any) -> float:
         heuristics = self.manifest.get("heuristics", {})
         keywords = [keyword.lower() for keyword in heuristics.get("deny_keywords", [])]
-        approval_keywords = [
-            keyword.lower() for keyword in heuristics.get("approval_keywords", [])
-        ]
-        shadow_keywords = [
-            keyword.lower() for keyword in heuristics.get("shadow_replay_keywords", [])
-        ]
+        approval_keywords = [keyword.lower() for keyword in heuristics.get("approval_keywords", [])]
+        shadow_keywords = [keyword.lower() for keyword in heuristics.get("shadow_replay_keywords", [])]
         lower = text.lower()
         score = 0.05
         score += 0.18 * sum(1 for keyword in keywords if keyword in lower)
@@ -91,24 +93,51 @@ class ModelGuardRuntime:
             score += 0.1
         return max(0.0, min(1.0, score))
 
-    def _score_sentinel(self, example: Any) -> float:
+    def _score_sentinel(self, example: Any) -> dict[str, float]:
         component = self.components.get("sentinel")
         if component is None or component.backend == "heuristic":
-            return self._heuristic_sentinel_probability(example.text, example)
-        payload = component.payload["artifact_payload"]
-        char_vectorizer = payload["char_vectorizer"]
-        word_vectorizer = payload["word_vectorizer"]
-        classifier = payload["classifier"]
-        hstack = payload["hstack"]
-        matrix = hstack(
-            [char_vectorizer.transform([example.text]), word_vectorizer.transform([example.text])],
+            probability = self._heuristic_sentinel_probability(example.text, example)
+            return {"lexical": probability, "structured": probability, "max": probability}
+
+        artifact = component.payload["artifact_payload"]
+        lexical = artifact["lexical"]
+        structured = artifact["structured"]
+        from scipy.sparse import hstack  # type: ignore
+
+        lexical_matrix = hstack(
+            [
+                lexical["char_vectorizer"].transform([example.text]),
+                lexical["word_vectorizer"].transform([example.text]),
+            ],
             format="csr",
         )
-        if hasattr(classifier, "predict_proba"):
-            probability = float(classifier.predict_proba(matrix)[0][1])
+        lexical_probability = float(lexical["classifier"].predict_proba(lexical_matrix)[0][1])
+
+        structured_matrix = hstack(
+            [
+                structured["dict_vectorizer"].transform([structured_feature_dict(example.structured)]),
+                structured["text_vectorizer"].transform([example.text]),
+            ],
+            format="csr",
+        )
+        if structured["backend"] == "catboost_binary_cpu":
+            structured_probability = float(structured["classifier"].predict_proba(structured_matrix.toarray())[0][1])
         else:
-            probability = _sigmoid(float(classifier.decision_function(matrix)[0]))
-        return max(0.0, min(1.0, probability))
+            structured_probability = float(structured["classifier"].predict_proba(structured_matrix)[0][1])
+        maximum = max(lexical_probability, structured_probability)
+
+        calibration = self.components.get("calibration")
+        if calibration is not None:
+            binary_calibration = calibration.payload["artifact_payload"].get("binaryThreatCalibrator", {})
+            if binary_calibration.get("kind") == "platt":
+                model = binary_calibration["model"]
+                maximum = float(model.predict_proba([[maximum]])[0][1])
+
+        return {
+            "lexical": lexical_probability,
+            "structured": structured_probability,
+            "max": maximum,
+        }
 
     def _heuristic_expert_probs(self, example: Any, sentinel_probability: float) -> dict[str, float]:
         scores = {
@@ -133,156 +162,148 @@ class ModelGuardRuntime:
             scores["require_shadow_replay"] += 0.6
         return softmax(scores)
 
-    def _score_transformer_expert(self, component: LoadedComponent, chunks: list[str]) -> dict[str, float]:
+    def _ranked_chunks(self, example: Any, *, sentinel_probability: float) -> list[tuple[int, str]]:
+        lines = [line for line in example.text.split("\n") if line.strip()]
+        if not lines:
+            return [(0, example.text)]
+        return rank_chunks(lines, example.goal, example.candidate_action, sentinel_probability=sentinel_probability)
+
+    def _score_smoke_expert(self, component: LoadedComponent, example: Any, sentinel_probability: float) -> dict[str, Any]:
+        from scipy.sparse import hstack  # type: ignore
+
+        artifact = component.payload["artifact_payload"]
+        dict_vectorizer = artifact["dict_vectorizer"]
+        text_vectorizer = artifact["text_vectorizer"]
+        classifier = artifact["classifier"]
+        label_order = artifact["label_order"]
+        matrix = hstack(
+            [
+                dict_vectorizer.transform([structured_feature_dict(example.structured) | {"sentinel_probability": sentinel_probability}]),
+                text_vectorizer.transform([example.text]),
+            ],
+            format="csr",
+        )
+        raw = classifier.decision_function(matrix)
+        if hasattr(raw, "tolist"):
+            raw = raw.tolist()
+        logits = [float(value) for value in (raw[0] if isinstance(raw[0], list) else raw)]
+        probabilities = softmax({label_order[index]: logits[index] for index in range(len(label_order))})
+        dense = matrix.toarray()[0]
+        pooled = [float(value) for value in dense[:128]]
+        if len(pooled) < 128:
+            pooled.extend([0.0] * (128 - len(pooled)))
+        return {"probabilities": probabilities, "logits": logits[:4], "pooledEmbedding": pooled}
+
+    def _score_recipe_expert(self, component: LoadedComponent, example: Any, sentinel_probability: float) -> dict[str, Any]:
         try:
             import torch
-            from transformers import AutoModelForSequenceClassification, AutoTokenizer
         except ModuleNotFoundError as exc:  # pragma: no cover
             raise RuntimeError(
                 "Transformer expert runtime requires torch and transformers to be installed."
             ) from exc
 
-        payload = component.payload
-        if "tokenizer" not in payload or "model" not in payload:
-            model_dir = self.bundle_dir / payload["artifact_dir"]
-            tokenizer = AutoTokenizer.from_pretrained(model_dir)
-            model = AutoModelForSequenceClassification.from_pretrained(model_dir)
+        cache = component.payload
+        if "loaded_model" not in cache:
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            model.to(device)
-            model.eval()
-            payload["tokenizer"] = tokenizer
-            payload["model"] = model
-            payload["device"] = device
+            model, tokenizer, config, metadata_vocab = load_recipe_expert_artifact(
+                cache["artifact_path"],
+                device=device,
+            )
+            cache["loaded_model"] = model
+            cache["loaded_tokenizer"] = tokenizer
+            cache["loaded_config"] = config
+            cache["loaded_metadata_vocab"] = metadata_vocab
+            cache["loaded_device"] = device
 
-        tokenizer = payload["tokenizer"]
-        model = payload["model"]
-        device = payload["device"]
-        max_length = int(payload.get("max_length", 1024))
+        model = cache["loaded_model"]
+        tokenizer = cache["loaded_tokenizer"]
+        config = cache["loaded_config"]
+        metadata_vocab = cache["loaded_metadata_vocab"]
+        device = cache["loaded_device"]
+        ranked = self._ranked_chunks(example, sentinel_probability=sentinel_probability)
+        evidence_chunks = [chunk for _, chunk in ranked[: int(config.top_k_chunks)]]
+        evidence_chunks = evidence_chunks or [example.text]
+        if len(evidence_chunks) < int(config.top_k_chunks):
+            evidence_chunks = evidence_chunks + [evidence_chunks[-1]] * (int(config.top_k_chunks) - len(evidence_chunks))
         encoded = tokenizer(
-            chunks,
+            evidence_chunks,
             truncation=True,
             padding=True,
-            max_length=max_length,
+            max_length=int(config.max_length),
             return_tensors="pt",
         )
         encoded = {key: value.to(device) for key, value in encoded.items()}
+        metadata_categorical = torch.tensor([encode_recipe_categorical(example, metadata_vocab)], dtype=torch.long, device=device)
+        metadata_numeric = torch.tensor([encode_recipe_numeric(example)], dtype=torch.float32, device=device)
         with torch.no_grad():
-            logits = model(**encoded).logits
-            probabilities = torch.softmax(logits, dim=-1).detach().cpu().tolist()
+            outputs = model(
+                input_ids=encoded["input_ids"],
+                attention_mask=encoded["attention_mask"],
+                metadata_categorical=metadata_categorical,
+                metadata_numeric=metadata_numeric,
+            )
+            logits = outputs["decision_logits"][0].detach().cpu().tolist()
+            temperature = 1.0
+            calibration = self.components.get("calibration")
+            if calibration is not None:
+                temperature = float(calibration.payload["artifact_payload"].get("expertTemperature", 1.0))
+            probabilities = softmax({label: float(logits[index]) / temperature for label, index in {"allow_read_only": 0, "require_shadow_replay": 1, "require_user_approval": 2, "deny": 3}.items()})
+            pooled = outputs["pooled_embedding"][0].detach().cpu().tolist()
+        return {"probabilities": probabilities, "logits": logits, "pooledEmbedding": pooled}
 
-        id2label = model.config.id2label
-        per_label: dict[str, list[float]] = {
-            "allow_read_only": [],
-            "require_shadow_replay": [],
-            "require_user_approval": [],
-            "deny": [],
-        }
-        for chunk_probs in probabilities:
-            for index, value in enumerate(chunk_probs):
-                label = str(id2label[index])
-                if label in per_label:
-                    per_label[label].append(float(value))
-
-        aggregated = {
-            "allow_read_only": sum(per_label["allow_read_only"]) / max(1, len(per_label["allow_read_only"])),
-            "require_shadow_replay": max(per_label["require_shadow_replay"], default=0.0),
-            "require_user_approval": max(per_label["require_user_approval"], default=0.0),
-            "deny": max(per_label["deny"], default=0.0),
-        }
-        return softmax(aggregated)
-
-    def _ranked_chunks(self, example: Any) -> list[tuple[int, str]]:
-        lines = [line for line in example.text.split("\n") if line.strip()]
-        if not lines:
-            return [(0, example.text)]
-        return rank_chunks(lines, example.text[:256], example.candidate_action)
-
-    def _score_expert(self, example: Any, sentinel_probability: float) -> tuple[dict[str, float], list[dict[str, Any]]]:
+    def _score_expert(self, example: Any, sentinel_probability: float) -> tuple[dict[str, float], list[dict[str, Any]], dict[str, Any]]:
         component = self.components.get("expert")
-        ranked = self._ranked_chunks(example)
-        evidence = [
-            {"chunkId": f"chunk:{index}", "score": score, "excerpt": chunk[:280]}
-            for index, (score, chunk) in enumerate(ranked[:3] or [(0, example.text)])
-        ]
-        chunk_text = "\n\n".join(entry["excerpt"] for entry in evidence)
-
+        ranked = self._ranked_chunks(example, sentinel_probability=sentinel_probability)
+        evidence = [{"chunkId": f"chunk:{index}", "score": score, "excerpt": chunk[:280]} for index, (score, chunk) in enumerate(ranked[:3] or [(0, example.text)])]
         if component is None or component.backend == "heuristic":
-            return self._heuristic_expert_probs(example, sentinel_probability), evidence
+            probabilities = self._heuristic_expert_probs(example, sentinel_probability)
+            logits = [probabilities[label] for label in ["allow_read_only", "require_shadow_replay", "require_user_approval", "deny"]]
+            return probabilities, evidence, {"probabilities": probabilities, "logits": logits, "pooledEmbedding": [0.0] * 128}
+        if component.backend == "recipe_hierarchical_smoke":
+            scored = self._score_smoke_expert(component, example, sentinel_probability)
+            return scored["probabilities"], evidence, scored
+        scored = self._score_recipe_expert(component, example, sentinel_probability)
+        return scored["probabilities"], evidence, scored
 
-        if component.backend == "transformers_modernbert_chunk_expert":
-            return self._score_transformer_expert(
-                component,
-                [entry["excerpt"] for entry in evidence] or [chunk_text],
-            ), evidence
-
-        payload = component.payload["artifact_payload"]
-        vectorizer = payload["vectorizer"]
-        classifier = payload["classifier"]
-        label_order = payload["label_order"]
-        matrix = vectorizer.transform([chunk_text])
-        if hasattr(classifier, "predict_proba"):
-            raw = classifier.predict_proba(matrix)[0]
-        else:
-            decision = classifier.decision_function(matrix)[0]
-            if not isinstance(decision, list):
-                decision = decision.tolist()
-            raw = [float(value) for value in decision]
-        probabilities = {label_order[index]: float(raw[index]) for index in range(len(label_order))}
-        if sum(probabilities.values()) > 1.0001:
-            return softmax(probabilities), evidence
-        return probabilities, evidence
-
-    def _stacker_features(
-        self,
-        example: Any,
-        sentinel_probability: float,
-        expert_probs: dict[str, float],
-    ) -> dict[str, Any]:
+    def _stacker_features(self, example: Any, sentinel_scores: dict[str, float], expert_output: dict[str, Any]) -> dict[str, Any]:
         payload = structured_feature_dict(example.structured)
-        payload.update(
-            {
-                "sentinel_probability": sentinel_probability,
-                "expert_allow_read_only": expert_probs.get("allow_read_only", 0.0),
-                "expert_require_shadow_replay": expert_probs.get("require_shadow_replay", 0.0),
-                "expert_require_user_approval": expert_probs.get("require_user_approval", 0.0),
-                "expert_deny": expert_probs.get("deny", 0.0),
-            }
-        )
+        payload["sentinel_lexical_probability"] = float(sentinel_scores["lexical"])
+        payload["sentinel_structured_probability"] = float(sentinel_scores["structured"])
+        payload["sentinel_or_probability"] = float(sentinel_scores["max"])
+        label_order = ["allow_read_only", "require_shadow_replay", "require_user_approval", "deny"]
+        for index, label in enumerate(label_order):
+            payload[f"expert_logit_{label}"] = float(expert_output["logits"][index])
+            payload[f"expert_prob_{label}"] = float(expert_output["probabilities"].get(label, 0.0))
+        for index, value in enumerate(expert_output["pooledEmbedding"]):
+            payload[f"expert_embedding_{index:03d}"] = float(value)
         return payload
 
-    def _score_stacker(
-        self,
-        example: Any,
-        sentinel_probability: float,
-        expert_probs: dict[str, float],
-    ) -> dict[str, float]:
+    def _score_stacker(self, example: Any, sentinel_scores: dict[str, float], expert_output: dict[str, Any]) -> dict[str, float]:
         component = self.components.get("stacker")
         if component is None or component.backend == "heuristic":
-            scores = dict(expert_probs)
-            if sentinel_probability >= self.manifest.get("heuristics", {}).get("sentinel_threshold", 0.55):
+            scores = dict(expert_output["probabilities"])
+            if sentinel_scores["max"] >= self.manifest.get("thresholds", {}).get("binaryThreat", 0.55):
                 scores["allow_read_only"] = min(scores.get("allow_read_only", 0.0), 0.2)
                 scores["require_shadow_replay"] = max(scores.get("require_shadow_replay", 0.0), 0.45)
-            if example.structured.get("contains_same_origin_sensitive_path"):
-                scores["require_user_approval"] = max(scores.get("require_user_approval", 0.0), 0.5)
-            if example.structured.get("channel_hidden"):
-                scores["deny"] = max(scores.get("deny", 0.0), 0.7)
             return softmax(scores)
 
         payload = component.payload["artifact_payload"]
         classifier = payload["classifier"]
         vectorizer = payload["vectorizer"]
         label_order = payload["label_order"]
-        feature_vector = vectorizer.transform(
-            [self._stacker_features(example, sentinel_probability, expert_probs)]
-        )
+        feature_vector = vectorizer.transform([self._stacker_features(example, sentinel_scores, expert_output)])
         if hasattr(classifier, "predict_proba"):
-            raw = classifier.predict_proba(feature_vector)[0]
+            if component.backend == "xgboost_multiclass_cpu":
+                raw = classifier.predict_proba(feature_vector)[0]
+            else:
+                raw = classifier.predict_proba(feature_vector)[0]
         else:
             decision = classifier.decision_function(feature_vector)[0]
-            if not isinstance(decision, list):
-                decision = decision.tolist()
-            raw = [float(value) for value in decision]
-        probabilities = {label_order[index]: float(raw[index]) for index in range(len(label_order))}
+            raw = decision.tolist() if hasattr(decision, "tolist") else decision
+        probabilities = {}
+        for index, value in enumerate(raw):
+            label = label_order[index] if index < len(label_order) else str(index)
+            probabilities[str(label)] = float(value)
         if sum(probabilities.values()) > 1.0001:
             return softmax(probabilities)
         return probabilities
@@ -290,12 +311,12 @@ class ModelGuardRuntime:
     def score_observation(self, request_payload: dict[str, Any]) -> dict[str, Any]:
         started = time.perf_counter()
         example = example_from_observation_request(request_payload)
-        sentinel_probability = self._score_sentinel(example)
-        expert_probs, evidence = self._score_expert(example, sentinel_probability)
-        final_probs = self._score_stacker(example, sentinel_probability, expert_probs)
+        sentinel_scores = self._score_sentinel(example)
+        expert_probs, evidence, expert_output = self._score_expert(example, sentinel_scores["max"])
+        final_probs = self._score_stacker(example, sentinel_scores, expert_output)
         final_label = max(final_probs.items(), key=lambda item: item[1])[0]
-        sentinel_threshold = self.manifest.get("heuristics", {}).get("sentinel_threshold", 0.55)
-        if sentinel_probability >= sentinel_threshold and final_label == "allow_read_only":
+        sentinel_threshold = self.manifest.get("thresholds", {}).get("binaryThreat", 0.55)
+        if sentinel_scores["max"] >= sentinel_threshold and final_label == "allow_read_only":
             final_label = "require_shadow_replay"
 
         reason_codes = coarse_reason_codes_from_example(example)
@@ -306,7 +327,7 @@ class ModelGuardRuntime:
                 "assessmentId": f"mga_{uuid.uuid4().hex[:24]}",
                 "bundleVersion": self.bundle_version,
                 "featureSchemaVersion": self.feature_schema_version,
-                "binaryThreatProbability": sentinel_probability,
+                "binaryThreatProbability": sentinel_scores["max"],
                 "decisionLabel": final_label,
                 "calibratedDecisionLabel": final_label,
                 "coarseReasonCodes": reason_codes,

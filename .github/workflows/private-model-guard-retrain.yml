@@ -62,9 +62,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: node scripts/run-python-module.mjs -m pip install -e python/safebrowse_model_guard[train]
       - run: node scripts/run-python-module.mjs -m mlflow run python/safebrowse_model_guard -e prepare_data -P manifest=model/prompt_injection_ml_dataset/manifest.json
-      - run: node scripts/run-python-module.mjs -m mlflow run python/safebrowse_model_guard -e train_sentinel -P manifest=model/prompt_injection_ml_dataset/manifest.json -P output_dir=${{ env.MODEL_OUTPUT_ROOT }}/sentinel
-      - run: node scripts/run-python-module.mjs -m mlflow run python/safebrowse_model_guard -e train_expert -P manifest=model/prompt_injection_ml_dataset/manifest.json -P output_dir=${{ env.MODEL_OUTPUT_ROOT }}/expert -P backbone=answerdotai/ModernBERT-base
-      - run: node scripts/run-python-module.mjs -m mlflow run python/safebrowse_model_guard -e train_stacker -P manifest=model/prompt_injection_ml_dataset/manifest.json -P sentinel_dir=${{ env.MODEL_OUTPUT_ROOT }}/sentinel -P expert_dir=${{ env.MODEL_OUTPUT_ROOT }}/expert -P output_dir=${{ env.MODEL_OUTPUT_ROOT }}/stacker
-      - run: node scripts/run-python-module.mjs -m mlflow run python/safebrowse_model_guard -e package_runtime_bundle -P sentinel_dir=${{ env.MODEL_OUTPUT_ROOT }}/sentinel -P expert_dir=${{ env.MODEL_OUTPUT_ROOT }}/expert -P stacker_dir=${{ env.MODEL_OUTPUT_ROOT }}/stacker -P output_dir=${{ env.MODEL_OUTPUT_ROOT }}/runtime_bundle -P bundle_version=model-guard-${{ github.run_id }}
-      - run: node scripts/run-python-module.mjs -m mlflow run python/safebrowse_model_guard -e evaluate -P manifest=model/prompt_injection_ml_dataset/manifest.json -P bundle_dir=${{ env.MODEL_OUTPUT_ROOT }}/runtime_bundle -P split=valid
-      - run: node scripts/run-python-module.mjs -m mlflow run python/safebrowse_model_guard -e evaluate -P manifest=model/prompt_injection_ml_dataset/manifest.json -P bundle_dir=${{ env.MODEL_OUTPUT_ROOT }}/runtime_bundle -P split=test
+      - run: node scripts/run-python-module.mjs -m mlflow run python/safebrowse_model_guard -e train_recipe -P manifest=model/prompt_injection_ml_dataset/manifest.json -P recipe=model/prompt_injection_ml_dataset/training_recipe_additional_v2_rtx4060ti_8gb.json -P output_dir=${{ env.MODEL_OUTPUT_ROOT }} -P backbone=answerdotai/ModernBERT-base -P checkpoint_steps=100 -P milestone_checkpoint_steps=1000
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: model-guard-${{ github.run_id }}-summaries
+          path: |
+            ${{ env.MODEL_OUTPUT_ROOT }}/status.json
+            ${{ env.MODEL_OUTPUT_ROOT }}/progress.json
+            ${{ env.MODEL_OUTPUT_ROOT }}/recipe_summary.json
+            ${{ env.MODEL_OUTPUT_ROOT }}/train.log
+            ${{ env.MODEL_OUTPUT_ROOT }}/bundle/bundle_manifest.json
+            ${{ env.MODEL_OUTPUT_ROOT }}/bundle/manifest.json
+          if-no-files-found: warn
