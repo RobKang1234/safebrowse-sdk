@@ -53,7 +53,7 @@
     "release:ready": "node scripts/run-pnpm.mjs build && node scripts/run-pnpm.mjs test && node scripts/run-pnpm.mjs perf:smoke && node scripts/run-pnpm.mjs perf:daemon:gate && node scripts/run-pnpm.mjs release:build:python && node scripts/run-pnpm.mjs release:check:python && node scripts/run-pnpm.mjs release:audit && node scripts/run-pnpm.mjs release:smoke:artifacts && node scripts/run-pnpm.mjs release:smoke:docker"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.29.7",
+    "@changesets/cli": "^2.31.0",
     "@types/node": "^22.15.30",
     "fflate": "^0.8.2",
     "tsx": "^4.20.3",
