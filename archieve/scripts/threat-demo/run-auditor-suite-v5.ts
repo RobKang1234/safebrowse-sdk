@@ -222,7 +222,7 @@ async function startSecureDaemon(publicKeyPath: string) {
       "--root-dir",
       repoRoot,
       "--deployment-profile",
-      "secure_v5",
+      "secure_v6",
       "--approval-broker-mode",
       "external_service",
       "--approval-broker-public-key-path",
@@ -304,10 +304,10 @@ async function main() {
   try {
     assertCondition(
       daemon.health?.claimBearingReady === true,
-      "secure_v5 daemon did not report a claim-bearing secure posture."
+      "secure_v6 daemon did not report a claim-bearing secure posture."
     );
     for (const testCase of suite.cases) {
-      const session = await postJson<{ session: Record<string, any> }>(daemon.baseUrl, "/v5/session/start", {
+      const session = await postJson<{ session: Record<string, any> }>(daemon.baseUrl, "/v6/session/start", {
         taskId: `audit-${testCase.id}`,
         userGoal: testCase.title,
         allowedOrigins: ["https://safe.example", "https://docs.python.org"],
@@ -326,20 +326,20 @@ async function main() {
         makeLaneLog("raw", testCase, {
           outcome: "reference_only",
           compromiseObserved: false,
-          note: "Deterministic auditor suite targets the secure_v5 claim-bearing lane."
+          note: "Deterministic auditor suite targets the secure_v6 claim-bearing lane."
         })
       );
       rawQwenLog.push(
         makeLaneLog("raw_model", testCase, {
           outcome: "reference_only",
           compromiseObserved: false,
-          note: "Model-backed raw lane is exercised in parity/live-lab evidence, not the blocking V5 claim runner."
+          note: "Model-backed raw lane is exercised in parity/live-lab evidence, not the blocking V6 claim runner."
         })
       );
 
       try {
         if (testCase.kind === "hidden_html") {
-          const observe = await postJson<any>(daemon.baseUrl, "/v5/observe", {
+          const observe = await postJson<any>(daemon.baseUrl, "/v6/observe", {
             sessionId: session.session.sessionId,
             capture: {
               surfaceType: "html",
@@ -363,7 +363,7 @@ async function main() {
           );
           sdkLog.push(makeLaneLog("sdk", testCase, { observe, observedDecision, observedCapabilities }));
         } else if (testCase.kind === "visible_navigation") {
-          const observe = await postJson<any>(daemon.baseUrl, "/v5/observe", {
+          const observe = await postJson<any>(daemon.baseUrl, "/v6/observe", {
             sessionId: session.session.sessionId,
             capture: {
               surfaceType: "html",
@@ -379,7 +379,7 @@ async function main() {
             observe.observationVerdict?.safeConstraints?.authority_eligible === true,
             "Visible navigation page was not authority-eligible."
           );
-          const action = await postJson<any>(daemon.baseUrl, "/v5/capability/use", {
+          const action = await postJson<any>(daemon.baseUrl, "/v6/capability/use", {
             sessionId: session.session.sessionId,
             capabilityId: capability.capabilityId,
             capabilityDigest: capability.capabilityDigest,
@@ -390,7 +390,7 @@ async function main() {
           assertCondition(action.verdict?.decision === "ALLOW", "Visible navigation capability did not allow the expected action.");
           sdkLog.push(makeLaneLog("sdk", testCase, { observe, action, observedDecision, observedCapabilities }));
         } else if (testCase.kind === "navigate_cannot_issue_connector_approval") {
-          const observe = await postJson<any>(daemon.baseUrl, "/v5/observe", {
+          const observe = await postJson<any>(daemon.baseUrl, "/v6/observe", {
             sessionId: session.session.sessionId,
             capture: {
               surfaceType: "html",
@@ -406,7 +406,7 @@ async function main() {
             session.session,
             capability
           );
-          const approval = await postJson<any>(daemon.baseUrl, "/v5/approval/issue", {
+          const approval = await postJson<any>(daemon.baseUrl, "/v6/approval/issue", {
             sessionId: session.session.sessionId,
             capabilityId: capability.capabilityId,
             capabilityDigest: capability.capabilityDigest,
@@ -418,7 +418,7 @@ async function main() {
           assertCondition(observedReasonCodes.includes("CAPABILITY_NOT_APPROVABLE"), "Navigate approval rejection did not emit CAPABILITY_NOT_APPROVABLE.");
           sdkLog.push(makeLaneLog("sdk", testCase, { observe, approval, observedDecision, observedCapabilities, observedReasonCodes }));
         } else if (testCase.kind === "unsigned_connector_approval") {
-          const observe = await postJson<any>(daemon.baseUrl, "/v5/observe", {
+          const observe = await postJson<any>(daemon.baseUrl, "/v6/observe", {
             sessionId: session.session.sessionId,
             capture: {
               ...toolManifestCapture
@@ -427,7 +427,7 @@ async function main() {
           const capability = observe.capabilities?.[0];
           observedCapabilities = normalizedCapabilityKinds(observe);
           assertCondition(JSON.stringify(observedCapabilities) === JSON.stringify(["connector_prepare"]), "Verified tool manifest did not mint connector_prepare.");
-          const approval = await postJson<any>(daemon.baseUrl, "/v5/approval/issue", {
+          const approval = await postJson<any>(daemon.baseUrl, "/v6/approval/issue", {
             sessionId: session.session.sessionId,
             capabilityId: capability.capabilityId,
             capabilityDigest: capability.capabilityDigest,
@@ -439,7 +439,7 @@ async function main() {
           assertCondition(observedReasonCodes.includes("APPROVAL_BROKER_SIGNATURE_INVALID"), "Unsigned approval rejection did not emit APPROVAL_BROKER_SIGNATURE_INVALID.");
           sdkLog.push(makeLaneLog("sdk", testCase, { observe, approval, observedDecision, observedCapabilities, observedReasonCodes }));
         } else if (testCase.kind === "signed_connector_prepare") {
-          const observe = await postJson<any>(daemon.baseUrl, "/v5/observe", {
+          const observe = await postJson<any>(daemon.baseUrl, "/v6/observe", {
             sessionId: session.session.sessionId,
             capture: {
               ...toolManifestCapture
@@ -452,17 +452,17 @@ async function main() {
             session.session,
             capability
           );
-          const approval = await postJson<any>(daemon.baseUrl, "/v5/approval/issue", {
+          const approval = await postJson<any>(daemon.baseUrl, "/v6/approval/issue", {
             sessionId: session.session.sessionId,
             capabilityId: capability.capabilityId,
             capabilityDigest: capability.capabilityDigest,
             brokerSignature
           });
-          const prepare = await postJson<any>(daemon.baseUrl, "/v5/tool/prepare", {
+          const prepare = await postJson<any>(daemon.baseUrl, "/v6/tool/prepare", {
             sessionId: session.session.sessionId,
             approvalId: approval.approvalEnvelope.approvalId
           });
-          const callback = await postJson<any>(daemon.baseUrl, "/v5/tool/callback/verify", {
+          const callback = await postJson<any>(daemon.baseUrl, "/v6/tool/callback/verify", {
             sessionId: session.session.sessionId,
             approvalId: approval.approvalEnvelope.approvalId,
             onboardingSessionId: prepare.onboardingSession.onboardingSessionId,
@@ -484,7 +484,7 @@ async function main() {
           assertCondition(callback.verdict?.decision === "ALLOW", "Valid callback did not verify successfully.");
           sdkLog.push(makeLaneLog("sdk", testCase, { observe, approval, prepare, callback, observedDecision, observedCapabilities }));
         } else if (testCase.kind === "callback_mismatch") {
-          const observe = await postJson<any>(daemon.baseUrl, "/v5/observe", {
+          const observe = await postJson<any>(daemon.baseUrl, "/v6/observe", {
             sessionId: session.session.sessionId,
             capture: {
               ...toolManifestCapture
@@ -497,17 +497,17 @@ async function main() {
             session.session,
             capability
           );
-          const approval = await postJson<any>(daemon.baseUrl, "/v5/approval/issue", {
+          const approval = await postJson<any>(daemon.baseUrl, "/v6/approval/issue", {
             sessionId: session.session.sessionId,
             capabilityId: capability.capabilityId,
             capabilityDigest: capability.capabilityDigest,
             brokerSignature
           });
-          const prepare = await postJson<any>(daemon.baseUrl, "/v5/tool/prepare", {
+          const prepare = await postJson<any>(daemon.baseUrl, "/v6/tool/prepare", {
             sessionId: session.session.sessionId,
             approvalId: approval.approvalEnvelope.approvalId
           });
-          const callback = await postJson<any>(daemon.baseUrl, "/v5/tool/callback/verify", {
+          const callback = await postJson<any>(daemon.baseUrl, "/v6/tool/callback/verify", {
             sessionId: session.session.sessionId,
             approvalId: approval.approvalEnvelope.approvalId,
             onboardingSessionId: prepare.onboardingSession.onboardingSessionId,
@@ -545,7 +545,7 @@ async function main() {
           });
           const legacy = (await legacyResponse.json()) as { error?: string };
           observedDecision = legacy.error ?? "unknown";
-          assertCondition(legacy.error === "route_disabled_in_secure_v5", "Legacy route was not disabled in secure_v5.");
+          assertCondition(legacy.error === "route_disabled_in_secure_v6", "Legacy route was not disabled in secure_v6.");
           sdkLog.push(makeLaneLog("sdk", testCase, { legacy, observedDecision }));
         } else {
           status = "fail";
@@ -604,7 +604,7 @@ async function main() {
       title: entry.title,
       status: "fail",
       classification: entry.classification,
-      rationale: entry.detail || "Unexpected V5 claim-case failure."
+      rationale: entry.detail || "Unexpected V6 claim-case failure."
     }))
   };
 
@@ -621,7 +621,7 @@ async function main() {
   }));
 
   const reportMd = [
-    "# SafeBrowse V5 Internal Assessment",
+    "# SafeBrowse V6 Internal Assessment",
     "",
     `- Suite: \`${summary.suiteId}\``,
     `- Claim profile: \`${summary.claimProfile}\``,
@@ -637,7 +637,7 @@ async function main() {
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>SafeBrowse V5 Internal Assessment</title>
+    <title>SafeBrowse V6 Internal Assessment</title>
     <style>
       body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 32px; }
       table { border-collapse: collapse; width: 100%; }
@@ -648,7 +648,7 @@ async function main() {
     </style>
   </head>
   <body>
-    <h1>SafeBrowse V5 Internal Assessment</h1>
+    <h1>SafeBrowse V6 Internal Assessment</h1>
     <p>Suite: <code>${htmlEscape(summary.suiteId)}</code></p>
     <p>Claim profile: <code>${htmlEscape(summary.claimProfile)}</code></p>
     <p>Verdict: <strong>${htmlEscape(summary.verdict)}</strong></p>

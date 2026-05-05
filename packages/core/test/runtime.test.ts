@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  brokerArtifact,
   buildReplayBundle,
   compilePolicy,
   evaluateAction,
-  evaluateMemoryWrite,
-  evaluateToolRequest,
   sanitizeObservation
 } from "@safebrowse/core";
+import { brokerArtifact } from "../src/artifact.js";
+import { evaluateMemoryWrite } from "../src/memory.js";
+import { evaluateToolRequest } from "../src/toolProtocol.js";
 import type { PolicyPack } from "@safebrowse/core";
 
 const policyPack: PolicyPack = {

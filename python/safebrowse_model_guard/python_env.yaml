@@ -1,0 +1,19 @@
+python: "3.12"
+build_dependencies:
+  - pip
+dependencies:
+  - pip
+  - setuptools>=77.0.3
+  - wheel
+  - pip:
+      - -e .
+      - accelerate>=1.5
+      - catboost>=1.2
+      - datasets>=3.0
+      - mlflow>=3.0
+      - numpy>=2.0
+      - peft>=0.17
+      - safetensors>=0.6
+      - scikit-learn>=1.5
+      - torch>=2.6
+      - transformers>=4.51

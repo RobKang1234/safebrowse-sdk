@@ -33,8 +33,8 @@ jobs:
       - run: pnpm release:build:python
       - run: pnpm release:check:python
       - run: pnpm release:audit
-      - run: pnpm auditor:parity
-      - run: pnpm auditor:review
+      - run: pnpm auditor:parity:v6
+      - run: pnpm auditor:review:v6
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

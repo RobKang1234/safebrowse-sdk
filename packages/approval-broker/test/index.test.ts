@@ -47,7 +47,7 @@ afterEach(async () => {
 describe("approval broker", () => {
   it("accepts mixed-case bearer headers with repeated whitespace", async () => {
     const { baseUrl } = await startBroker({ authToken: "secret-token-123" });
-    const response = await fetch(`${baseUrl}/v5/approval/sign`, {
+    const response = await fetch(`${baseUrl}/v6/approval/sign`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -70,7 +70,7 @@ describe("approval broker", () => {
   it("does not expose internal error messages in broker responses", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const { baseUrl } = await startBroker({ authToken: "secret-token-123" });
-    const response = await fetch(`${baseUrl}/v5/approval/sign`, {
+    const response = await fetch(`${baseUrl}/v6/approval/sign`, {
       method: "POST",
       headers: {
         "content-type": "application/json",

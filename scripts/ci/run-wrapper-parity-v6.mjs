@@ -422,7 +422,7 @@ async function runV6Cases(baseUrl, makeObservePayload, makeActionPayload, signAp
   };
 
   {
-    const session = await postJson(baseUrl, "/v5/session/start", {
+    const session = await postJson(baseUrl, "/v6/session/start", {
       taskId: "parity-v6-visible",
       userGoal: "Review docs safely",
       allowedOrigins: ["https://safe.example", "https://docs.python.org"],
@@ -431,7 +431,7 @@ async function runV6Cases(baseUrl, makeObservePayload, makeActionPayload, signAp
     });
     const observe = await postJson(
       baseUrl,
-      "/v5/observe",
+      "/v6/observe",
       makeObservePayload(session.session.sessionId, {
         url: "https://safe.example/review",
         visibleText: "Visible docs only. Docs",
@@ -444,7 +444,7 @@ async function runV6Cases(baseUrl, makeObservePayload, makeActionPayload, signAp
     }
     const action = await postJson(
       baseUrl,
-      "/v5/action/evaluate",
+      "/v6/action/evaluate",
       makeActionPayload(session.session.sessionId, authority.authorityId, authority.authorityDigest)
     );
     results.visible_navigation = {
@@ -454,14 +454,14 @@ async function runV6Cases(baseUrl, makeObservePayload, makeActionPayload, signAp
   }
 
   {
-    const session = await postJson(baseUrl, "/v5/session/start", {
+    const session = await postJson(baseUrl, "/v6/session/start", {
       taskId: "parity-v6-hash",
       userGoal: "Review connector onboarding safely",
       allowedOrigins: ["https://safe.example"],
       allowedVerbs: ["connector_prepare"],
       forbiddenSinks: []
     });
-    const observe = await postJson(baseUrl, "/v5/observe", {
+    const observe = await postJson(baseUrl, "/v6/observe", {
       sessionId: session.session.sessionId,
       capture: {
         ...toolManifestCapture,
@@ -474,14 +474,14 @@ async function runV6Cases(baseUrl, makeObservePayload, makeActionPayload, signAp
   }
 
   {
-    const session = await postJson(baseUrl, "/v5/session/start", {
+    const session = await postJson(baseUrl, "/v6/session/start", {
       taskId: "parity-v6-tool",
       userGoal: "Review connector onboarding safely",
       allowedOrigins: ["https://safe.example"],
       allowedVerbs: ["connector_prepare"],
       forbiddenSinks: []
     });
-const observe = await postJson(baseUrl, "/v5/observe", {
+const observe = await postJson(baseUrl, "/v6/observe", {
       sessionId: session.session.sessionId,
       capture: toolManifestCapture
     });
@@ -489,17 +489,17 @@ const observe = await postJson(baseUrl, "/v5/observe", {
     if (!authority) {
       throw new Error(`signed_connector_prepare produced no authority candidate: ${JSON.stringify(observe, null, 2)}`);
     }
-    const approval = await postJson(baseUrl, "/v5/approval/issue", {
+    const approval = await postJson(baseUrl, "/v6/approval/issue", {
       sessionId: session.session.sessionId,
       capabilityId: authority.authorityId,
       capabilityDigest: authority.authorityDigest,
       brokerSignature: await signApproval(session.session, authority)
     });
-    const prepare = await postJson(baseUrl, "/v5/tool/prepare", {
+    const prepare = await postJson(baseUrl, "/v6/tool/prepare", {
       sessionId: session.session.sessionId,
       approvalId: approval.approvalEnvelope.approvalId
     });
-    const callback = await postJson(baseUrl, "/v5/tool/callback/verify", {
+    const callback = await postJson(baseUrl, "/v6/tool/callback/verify", {
       sessionId: session.session.sessionId,
       approvalId: approval.approvalEnvelope.approvalId,
       onboardingSessionId: prepare.onboardingSession.onboardingSessionId,
@@ -523,34 +523,34 @@ const observe = await postJson(baseUrl, "/v5/observe", {
   }
 
   {
-    const session = await postJson(baseUrl, "/v5/session/start", {
+    const session = await postJson(baseUrl, "/v6/session/start", {
       taskId: "parity-v6-memory",
       userGoal: "Store notes safely",
       allowedOrigins: ["https://safe.example"],
       allowedVerbs: ["memory_promote"],
       forbiddenSinks: []
     });
-    const baselineStage = await postJson(baseUrl, "/v5/memory/stage", {
+    const baselineStage = await postJson(baseUrl, "/v6/memory/stage", {
       sessionId: session.session.sessionId,
       key: "workflow_hint",
       value: { note: "baseline" },
       sourceClass: "user_note",
       durable: true
     });
-    const baselineApproval = await postJson(baseUrl, "/v5/approval/issue", {
+    const baselineApproval = await postJson(baseUrl, "/v6/approval/issue", {
       sessionId: session.session.sessionId,
       capabilityId: baselineStage.promotionTicket.ticketId,
       capabilityDigest: baselineStage.promotionTicket.ticketDigest,
       brokerSignature: await signApproval(session.session, baselineStage.promotionTicket)
     });
-    const baselinePromote = await postJson(baseUrl, "/v5/memory/promote", {
+    const baselinePromote = await postJson(baseUrl, "/v6/memory/promote", {
       sessionId: session.session.sessionId,
       recordId: baselineStage.record.recordId,
       ticketId: baselineStage.promotionTicket.ticketId,
       ticketDigest: baselineStage.promotionTicket.ticketDigest,
       approvalId: baselineApproval.approvalEnvelope.approvalId
     });
-    const blockedStage = await postJson(baseUrl, "/v5/memory/stage", {
+    const blockedStage = await postJson(baseUrl, "/v6/memory/stage", {
       sessionId: session.session.sessionId,
       key: "workflow_hint",
       value: { note: "replacement" },
@@ -558,20 +558,20 @@ const observe = await postJson(baseUrl, "/v5/observe", {
       durable: true,
       sourceObservationId: "obs-v6-uncorroborated"
     });
-    const blockedApproval = await postJson(baseUrl, "/v5/approval/issue", {
+    const blockedApproval = await postJson(baseUrl, "/v6/approval/issue", {
       sessionId: session.session.sessionId,
       capabilityId: blockedStage.promotionTicket.ticketId,
       capabilityDigest: blockedStage.promotionTicket.ticketDigest,
       brokerSignature: await signApproval(session.session, blockedStage.promotionTicket)
     });
-    const blockedPromote = await postJson(baseUrl, "/v5/memory/promote", {
+    const blockedPromote = await postJson(baseUrl, "/v6/memory/promote", {
       sessionId: session.session.sessionId,
       recordId: blockedStage.record.recordId,
       ticketId: blockedStage.promotionTicket.ticketId,
       ticketDigest: blockedStage.promotionTicket.ticketDigest,
       approvalId: blockedApproval.approvalEnvelope.approvalId
     });
-    const corroboratedStage = await postJson(baseUrl, "/v5/memory/stage", {
+    const corroboratedStage = await postJson(baseUrl, "/v6/memory/stage", {
       sessionId: session.session.sessionId,
       key: "workflow_hint",
       value: { note: "replacement" },
@@ -580,20 +580,20 @@ const observe = await postJson(baseUrl, "/v5/observe", {
       sourceObservationId: "obs-v6-corroborated",
       corroboration: [{ source: "manual-review", note: "operator confirmed" }]
     });
-    const corroboratedApproval = await postJson(baseUrl, "/v5/approval/issue", {
+    const corroboratedApproval = await postJson(baseUrl, "/v6/approval/issue", {
       sessionId: session.session.sessionId,
       capabilityId: corroboratedStage.promotionTicket.ticketId,
       capabilityDigest: corroboratedStage.promotionTicket.ticketDigest,
       brokerSignature: await signApproval(session.session, corroboratedStage.promotionTicket)
     });
-    const promoted = await postJson(baseUrl, "/v5/memory/promote", {
+    const promoted = await postJson(baseUrl, "/v6/memory/promote", {
       sessionId: session.session.sessionId,
       recordId: corroboratedStage.record.recordId,
       ticketId: corroboratedStage.promotionTicket.ticketId,
       ticketDigest: corroboratedStage.promotionTicket.ticketDigest,
       approvalId: corroboratedApproval.approvalEnvelope.approvalId
     });
-    const rollback = await postJson(baseUrl, "/v5/memory/rollback", {
+    const rollback = await postJson(baseUrl, "/v6/memory/rollback", {
       sessionId: session.session.sessionId,
       recordId: promoted.promotedRecord.recordId,
       snapshotId: promoted.promotedRecord.snapshotId
@@ -610,7 +610,7 @@ const observe = await postJson(baseUrl, "/v5/observe", {
   }
 
   {
-    const session = await postJson(baseUrl, "/v5/session/start", {
+    const session = await postJson(baseUrl, "/v6/session/start", {
       taskId: "parity-v6-replay",
       userGoal: "Review docs safely",
       allowedOrigins: ["https://safe.example", "https://docs.python.org"],
@@ -619,7 +619,7 @@ const observe = await postJson(baseUrl, "/v5/observe", {
     });
     const observe = await postJson(
       baseUrl,
-      "/v5/observe",
+      "/v6/observe",
       makeObservePayload(session.session.sessionId, {
         url: "https://safe.example/review",
         visibleText: "Visible docs only. Docs",
@@ -632,10 +632,10 @@ const observe = await postJson(baseUrl, "/v5/observe", {
     }
     await postJson(
       baseUrl,
-      "/v5/action/evaluate",
+      "/v6/action/evaluate",
       makeActionPayload(session.session.sessionId, authority.authorityId, authority.authorityDigest)
     );
-    const replay = await postJson(baseUrl, "/v5/replay/bundle", {
+    const replay = await postJson(baseUrl, "/v6/replay/bundle", {
       sessionId: session.session.sessionId
     });
     results.replay_bundle = {
@@ -741,7 +741,7 @@ async function runPythonLane(baseUrl, wheelPath, tempDir, brokerBaseUrl, brokerA
     "from safebrowse_client import SafeBrowseClient, build_html_surface_capture",
     `client = SafeBrowseClient(${JSON.stringify(baseUrl)})`,
     `tool_manifest_capture = ${JSON.stringify(toolManifestCapture)}`,
-    `broker_url = ${JSON.stringify(brokerBaseUrl + "/v5/approval/sign")}`,
+    `broker_url = ${JSON.stringify(brokerBaseUrl + "/v6/approval/sign")}`,
     `broker_token = ${JSON.stringify(brokerAuthToken)}`,
     "",
     "def sign_approval(session, authority):",
@@ -767,42 +767,42 @@ async function runPythonLane(baseUrl, wheelPath, tempDir, brokerBaseUrl, brokerA
     "health = client.health()",
     "results['strict_health'] = {'health': {'deploymentProfile': health.get('deploymentProfile'), 'claimBearingReady': health.get('claimBearingReady'), 'legacyRoutesEnabled': health.get('legacyRoutesEnabled'), 'approvalBrokerMode': health.get('approvalBroker', {}).get('mode'), 'parserIsolationMode': health.get('parserIsolation', {}).get('mode') or health.get('parserIsolation', {}).get('configuredMode')}}",
     "",
-    "session = client.start_session_v6({'taskId': 'py-v6-visible', 'userGoal': 'Review docs safely', 'allowedOrigins': ['https://safe.example', 'https://docs.python.org'], 'allowedVerbs': ['navigate'], 'forbiddenSinks': []})['session']",
-    "observe = client.observe_v6({'sessionId': session['sessionId'], 'capture': build_html_surface_capture(url='https://safe.example/review', visible_text='Visible docs only. Docs', html='<main>Visible docs only.</main><a href=\"https://docs.python.org/3/tutorial/\">Docs</a>')})",
+    "session = client.start_session({'taskId': 'py-v6-visible', 'userGoal': 'Review docs safely', 'allowedOrigins': ['https://safe.example', 'https://docs.python.org'], 'allowedVerbs': ['navigate'], 'forbiddenSinks': []})['session']",
+    "observe = client.observe({'sessionId': session['sessionId'], 'capture': build_html_surface_capture(url='https://safe.example/review', visible_text='Visible docs only. Docs', html='<main>Visible docs only.</main><a href=\"https://docs.python.org/3/tutorial/\">Docs</a>')})",
     "authority = observe['authorityCandidates'][0]",
-    "action = client.action_v6({'sessionId': session['sessionId'], 'authorityId': authority['authorityId'], 'authorityDigest': authority['authorityDigest'], 'parameters': {}})",
+    "action = client.action({'sessionId': session['sessionId'], 'authorityId': authority['authorityId'], 'authorityDigest': authority['authorityDigest'], 'parameters': {}})",
     "results['visible_navigation'] = {'observe': {'parseStatus': observe.get('compiledObservation', {}).get('parseStatus'), 'authorityCandidateCount': len(observe.get('authorityCandidates', [])), 'authorityEligible': observe.get('observationVerdict', {}).get('safeConstraints', {}).get('authority_eligible'), 'blockedChannels': sorted(observe.get('plannerView', {}).get('blockedChannels', [])), 'riskMarkers': sorted(observe.get('plannerView', {}).get('riskMarkers', []))}, 'action': {'observationDecision': action.get('observationDecision', {}).get('decision'), 'authorityDecision': action.get('authorityDecision', {}).get('decision'), 'effectDecision': action.get('effectDecision', {}).get('decision'), 'derivedSinkClass': action.get('executionPlan', {}).get('derivedSinkClass'), 'targetOrigin': action.get('executionPlan', {}).get('targetOrigin')}}",
     "",
-    "session = client.start_session_v6({'taskId': 'py-v6-hash', 'userGoal': 'Review connector onboarding safely', 'allowedOrigins': ['https://safe.example'], 'allowedVerbs': ['connector_prepare'], 'forbiddenSinks': []})['session']",
-    "observe = client.observe_v6({'sessionId': session['sessionId'], 'capture': {**tool_manifest_capture, 'description': tool_manifest_capture['description'] + ' Extra unsafe text.'}})",
+    "session = client.start_session({'taskId': 'py-v6-hash', 'userGoal': 'Review connector onboarding safely', 'allowedOrigins': ['https://safe.example'], 'allowedVerbs': ['connector_prepare'], 'forbiddenSinks': []})['session']",
+    "observe = client.observe({'sessionId': session['sessionId'], 'capture': {**tool_manifest_capture, 'description': tool_manifest_capture['description'] + ' Extra unsafe text.'}})",
     "results['manifest_hash_mismatch'] = {'observe': {'parseStatus': observe.get('compiledObservation', {}).get('parseStatus'), 'authorityCandidateCount': len(observe.get('authorityCandidates', [])), 'authorityEligible': observe.get('observationVerdict', {}).get('safeConstraints', {}).get('authority_eligible'), 'blockedChannels': sorted(observe.get('plannerView', {}).get('blockedChannels', [])), 'riskMarkers': sorted(observe.get('plannerView', {}).get('riskMarkers', []))}}",
     "",
-    "session = client.start_session_v6({'taskId': 'py-v6-tool', 'userGoal': 'Review connector onboarding safely', 'allowedOrigins': ['https://safe.example'], 'allowedVerbs': ['connector_prepare'], 'forbiddenSinks': []})['session']",
-    "observe = client.observe_v6({'sessionId': session['sessionId'], 'capture': tool_manifest_capture})",
+    "session = client.start_session({'taskId': 'py-v6-tool', 'userGoal': 'Review connector onboarding safely', 'allowedOrigins': ['https://safe.example'], 'allowedVerbs': ['connector_prepare'], 'forbiddenSinks': []})['session']",
+    "observe = client.observe({'sessionId': session['sessionId'], 'capture': tool_manifest_capture})",
     "authority = observe['authorityCandidates'][0]",
-    "approval = client.approval_issue_v6({'sessionId': session['sessionId'], 'capabilityId': authority['authorityId'], 'capabilityDigest': authority['authorityDigest'], 'brokerSignature': sign_approval(session, authority)})",
-    "prepare = client.tool_prepare_v6({'sessionId': session['sessionId'], 'approvalId': approval['approvalEnvelope']['approvalId']})",
-    "callback = client.tool_callback_verify_v6({'sessionId': session['sessionId'], 'approvalId': approval['approvalEnvelope']['approvalId'], 'onboardingSessionId': prepare['onboardingSession']['onboardingSessionId'], 'request': {'sessionId': prepare['onboardingSession']['onboardingSessionId'], 'callbackUri': 'https://safe.example/oauth/callback', 'callbackOrigin': 'https://safe.example', 'state': prepare['onboardingSession']['state'], 'payload': {'code': 'auth-code', 'state': prepare['onboardingSession']['state']}}})",
+    "approval = client.approval_issue({'sessionId': session['sessionId'], 'capabilityId': authority['authorityId'], 'capabilityDigest': authority['authorityDigest'], 'brokerSignature': sign_approval(session, authority)})",
+    "prepare = client.tool_prepare({'sessionId': session['sessionId'], 'approvalId': approval['approvalEnvelope']['approvalId']})",
+    "callback = client.tool_callback_verify({'sessionId': session['sessionId'], 'approvalId': approval['approvalEnvelope']['approvalId'], 'onboardingSessionId': prepare['onboardingSession']['onboardingSessionId'], 'request': {'sessionId': prepare['onboardingSession']['onboardingSessionId'], 'callbackUri': 'https://safe.example/oauth/callback', 'callbackOrigin': 'https://safe.example', 'state': prepare['onboardingSession']['state'], 'payload': {'code': 'auth-code', 'state': prepare['onboardingSession']['state']}}})",
     "results['signed_connector_prepare'] = {'observe': {'parseStatus': observe.get('compiledObservation', {}).get('parseStatus'), 'authorityCandidateCount': len(observe.get('authorityCandidates', [])), 'authorityEligible': observe.get('observationVerdict', {}).get('safeConstraints', {}).get('authority_eligible'), 'blockedChannels': sorted(observe.get('plannerView', {}).get('blockedChannels', [])), 'riskMarkers': sorted(observe.get('plannerView', {}).get('riskMarkers', []))}, 'approval': {'decision': approval.get('verdict', {}).get('decision'), 'reasonCodes': sorted(approval.get('verdict', {}).get('reasonCodes', [])), 'sinkClass': approval.get('approvalEnvelope', {}).get('sinkClass'), 'connectorId': approval.get('approvalEnvelope', {}).get('connectorId'), 'manifestHash': approval.get('approvalEnvelope', {}).get('manifestHash'), 'schemaHash': approval.get('approvalEnvelope', {}).get('schemaHash')}, 'prepare': {'decision': prepare.get('verdict', {}).get('decision'), 'reasonCodes': sorted(prepare.get('verdict', {}).get('reasonCodes', [])), 'connectorId': prepare.get('onboardingSession', {}).get('connectorId')}, 'callback': {'decision': callback.get('verdict', {}).get('decision'), 'reasonCodes': sorted(callback.get('verdict', {}).get('reasonCodes', [])), 'connectorId': callback.get('connectorHandle', {}).get('connectorId')}}",
     "",
-    "session = client.start_session_v6({'taskId': 'py-v6-memory', 'userGoal': 'Store notes safely', 'allowedOrigins': ['https://safe.example'], 'allowedVerbs': ['memory_promote'], 'forbiddenSinks': []})['session']",
-    "baseline_stage = client.memory_stage_v6({'sessionId': session['sessionId'], 'key': 'workflow_hint', 'value': {'note': 'baseline'}, 'sourceClass': 'user_note', 'durable': True})",
-    "baseline_approval = client.approval_issue_v6({'sessionId': session['sessionId'], 'capabilityId': baseline_stage['promotionTicket']['ticketId'], 'capabilityDigest': baseline_stage['promotionTicket']['ticketDigest'], 'brokerSignature': sign_approval(session, baseline_stage['promotionTicket'])})",
-    "baseline_promote = client.memory_promote_v6({'sessionId': session['sessionId'], 'recordId': baseline_stage['record']['recordId'], 'ticketId': baseline_stage['promotionTicket']['ticketId'], 'ticketDigest': baseline_stage['promotionTicket']['ticketDigest'], 'approvalId': baseline_approval['approvalEnvelope']['approvalId']})",
-    "blocked_stage = client.memory_stage_v6({'sessionId': session['sessionId'], 'key': 'workflow_hint', 'value': {'note': 'replacement'}, 'sourceClass': 'web_observation', 'durable': True, 'sourceObservationId': 'obs-v6-uncorroborated'})",
-    "blocked_approval = client.approval_issue_v6({'sessionId': session['sessionId'], 'capabilityId': blocked_stage['promotionTicket']['ticketId'], 'capabilityDigest': blocked_stage['promotionTicket']['ticketDigest'], 'brokerSignature': sign_approval(session, blocked_stage['promotionTicket'])})",
-    "blocked_promote = client.memory_promote_v6({'sessionId': session['sessionId'], 'recordId': blocked_stage['record']['recordId'], 'ticketId': blocked_stage['promotionTicket']['ticketId'], 'ticketDigest': blocked_stage['promotionTicket']['ticketDigest'], 'approvalId': blocked_approval['approvalEnvelope']['approvalId']})",
-    "corroborated_stage = client.memory_stage_v6({'sessionId': session['sessionId'], 'key': 'workflow_hint', 'value': {'note': 'replacement'}, 'sourceClass': 'web_observation', 'durable': True, 'sourceObservationId': 'obs-v6-corroborated', 'corroboration': [{'source': 'manual-review', 'note': 'operator confirmed'}]})",
-    "corroborated_approval = client.approval_issue_v6({'sessionId': session['sessionId'], 'capabilityId': corroborated_stage['promotionTicket']['ticketId'], 'capabilityDigest': corroborated_stage['promotionTicket']['ticketDigest'], 'brokerSignature': sign_approval(session, corroborated_stage['promotionTicket'])})",
-    "corroborated_promote = client.memory_promote_v6({'sessionId': session['sessionId'], 'recordId': corroborated_stage['record']['recordId'], 'ticketId': corroborated_stage['promotionTicket']['ticketId'], 'ticketDigest': corroborated_stage['promotionTicket']['ticketDigest'], 'approvalId': corroborated_approval['approvalEnvelope']['approvalId']})",
-    "rollback = client.memory_rollback_v6({'sessionId': session['sessionId'], 'recordId': corroborated_promote['promotedRecord']['recordId'], 'snapshotId': corroborated_promote['promotedRecord']['snapshotId']})",
+    "session = client.start_session({'taskId': 'py-v6-memory', 'userGoal': 'Store notes safely', 'allowedOrigins': ['https://safe.example'], 'allowedVerbs': ['memory_promote'], 'forbiddenSinks': []})['session']",
+    "baseline_stage = client.memory_stage({'sessionId': session['sessionId'], 'key': 'workflow_hint', 'value': {'note': 'baseline'}, 'sourceClass': 'user_note', 'durable': True})",
+    "baseline_approval = client.approval_issue({'sessionId': session['sessionId'], 'capabilityId': baseline_stage['promotionTicket']['ticketId'], 'capabilityDigest': baseline_stage['promotionTicket']['ticketDigest'], 'brokerSignature': sign_approval(session, baseline_stage['promotionTicket'])})",
+    "baseline_promote = client.memory_promote({'sessionId': session['sessionId'], 'recordId': baseline_stage['record']['recordId'], 'ticketId': baseline_stage['promotionTicket']['ticketId'], 'ticketDigest': baseline_stage['promotionTicket']['ticketDigest'], 'approvalId': baseline_approval['approvalEnvelope']['approvalId']})",
+    "blocked_stage = client.memory_stage({'sessionId': session['sessionId'], 'key': 'workflow_hint', 'value': {'note': 'replacement'}, 'sourceClass': 'web_observation', 'durable': True, 'sourceObservationId': 'obs-v6-uncorroborated'})",
+    "blocked_approval = client.approval_issue({'sessionId': session['sessionId'], 'capabilityId': blocked_stage['promotionTicket']['ticketId'], 'capabilityDigest': blocked_stage['promotionTicket']['ticketDigest'], 'brokerSignature': sign_approval(session, blocked_stage['promotionTicket'])})",
+    "blocked_promote = client.memory_promote({'sessionId': session['sessionId'], 'recordId': blocked_stage['record']['recordId'], 'ticketId': blocked_stage['promotionTicket']['ticketId'], 'ticketDigest': blocked_stage['promotionTicket']['ticketDigest'], 'approvalId': blocked_approval['approvalEnvelope']['approvalId']})",
+    "corroborated_stage = client.memory_stage({'sessionId': session['sessionId'], 'key': 'workflow_hint', 'value': {'note': 'replacement'}, 'sourceClass': 'web_observation', 'durable': True, 'sourceObservationId': 'obs-v6-corroborated', 'corroboration': [{'source': 'manual-review', 'note': 'operator confirmed'}]})",
+    "corroborated_approval = client.approval_issue({'sessionId': session['sessionId'], 'capabilityId': corroborated_stage['promotionTicket']['ticketId'], 'capabilityDigest': corroborated_stage['promotionTicket']['ticketDigest'], 'brokerSignature': sign_approval(session, corroborated_stage['promotionTicket'])})",
+    "corroborated_promote = client.memory_promote({'sessionId': session['sessionId'], 'recordId': corroborated_stage['record']['recordId'], 'ticketId': corroborated_stage['promotionTicket']['ticketId'], 'ticketDigest': corroborated_stage['promotionTicket']['ticketDigest'], 'approvalId': corroborated_approval['approvalEnvelope']['approvalId']})",
+    "rollback = client.memory_rollback({'sessionId': session['sessionId'], 'recordId': corroborated_promote['promotedRecord']['recordId'], 'snapshotId': corroborated_promote['promotedRecord']['snapshotId']})",
     "results['memory_rollback'] = {'baselineStage': {'decision': baseline_stage.get('verdict', {}).get('decision'), 'reasonCodes': sorted(baseline_stage.get('verdict', {}).get('reasonCodes', [])), 'tier': baseline_stage.get('record', {}).get('tier'), 'sourceClass': baseline_stage.get('record', {}).get('sourceClass'), 'promotionTicketKind': 'memory_promote' if baseline_stage.get('promotionTicket') else None}, 'baselinePromote': {'decision': baseline_promote.get('verdict', {}).get('decision'), 'reasonCodes': sorted(baseline_promote.get('verdict', {}).get('reasonCodes', [])), 'tier': baseline_promote.get('promotedRecord', {}).get('tier')}, 'blockedStage': {'decision': blocked_stage.get('verdict', {}).get('decision'), 'reasonCodes': sorted(blocked_stage.get('verdict', {}).get('reasonCodes', [])), 'tier': blocked_stage.get('record', {}).get('tier'), 'sourceClass': blocked_stage.get('record', {}).get('sourceClass'), 'promotionTicketKind': 'memory_promote' if blocked_stage.get('promotionTicket') else None}, 'blockedPromote': {'decision': blocked_promote.get('verdict', {}).get('decision'), 'reasonCodes': sorted(blocked_promote.get('verdict', {}).get('reasonCodes', [])), 'tier': blocked_promote.get('promotedRecord', {}).get('tier')}, 'corroboratedStage': {'decision': corroborated_stage.get('verdict', {}).get('decision'), 'reasonCodes': sorted(corroborated_stage.get('verdict', {}).get('reasonCodes', [])), 'tier': corroborated_stage.get('record', {}).get('tier'), 'sourceClass': corroborated_stage.get('record', {}).get('sourceClass'), 'promotionTicketKind': 'memory_promote' if corroborated_stage.get('promotionTicket') else None}, 'corroboratedPromote': {'decision': corroborated_promote.get('verdict', {}).get('decision'), 'reasonCodes': sorted(corroborated_promote.get('verdict', {}).get('reasonCodes', [])), 'tier': corroborated_promote.get('promotedRecord', {}).get('tier')}, 'rollback': {'decision': rollback.get('verdict', {}).get('decision'), 'reasonCodes': sorted(rollback.get('verdict', {}).get('reasonCodes', [])), 'restoredValue': rollback.get('restoredRecord', {}).get('value')}}",
     "",
-    "session = client.start_session_v6({'taskId': 'py-v6-replay', 'userGoal': 'Review docs safely', 'allowedOrigins': ['https://safe.example', 'https://docs.python.org'], 'allowedVerbs': ['navigate'], 'forbiddenSinks': []})['session']",
-    "observe = client.observe_v6({'sessionId': session['sessionId'], 'capture': build_html_surface_capture(url='https://safe.example/review', visible_text='Visible docs only. Docs', html='<main>Visible docs only.</main><a href=\"https://docs.python.org/3/tutorial/\">Docs</a>')})",
+    "session = client.start_session({'taskId': 'py-v6-replay', 'userGoal': 'Review docs safely', 'allowedOrigins': ['https://safe.example', 'https://docs.python.org'], 'allowedVerbs': ['navigate'], 'forbiddenSinks': []})['session']",
+    "observe = client.observe({'sessionId': session['sessionId'], 'capture': build_html_surface_capture(url='https://safe.example/review', visible_text='Visible docs only. Docs', html='<main>Visible docs only.</main><a href=\"https://docs.python.org/3/tutorial/\">Docs</a>')})",
     "authority = observe['authorityCandidates'][0]",
-    "client.action_v6({'sessionId': session['sessionId'], 'authorityId': authority['authorityId'], 'authorityDigest': authority['authorityDigest'], 'parameters': {}})",
-    "replay = client.replay_bundle_v6({'sessionId': session['sessionId']})",
+    "client.action({'sessionId': session['sessionId'], 'authorityId': authority['authorityId'], 'authorityDigest': authority['authorityDigest'], 'parameters': {}})",
+    "replay = client.replay_bundle({'sessionId': session['sessionId']})",
     "results['replay_bundle'] = {'replay': {'actorCounts': replay.get('metrics', {}).get('actorCounts', {}), 'eventCount': len(replay.get('events', []))}}",
     "",
     "status, legacy = post_raw('/v1/action', {'actionId': 'legacy-test', 'verb': 'navigate', 'targetUrl': 'https://docs.python.org/3/tutorial/', 'trustSignals': {'sourceOrigin': 'https://safe.example', 'frameOrigin': 'https://safe.example'}})",
@@ -900,7 +900,14 @@ async function main() {
             url: snapshot.url,
             frameUrl: snapshot.url,
             html: snapshot.html,
-            visibleText: snapshot.visibleText
+            visibleText: snapshot.visibleText,
+            captureAttestation: {
+              captureMethod: "rendered_dom",
+              visibilityAttested: true,
+              frameCoverage: "full",
+              shadowDomCoverage: "full",
+              unsupportedSubtrees: []
+            }
           }
         }),
         (sessionId, authorityId, authorityDigest) => ({

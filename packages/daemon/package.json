@@ -1,6 +1,6 @@
 {
   "name": "@safebrowse/daemon",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Localhost SafeBrowse daemon for browser-use agent enforcement",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",

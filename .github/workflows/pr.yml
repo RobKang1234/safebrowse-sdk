@@ -5,10 +5,7 @@ on:
   push:
     branches:
       - main
-      - v2
-      - v3
-      - v4
-      - v5
+      - v6
 
 permissions:
   contents: read
@@ -59,4 +56,4 @@ jobs:
       - run: node scripts/run-python-module.mjs -m pip install build twine
       - run: pnpm build
       - run: pnpm release:build:python
-      - run: pnpm auditor:parity
+      - run: pnpm auditor:parity:v6

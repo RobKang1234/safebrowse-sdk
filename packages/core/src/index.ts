@@ -1,37 +1,36 @@
 export { evaluateAction } from "./action.js";
-export { brokerArtifact } from "./artifact.js";
-export { brokerArtifactV2 } from "./artifactV2.js";
+export { extractAttachmentGraphV6 } from "./attachmentGuard.js";
+export { materializeBinarySurfaceCapture } from "./binarySurfaceIngest.js";
 export {
-  attachCapabilitiesToPlannerInput,
-  evaluateCapabilityUse,
-  mintCapabilitiesForObservation
-} from "./capabilityV4.js";
+  evaluateCapabilityUseV6,
+  mintCapabilitiesForObservationV6,
+  mintMemoryPromotionCapabilityV6,
+  tightenAuthoritiesWithModelGuard
+} from "./capabilityV6.js";
 export {
-  evaluateCapabilityUseV5,
-  mintCapabilitiesForObservationV5,
-  mintMemoryPromotionCapabilityV5
-} from "./capabilityV5.js";
+  applyModelGuardAssessment,
+  buildModelGuardObservationRequest
+} from "./modelGuard.js";
 export { compilePolicy } from "./policy.js";
-export { applyV4FailClosedMediation, compileObservation } from "./observationV4.js";
-export { applyV5ObservationMediation, compileObservationV5 } from "./observationV5.js";
-export { extractTextFromHtml } from "./htmlText.js";
-export { evaluateMemoryWrite } from "./memory.js";
 export {
-  evaluateMemoryWriteV4,
-  promoteMemoryRecordV4,
-  rollbackMemoryRecordV4
-} from "./memoryV4.js";
-export {
-  evaluateMemoryWriteV5,
-  promoteMemoryRecordV5,
-  rollbackMemoryRecordV5
-} from "./memoryV5.js";
-export {
-  promoteStagedMemoryRecordV5,
   promoteMemoryRecordV6,
-  stageMemoryRecordV5,
+  promoteStagedMemoryRecordV6,
+  rollbackMemoryRecordV6,
   stageMemoryRecordV6
 } from "./memoryV6.js";
+export { applyV6ObservationMediation, compileObservationV6 } from "./observationV6.js";
+export {
+  APPROVAL_REQUIRED_PATH_CLASSES,
+  AUTO_ALLOW_PATH_CLASSES,
+  DENY_PATH_CLASSES,
+  allowedPathClassesForSession,
+  approvalRequiredPathClassesForSession,
+  classifyTargetPathClass,
+  inferTaskPurposeClass,
+  pathClassAllowedForSession,
+  pathClassDenied,
+  pathClassRequiresApprovalForSession
+} from "./pathPolicyV6.js";
 export { runPromptInjectionGuard } from "./promptInjection.js";
 export { buildReplayBundle } from "./replay.js";
 export { sanitizeObservation } from "./sanitize.js";
@@ -42,25 +41,17 @@ export {
   redactJsonValue,
   redactSecretsInText
 } from "./secretIsolation.js";
-export { evaluateToolRequest } from "./toolProtocol.js";
 export {
   computeToolManifestHash,
-  computeToolSchemaHash,
-  prepareToolOnboarding,
-  verifyToolCallback
-} from "./toolProtocolV2.js";
+  computeToolSchemaHash
+} from "./toolConnector.js";
 export {
-  createApprovalGrantHash,
-  prepareToolOnboardingV4,
-  verifyToolCallbackV4
-} from "./toolProtocolV4.js";
-export {
-  createApprovalIntentPayloadV5,
-  issueApprovalEnvelopeV5,
-  prepareToolOnboardingV5,
-  verifyApprovalIntentSignatureV5,
-  verifyToolCallbackV5
-} from "./toolProtocolV5.js";
+  createApprovalIntentPayloadV6,
+  issueApprovalEnvelopeV6,
+  prepareToolOnboardingV6,
+  verifyApprovalIntentSignatureV6,
+  verifyToolCallbackV6
+} from "./toolProtocolV6.js";
 export { parseThreatPageHtml } from "./threatPageParser.js";
 export { appendLineage, normalizeTrustSignals } from "./trust.js";
 export * from "./types.js";

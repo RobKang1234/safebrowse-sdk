@@ -1,0 +1,706 @@
+import { randomUUID, verify as verifySignatureBuffer, type KeyObject } from "node:crypto";
+
+import type {
+  ApprovalEnvelopeV6,
+  CapabilityDescriptorV6,
+  ConnectorHandle,
+  SafeVerdict,
+  TaskSession,
+  ToolCallbackVerificationRequest,
+  ToolOnboardingSessionV6,
+  VerifiedRegistryEntry
+} from "./types.js";
+import { clamp, normalizeOrigin, sha256Hex, stableStringify, uniq } from "./utils.js";
+
+function requestedScopesHash(scopes: string[]): string {
+  return sha256Hex(stableStringify([...scopes].sort()));
+}
+
+function scopesSubsetSafe(requested: string[], allowed: string[]): boolean {
+  const allowedSet = new Set(allowed);
+  return requested.every((scope) => allowedSet.has(scope));
+}
+
+function registryEntryActive(entry: VerifiedRegistryEntry): boolean {
+  if (!entry.expiresAt) {
+    return true;
+  }
+  return new Date(entry.expiresAt).getTime() > Date.now();
+}
+
+function matchesOptional(expected: string | undefined, actual: string | undefined): boolean {
+  return expected === undefined || expected === actual;
+}
+
+export function createApprovalIntentPayloadV6(input: {
+  sessionId: string;
+  workflowHash: string;
+  capabilityId: string;
+  capabilityDigest: string;
+  expiresInSeconds?: number;
+}): string {
+  return stableStringify({
+    sessionId: input.sessionId,
+    workflowHash: input.workflowHash,
+    capabilityId: input.capabilityId,
+    capabilityDigest: input.capabilityDigest,
+    expiresInSeconds: input.expiresInSeconds ?? 600
+  });
+}
+
+export function verifyApprovalIntentSignatureV6(
+  payload: string,
+  brokerSignature: string,
+  brokerPublicKey: KeyObject | undefined
+): boolean {
+  if (!brokerPublicKey) {
+    return false;
+  }
+
+  try {
+    return verifySignatureBuffer(
+      null,
+      Buffer.from(payload, "utf8"),
+      brokerPublicKey,
+      Buffer.from(brokerSignature, "base64")
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function issueApprovalEnvelopeV6(input: {
+  session: TaskSession | undefined;
+  capability: CapabilityDescriptorV6 | undefined;
+  brokerSignature: string;
+  brokerSignatureVerified: boolean;
+  expiresInSeconds?: number;
+}): {
+  verdict: SafeVerdict;
+  approvalEnvelope?: ApprovalEnvelopeV6;
+} {
+  const reasonCodes: string[] = [];
+  let decision: SafeVerdict["decision"] = "ALLOW";
+  let riskScore = 0.2;
+
+  if (!input.session) {
+    decision = "BLOCK";
+    reasonCodes.push("UNKNOWN_SESSION");
+    riskScore = 0.99;
+  }
+
+  if (!input.capability) {
+    decision = "BLOCK";
+    reasonCodes.push("UNKNOWN_AUTHORITY");
+    riskScore = 0.99;
+  }
+
+  if (!input.brokerSignatureVerified) {
+    decision = "BLOCK";
+    reasonCodes.push("APPROVAL_BROKER_SIGNATURE_INVALID");
+    riskScore = 0.99;
+  }
+
+  if (input.capability) {
+    if (input.capability.consumedAt) {
+      decision = "BLOCK";
+      reasonCodes.push("AUTHORITY_REPLAYED");
+      riskScore = 0.99;
+    }
+    if (!input.capability.requiresApproval) {
+      decision = "BLOCK";
+      reasonCodes.push("AUTHORITY_DOES_NOT_REQUIRE_APPROVAL");
+      riskScore = 0.95;
+    }
+    if (
+      ![
+        "navigate",
+        "connector_prepare",
+        "memory_promote",
+        "email_send",
+        "email_reply",
+        "email_forward",
+        "api_read",
+        "api_write",
+        "api_delete",
+        "api_export"
+      ].includes(input.capability.kind)
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("AUTHORITY_NOT_APPROVABLE");
+      riskScore = 0.99;
+    }
+    if (input.capability.kind === "connector_prepare" && !input.capability.connectorId) {
+      decision = "BLOCK";
+      reasonCodes.push("CONNECTOR_ID_REQUIRED");
+      riskScore = 0.99;
+    }
+    if (
+      input.capability.kind === "connector_prepare" &&
+      (!input.capability.callbackUri || !input.capability.callbackOrigin)
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("CALLBACK_BINDING_REQUIRED");
+      riskScore = 0.99;
+    }
+    if (input.session) {
+      if (input.capability.sessionId !== input.session.sessionId) {
+        decision = "BLOCK";
+        reasonCodes.push("AUTHORITY_OUTSIDE_SESSION");
+        riskScore = 0.99;
+      }
+      if (input.capability.workflowHash !== input.session.workflowHash) {
+        decision = "BLOCK";
+        reasonCodes.push("AUTHORITY_WORKFLOW_HASH_MISMATCH");
+        riskScore = 0.99;
+      }
+      if (input.capability.workflowStep !== input.session.currentStep) {
+        decision = "BLOCK";
+        reasonCodes.push("AUTHORITY_OUTSIDE_WORKFLOW_STEP");
+        riskScore = 0.99;
+      }
+    }
+  }
+
+  if (decision !== "ALLOW" || !input.session || !input.capability) {
+    return {
+      verdict: {
+        decision,
+        reasonCodes: uniq(reasonCodes),
+        riskScore: clamp(riskScore),
+        safeConstraints: {
+          claim_profile: "secure_v6"
+        },
+        telemetryTags: uniq(["approval_v6_issue", decision.toLowerCase()])
+      }
+    };
+  }
+
+  const issuedAt = new Date().toISOString();
+  const expiresAt = new Date(
+    Date.now() + (input.expiresInSeconds ?? 600) * 1000
+  ).toISOString();
+
+  const approvalEnvelope: ApprovalEnvelopeV6 = {
+    approvalId: randomUUID(),
+    sessionId: input.session.sessionId,
+    workflowHash: input.session.workflowHash,
+    workflowStep: input.session.currentStep,
+    capabilityId: input.capability.capabilityId,
+    capabilityDigest: input.capability.capabilityDigest,
+    semanticDigest: input.capability.semanticDigest,
+    sinkClass:
+      input.capability.kind === "memory_promote"
+        ? "memory_promotion"
+        : input.capability.kind === "connector_prepare"
+          ? "connector_oauth"
+          : input.capability.kind === "navigate"
+            ? "browser_navigation"
+            : input.capability.kind === "email_send" ||
+                input.capability.kind === "email_reply" ||
+                input.capability.kind === "email_forward"
+              ? "email_outbound"
+              : "api_operation",
+    operationClass: input.capability.operationClass,
+    targetPathClass: input.capability.targetPathClass,
+    evidenceSpanIds: input.capability.evidenceSpanIds,
+    connectorId: input.capability.connectorId,
+    providerId: input.capability.providerId,
+    operationId: input.capability.operationId,
+    registryEntryId: input.capability.registryEntryId,
+    registryBundleId: input.capability.registryBundleId,
+    registryBundleVersion: input.capability.registryBundleVersion,
+    registrySigner: input.capability.registrySigner,
+    requestedScopes: input.capability.requestedScopes ?? [],
+    requestedScopesHash: requestedScopesHash(input.capability.requestedScopes ?? []),
+    callbackUri: input.capability.callbackUri,
+    callbackOrigin: input.capability.callbackOrigin,
+    manifestHash: input.capability.manifestHash,
+    schemaHash: input.capability.schemaHash,
+    requestSchemaHash: input.capability.requestSchemaHash,
+    responseSchemaHash: input.capability.responseSchemaHash,
+    mailboxId: input.capability.mailboxId,
+    accountId: input.capability.accountId,
+    messageId: input.capability.messageId,
+    threadId: input.capability.threadId,
+    recipientSetHash: input.capability.recipientSetHash,
+    subjectHash: input.capability.subjectHash,
+    bodyDigest: input.capability.bodyDigest,
+    attachmentDigestSet: input.capability.attachmentDigestSet,
+    targetOrigin: input.capability.targetOrigin,
+    issuedAt,
+    expiresAt,
+    brokerSignature: input.brokerSignature,
+    signedByBroker: true,
+    consumedAt: undefined,
+    onboardingSessionId: undefined
+  };
+
+  return {
+    verdict: {
+      decision,
+      reasonCodes: [],
+      riskScore: clamp(riskScore),
+      safeConstraints: {
+        claim_profile: "secure_v6",
+        sink_class: approvalEnvelope.sinkClass,
+        target_path_class: approvalEnvelope.targetPathClass ?? "workflow_continue",
+        semantic_digest: approvalEnvelope.semanticDigest,
+        approval_broker_verified: true
+      },
+      telemetryTags: uniq(["approval_v6_issue", "allow"])
+    },
+    approvalEnvelope
+  };
+}
+
+export function prepareToolOnboardingV6(input: {
+  session: TaskSession | undefined;
+  capability: CapabilityDescriptorV6 | undefined;
+  approvalEnvelope: ApprovalEnvelopeV6 | undefined;
+  verifiedRegistryEntry: VerifiedRegistryEntry | undefined;
+}): {
+  verdict: SafeVerdict;
+  onboardingSession?: ToolOnboardingSessionV6;
+} {
+  const reasonCodes: string[] = [];
+  let decision: SafeVerdict["decision"] = "ALLOW";
+  let riskScore = 0.2;
+
+  if (!input.session) {
+    decision = "BLOCK";
+    reasonCodes.push("UNKNOWN_SESSION");
+    riskScore = 0.99;
+  }
+  if (!input.capability) {
+    decision = "BLOCK";
+    reasonCodes.push("UNKNOWN_AUTHORITY");
+    riskScore = 0.99;
+  }
+  if (!input.approvalEnvelope) {
+    decision = "BLOCK";
+    reasonCodes.push("APPROVAL_ENVELOPE_REQUIRED");
+    riskScore = 0.99;
+  }
+  if (!input.verifiedRegistryEntry) {
+    decision = "BLOCK";
+    reasonCodes.push("REGISTRY_ENTRY_REQUIRED");
+    riskScore = 0.99;
+  }
+
+  if (input.capability) {
+    if (input.capability.kind !== "connector_prepare") {
+      decision = "BLOCK";
+      reasonCodes.push("AUTHORITY_KIND_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (input.capability.consumedAt) {
+      decision = "BLOCK";
+      reasonCodes.push("AUTHORITY_REPLAYED");
+      riskScore = 0.99;
+    }
+  }
+
+  if (input.approvalEnvelope && input.capability) {
+    if (input.approvalEnvelope.capabilityId !== input.capability.capabilityId) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_AUTHORITY_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (input.approvalEnvelope.capabilityDigest !== input.capability.capabilityDigest) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_AUTHORITY_DIGEST_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (input.approvalEnvelope.semanticDigest !== input.capability.semanticDigest) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_SEMANTIC_DIGEST_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (input.approvalEnvelope.sinkClass !== "connector_oauth") {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_SINK_CLASS_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (
+      normalizeOrigin(input.approvalEnvelope.targetOrigin) !==
+      normalizeOrigin(input.capability.targetOrigin)
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_TARGET_ORIGIN_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (new Date(input.approvalEnvelope.expiresAt).getTime() <= Date.now()) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_ENVELOPE_EXPIRED");
+      riskScore = 0.99;
+    }
+    if (input.approvalEnvelope.consumedAt) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_ENVELOPE_ALREADY_USED");
+      riskScore = 0.99;
+    }
+    if (input.approvalEnvelope.onboardingSessionId) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_ENVELOPE_ALREADY_BOUND");
+      riskScore = 0.99;
+    }
+  }
+
+  if (input.verifiedRegistryEntry && input.approvalEnvelope) {
+    if (!registryEntryActive(input.verifiedRegistryEntry)) {
+      decision = "BLOCK";
+      reasonCodes.push("REGISTRY_ENTRY_EXPIRED");
+      riskScore = 0.99;
+    }
+    if (input.approvalEnvelope.registryEntryId !== input.verifiedRegistryEntry.registryEntryId) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_REGISTRY_ENTRY_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (input.approvalEnvelope.connectorId !== input.verifiedRegistryEntry.adapterId) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_CONNECTOR_ID_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (
+      normalizeOrigin(input.approvalEnvelope.callbackOrigin) !==
+      normalizeOrigin(input.verifiedRegistryEntry.allowedCallbackOrigins[0])
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_CALLBACK_ORIGIN_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (
+      !input.approvalEnvelope.callbackUri ||
+      !input.verifiedRegistryEntry.allowedRedirectUris.includes(input.approvalEnvelope.callbackUri)
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_CALLBACK_URI_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (
+      requestedScopesHash(input.approvalEnvelope.requestedScopes) !==
+        input.approvalEnvelope.requestedScopesHash ||
+      !scopesSubsetSafe(
+        input.approvalEnvelope.requestedScopes,
+        input.verifiedRegistryEntry.allowedScopes
+      )
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_SCOPE_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (input.verifiedRegistryEntry.authType !== "oauth") {
+      decision = "BLOCK";
+      reasonCodes.push("REGISTRY_AUTH_TYPE_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (
+      !matchesOptional(input.approvalEnvelope.registryBundleId, input.verifiedRegistryEntry.bundleId) ||
+      !matchesOptional(
+        input.approvalEnvelope.registryBundleVersion,
+        input.verifiedRegistryEntry.bundleVersion
+      ) ||
+      !matchesOptional(input.approvalEnvelope.registrySigner, input.verifiedRegistryEntry.signer)
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_REGISTRY_ATTESTATION_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (
+      !matchesOptional(input.approvalEnvelope.manifestHash, input.verifiedRegistryEntry.manifestHash)
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("MANIFEST_HASH_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (!matchesOptional(input.approvalEnvelope.schemaHash, input.verifiedRegistryEntry.schemaHash)) {
+      decision = "BLOCK";
+      reasonCodes.push("SCHEMA_HASH_MISMATCH");
+      riskScore = 0.99;
+    }
+  }
+
+  if (input.capability && input.approvalEnvelope) {
+    if (input.capability.connectorId !== input.approvalEnvelope.connectorId) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_CONNECTOR_ID_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (input.capability.callbackUri !== input.approvalEnvelope.callbackUri) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_CALLBACK_URI_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (input.capability.callbackOrigin !== input.approvalEnvelope.callbackOrigin) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_CALLBACK_ORIGIN_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (
+      requestedScopesHash(input.capability.requestedScopes ?? []) !==
+      input.approvalEnvelope.requestedScopesHash
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_SCOPE_MISMATCH");
+      riskScore = 0.99;
+    }
+  }
+
+  if (
+    decision !== "ALLOW" ||
+    !input.session ||
+    !input.capability ||
+    !input.approvalEnvelope ||
+    !input.verifiedRegistryEntry ||
+    !input.capability.callbackUri ||
+    !input.capability.callbackOrigin ||
+    !input.capability.connectorId
+  ) {
+    return {
+      verdict: {
+        decision,
+        reasonCodes: uniq(reasonCodes),
+        riskScore: clamp(riskScore),
+        safeConstraints: {
+          claim_profile: "secure_v6"
+        },
+        telemetryTags: uniq(["tool_v6_prepare", decision.toLowerCase()])
+      }
+    };
+  }
+
+  const createdAt = new Date().toISOString();
+  return {
+    verdict: {
+      decision,
+      reasonCodes: [],
+      riskScore: clamp(riskScore),
+      safeConstraints: {
+        claim_profile: "secure_v6",
+        callback_origin: input.capability.callbackOrigin,
+        connector_id: input.capability.connectorId
+      },
+      telemetryTags: uniq(["tool_v6_prepare", "allow"])
+    },
+    onboardingSession: {
+      onboardingSessionId: randomUUID(),
+      sessionId: input.session.sessionId,
+      approvalId: input.approvalEnvelope.approvalId,
+      capabilityDigest: input.capability.capabilityDigest,
+      connectorId: input.capability.connectorId,
+      registryEntryId: input.verifiedRegistryEntry.registryEntryId,
+      registryBundleId: input.verifiedRegistryEntry.bundleId,
+      registryBundleVersion: input.verifiedRegistryEntry.bundleVersion,
+      registrySigner: input.verifiedRegistryEntry.signer,
+      callbackUri: input.capability.callbackUri,
+      callbackOrigin: input.capability.callbackOrigin,
+      requestedScopes: input.capability.requestedScopes ?? [],
+      manifestHash: input.capability.manifestHash,
+      schemaHash: input.capability.schemaHash,
+      state: randomUUID(),
+      pkceMethod: "S256",
+      createdAt,
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      status: "prepared"
+    }
+  };
+}
+
+export function verifyToolCallbackV6(input: {
+  session: TaskSession | undefined;
+  capability: CapabilityDescriptorV6 | undefined;
+  approvalEnvelope: ApprovalEnvelopeV6 | undefined;
+  onboardingSession: ToolOnboardingSessionV6 | undefined;
+  verifiedRegistryEntry: VerifiedRegistryEntry | undefined;
+  request: ToolCallbackVerificationRequest;
+}): {
+  verdict: SafeVerdict;
+  connectorHandle?: ConnectorHandle;
+} {
+  const reasonCodes: string[] = [];
+  let decision: SafeVerdict["decision"] = "ALLOW";
+  let riskScore = 0.2;
+
+  if (!input.session) {
+    decision = "BLOCK";
+    reasonCodes.push("UNKNOWN_SESSION");
+    riskScore = 0.99;
+  }
+  if (!input.capability) {
+    decision = "BLOCK";
+    reasonCodes.push("UNKNOWN_AUTHORITY");
+    riskScore = 0.99;
+  }
+  if (!input.approvalEnvelope) {
+    decision = "BLOCK";
+    reasonCodes.push("APPROVAL_ENVELOPE_REQUIRED");
+    riskScore = 0.99;
+  }
+  if (!input.onboardingSession) {
+    decision = "BLOCK";
+    reasonCodes.push("UNKNOWN_ONBOARDING_SESSION");
+    riskScore = 0.99;
+  }
+  if (!input.verifiedRegistryEntry) {
+    decision = "BLOCK";
+    reasonCodes.push("REGISTRY_ENTRY_REQUIRED");
+    riskScore = 0.99;
+  }
+
+  if (input.onboardingSession && input.approvalEnvelope) {
+    if (input.onboardingSession.approvalId !== input.approvalEnvelope.approvalId) {
+      decision = "BLOCK";
+      reasonCodes.push("ONBOARDING_APPROVAL_MISMATCH");
+      riskScore = 0.99;
+    }
+  }
+  if (input.onboardingSession && input.capability) {
+    if (input.onboardingSession.capabilityDigest !== input.capability.capabilityDigest) {
+      decision = "BLOCK";
+      reasonCodes.push("ONBOARDING_AUTHORITY_DIGEST_MISMATCH");
+      riskScore = 0.99;
+    }
+  }
+  if (input.approvalEnvelope && input.capability) {
+    if (input.approvalEnvelope.onboardingSessionId !== input.onboardingSession?.onboardingSessionId) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_ONBOARDING_SESSION_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (!input.approvalEnvelope.consumedAt) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_ENVELOPE_NOT_PREPARED");
+      riskScore = 0.99;
+    }
+    if (input.approvalEnvelope.capabilityDigest !== input.capability.capabilityDigest) {
+      decision = "BLOCK";
+      reasonCodes.push("APPROVAL_AUTHORITY_DIGEST_MISMATCH");
+      riskScore = 0.99;
+    }
+  }
+  if (input.onboardingSession) {
+    if (new Date(input.onboardingSession.expiresAt).getTime() <= Date.now()) {
+      decision = "BLOCK";
+      reasonCodes.push("ONBOARDING_SESSION_EXPIRED");
+      riskScore = 0.99;
+    }
+    if (input.onboardingSession.status !== "prepared") {
+      decision = "BLOCK";
+      reasonCodes.push("ONBOARDING_SESSION_ALREADY_USED");
+      riskScore = 0.99;
+    }
+    if (input.request.state !== input.onboardingSession.state) {
+      decision = "BLOCK";
+      reasonCodes.push("OAUTH_STATE_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (input.request.sessionId !== input.onboardingSession.onboardingSessionId) {
+      decision = "BLOCK";
+      reasonCodes.push("CALLBACK_SESSION_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (input.request.callbackUri !== input.onboardingSession.callbackUri) {
+      decision = "BLOCK";
+      reasonCodes.push("CALLBACK_URI_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (
+      normalizeOrigin(input.request.callbackOrigin) !==
+      normalizeOrigin(input.onboardingSession.callbackOrigin)
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("CALLBACK_ORIGIN_MISMATCH");
+      riskScore = 0.99;
+    }
+  }
+
+  if (input.verifiedRegistryEntry && input.onboardingSession) {
+    if (!registryEntryActive(input.verifiedRegistryEntry)) {
+      decision = "BLOCK";
+      reasonCodes.push("REGISTRY_ENTRY_EXPIRED");
+      riskScore = 0.99;
+    }
+    if (!input.verifiedRegistryEntry.allowedRedirectUris.includes(input.request.callbackUri)) {
+      decision = "BLOCK";
+      reasonCodes.push("CALLBACK_URI_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (!input.verifiedRegistryEntry.allowedCallbackOrigins.includes(input.request.callbackOrigin)) {
+      decision = "BLOCK";
+      reasonCodes.push("CALLBACK_ORIGIN_MISMATCH");
+      riskScore = 0.99;
+    }
+    if (
+      requestedScopesHash(input.onboardingSession.requestedScopes) !==
+        requestedScopesHash(input.approvalEnvelope?.requestedScopes ?? []) ||
+      !scopesSubsetSafe(input.onboardingSession.requestedScopes, input.verifiedRegistryEntry.allowedScopes)
+    ) {
+      decision = "BLOCK";
+      reasonCodes.push("CALLBACK_SCOPE_MISMATCH");
+      riskScore = 0.99;
+    }
+  }
+
+  if (
+    input.request.payload &&
+    Object.keys(input.request.payload).some((key) => !["code", "state"].includes(key))
+  ) {
+    decision = "BLOCK";
+    reasonCodes.push("CALLBACK_PAYLOAD_FIELD_NOT_ALLOWLISTED");
+    riskScore = 0.99;
+  }
+
+  if (
+    decision !== "ALLOW" ||
+    !input.session ||
+    !input.approvalEnvelope ||
+    !input.onboardingSession ||
+    !input.verifiedRegistryEntry ||
+    !input.capability ||
+    !input.capability.connectorId
+  ) {
+    return {
+      verdict: {
+        decision,
+        reasonCodes: uniq(reasonCodes),
+        riskScore: clamp(riskScore),
+        safeConstraints: {
+          claim_profile: "secure_v6"
+        },
+        telemetryTags: uniq(["tool_v6_callback", decision.toLowerCase()])
+      }
+    };
+  }
+
+  return {
+    verdict: {
+      decision,
+      reasonCodes: [],
+      riskScore: clamp(riskScore),
+      safeConstraints: {
+        claim_profile: "secure_v6",
+        connector_id: input.capability.connectorId,
+        registry_entry_id: input.verifiedRegistryEntry.registryEntryId
+      },
+      telemetryTags: uniq(["tool_v6_callback", "allow"])
+    },
+    connectorHandle: {
+      handleId: randomUUID(),
+      sessionId: input.session.sessionId,
+      approvalId: input.approvalEnvelope.approvalId,
+      connectorId: input.capability.connectorId,
+      registryEntryId: input.verifiedRegistryEntry.registryEntryId,
+      registryBundleId: input.verifiedRegistryEntry.bundleId,
+      registryBundleVersion: input.verifiedRegistryEntry.bundleVersion,
+      registrySigner: input.verifiedRegistryEntry.signer,
+      manifestHash: input.onboardingSession.manifestHash,
+      schemaHash: input.onboardingSession.schemaHash,
+      scopeSet: input.approvalEnvelope.requestedScopes,
+      issuedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      status: "active"
+    }
+  };
+}

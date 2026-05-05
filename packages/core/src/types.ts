@@ -9,6 +9,7 @@ export type SafeDecision =
   | "ALLOW"
   | "BLOCK"
   | "REPLAN_READ_ONLY"
+  | "APPROVAL_REQUIRED"
   | "USER_CONFIRM"
   | "QUARANTINE_ARTIFACT"
   | "ESCALATE_INCIDENT";
@@ -33,7 +34,10 @@ export type ExtractionMethod =
   | "ocr"
   | "download"
   | "api"
-  | "manual";
+  | "manual"
+  | "mime"
+  | "ooxml"
+  | "extractor";
 
 export type ArtifactKind =
   | "page"
@@ -41,6 +45,12 @@ export type ArtifactKind =
   | "pdf"
   | "image"
   | "archive"
+  | "email_message"
+  | "docx"
+  | "xlsx"
+  | "pptx"
+  | "attachment_bundle"
+  | "external_api_response"
   | "tool_manifest"
   | "memory"
   | "unknown";
@@ -62,10 +72,14 @@ export interface TrustSignalSet {
 export type OriginatingSurface =
   | "page"
   | "artifact"
+  | "email"
+  | "office_document"
+  | "attachment_pipeline"
   | "tool_description"
   | "tool_schema"
   | "memory"
-  | "api";
+  | "api"
+  | "external_api";
 
 export interface ObservationFragment {
   fragmentId: string;
@@ -81,7 +95,16 @@ export interface ObservationFragment {
 export interface RawObservationInput {
   observationId?: string;
   taskId?: string;
-  sourceType?: "page" | "document" | "tool_text" | "memory" | "api";
+  sourceType?:
+    | "page"
+    | "document"
+    | "office_document"
+    | "email"
+    | "attachment_bundle"
+    | "tool_text"
+    | "memory"
+    | "api"
+    | "api_response";
   text?: string;
   fragments?: Array<Partial<ObservationFragment> & Pick<ObservationFragment, "text">>;
   trustSignals?: Partial<TrustSignalSet>;
@@ -91,7 +114,16 @@ export interface RawObservationInput {
 export interface ObservationEnvelope {
   observationId: string;
   taskId?: string;
-  sourceType: "page" | "document" | "tool_text" | "memory" | "api";
+  sourceType:
+    | "page"
+    | "document"
+    | "office_document"
+    | "email"
+    | "attachment_bundle"
+    | "tool_text"
+    | "memory"
+    | "api"
+    | "api_response";
   text: string;
   normalizedText: string;
   fragments: ObservationFragment[];
@@ -107,9 +139,13 @@ export interface TaskEnvelope {
   taskId: string;
   userGoal: string;
   phase?: string;
+  taskPurposeClass?: TaskPurposeClass;
+  taskPhase?: string;
   allowedOrigins?: string[];
   allowedVerbs?: string[];
   forbiddenSinks?: string[];
+  allowedPathClasses?: TargetPathClass[];
+  approvalRequiredPathClasses?: TargetPathClass[];
 }
 
 export interface ActionProposal {
@@ -247,6 +283,41 @@ export interface VerifiedRegistryEntry {
   writeCapability?: boolean;
 }
 
+export interface VerifiedApiProviderEntry {
+  providerId: string;
+  bundleId: string;
+  bundleVersion: string;
+  signer: string;
+  authType: "none" | "oauth" | "api_key";
+  allowedBaseUrls: string[];
+  allowedMethods: string[];
+  allowedOperationClasses: OperationClass[];
+  requestSchemaHash?: string;
+  responseSchemaHash?: string;
+  allowedScopes: string[];
+  allowedCallbackOrigins?: string[];
+  allowedRedirectUris?: string[];
+  readOnly?: boolean;
+  mutating?: boolean;
+  expiresAt?: string;
+}
+
+export interface ExtractorProfileEntry {
+  extractorId: string;
+  bundleId: string;
+  bundleVersion: string;
+  signer: string;
+  supportedMimeTypes: string[];
+  supportedSurfaceTypes: V4SurfaceType[];
+  parserDigest: string;
+  maxRecursionDepth: number;
+  maxExpandedBytes: number;
+  networkPolicy: "deny" | "allowlisted_only";
+  activeContentPolicy: "block" | "quarantine";
+  supportedChannels: ProvenanceChannel[];
+  expiresAt?: string;
+}
+
 export interface VerifiedRegistryBundle {
   bundleId: string;
   version: string;
@@ -256,6 +327,8 @@ export interface VerifiedRegistryBundle {
   publicKeyId?: string;
   signatureVerified: boolean;
   entries: VerifiedRegistryEntry[];
+  apiProviders?: VerifiedApiProviderEntry[];
+  extractorProfiles?: ExtractorProfileEntry[];
 }
 
 export interface WorkflowBinding {
@@ -309,6 +382,12 @@ export type V4SurfaceType =
   | "html"
   | "pdf"
   | "image"
+  | "email_message"
+  | "docx"
+  | "xlsx"
+  | "pptx"
+  | "attachment_bundle"
+  | "external_api_response"
   | "tool_manifest"
   | "memory_candidate";
 
@@ -322,7 +401,22 @@ export type ProvenanceChannel =
   | "link"
   | "schema"
   | "memory_candidate"
-  | "fact";
+  | "fact"
+  | "email_header"
+  | "quoted_thread"
+  | "remote_content"
+  | "auth_result"
+  | "office_comment"
+  | "office_note"
+  | "office_formula"
+  | "hidden_sheet"
+  | "hidden_slide"
+  | "tracked_change"
+  | "embedded_object"
+  | "external_relationship"
+  | "api_field"
+  | "recipient"
+  | "attachment_reference";
 
 export interface SurfaceLinkCapture {
   href: string;
@@ -338,7 +432,61 @@ interface BaseSurfaceCapture {
   url: string;
   frameUrl?: string;
   userShared?: boolean;
+  parserId?: string;
+  parserVersion?: string;
+  extractorId?: string;
+  extractorVersion?: string;
+  providerId?: string;
+  authContextId?: string;
+  lineageChain?: string[];
+  childAttachmentDigests?: string[];
+  externalReferenceDigests?: string[];
+  sourceMode?: "user_supplied" | "inbox_derived" | "api_derived" | "pipeline_derived";
   trustSignals?: Partial<TrustSignalSet>;
+}
+
+export interface ExtractionAttestation {
+  extractorId: string;
+  extractorVersion: string;
+  parserDigest: string;
+  networkPolicy: "deny" | "allowlisted_only";
+  maxRecursionDepth: number;
+  maxExpandedBytes: number;
+  extractedAt: string;
+  inputDigest?: string;
+}
+
+export interface AttachmentDescriptor {
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  sha256?: string;
+  sizeBytes?: number;
+}
+
+export interface EmailActionCandidateCapture {
+  kind: "email_send" | "email_reply" | "email_forward";
+  mailboxId?: string;
+  accountId?: string;
+  messageId?: string;
+  threadId?: string;
+  recipients: string[];
+  subject?: string;
+  bodyText?: string;
+  attachmentDigests?: string[];
+}
+
+export interface ApiActionCandidateCapture {
+  kind: "api_read" | "api_write" | "api_delete" | "api_export";
+  providerId: string;
+  operationId: string;
+  method: string;
+  baseUrl: string;
+  pathTemplate: string;
+  resourceId?: string;
+  requestSchemaHash?: string;
+  responseSchemaHash?: string;
+  requestedScopes?: string[];
 }
 
 export interface HtmlSurfaceCapture extends BaseSurfaceCapture {
@@ -352,6 +500,7 @@ export interface HtmlSurfaceCapture extends BaseSurfaceCapture {
   links?: SurfaceLinkCapture[];
   domDigest?: string;
   nestedUnsupportedComponents?: string[];
+  captureAttestation?: CaptureAttestation;
 }
 
 export interface PdfSurfaceCapture extends BaseSurfaceCapture {
@@ -370,6 +519,65 @@ export interface ImageSurfaceCapture extends BaseSurfaceCapture {
   ocrText?: string;
   metadataText?: string[];
   captionText?: string;
+  sourceDigest?: string;
+}
+
+interface OfficeDocumentSurfaceCaptureBase extends BaseSurfaceCapture {
+  filename?: string;
+  contentBase64?: string;
+  visibleText?: string;
+  metadataText?: string[];
+  comments?: string[];
+  notes?: string[];
+  trackedChanges?: string[];
+  hiddenText?: string[];
+  formulas?: string[];
+  externalRelationships?: string[];
+  embeddedObjects?: string[];
+  links?: SurfaceLinkCapture[];
+  attachments?: AttachmentDescriptor[];
+  unsupportedSubtrees?: string[];
+  extractionAttestation?: ExtractionAttestation;
+  sourceDigest?: string;
+}
+
+export interface DocxSurfaceCapture extends OfficeDocumentSurfaceCaptureBase {
+  surfaceType: "docx";
+}
+
+export interface XlsxSurfaceCapture extends OfficeDocumentSurfaceCaptureBase {
+  surfaceType: "xlsx";
+}
+
+export interface PptxSurfaceCapture extends OfficeDocumentSurfaceCaptureBase {
+  surfaceType: "pptx";
+}
+
+export interface EmailSurfaceCapture extends BaseSurfaceCapture {
+  surfaceType: "email_message";
+  providerId: string;
+  filename?: string;
+  rawMimeBase64?: string;
+  mailboxId?: string;
+  accountId?: string;
+  messageId?: string;
+  threadId?: string;
+  subject?: string;
+  from?: string;
+  to?: string[];
+  cc?: string[];
+  bcc?: string[];
+  bodyText?: string;
+  bodyHtml?: string;
+  quotedThreadText?: string[];
+  headers?: string[];
+  authResults?: string[];
+  remoteContent?: string[];
+  links?: SurfaceLinkCapture[];
+  attachments?: AttachmentDescriptor[];
+  actionCandidates?: EmailActionCandidateCapture[];
+  unsupportedSubtrees?: string[];
+  extractionAttestation?: ExtractionAttestation;
   sourceDigest?: string;
 }
 
@@ -394,10 +602,56 @@ export interface MemoryCandidateSurfaceCapture extends BaseSurfaceCapture {
   source: "user" | "web" | "model" | "system";
 }
 
+export interface ExternalApiSurfaceCapture extends BaseSurfaceCapture {
+  surfaceType: "external_api_response";
+  providerId: string;
+  operationId: string;
+  method: string;
+  baseUrl: string;
+  pathTemplate: string;
+  requestSchemaHash?: string;
+  responseSchemaHash?: string;
+  responseText?: string;
+  responseFields?: string[];
+  linkedUrls?: string[];
+  actionCandidates?: ApiActionCandidateCapture[];
+  extractionAttestation?: ExtractionAttestation;
+  sourceDigest?: string;
+}
+
+export interface AttachmentNodeCapture {
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  sha256?: string;
+  sizeBytes?: number;
+  encrypted?: boolean;
+  passwordProtected?: boolean;
+  unsupported?: boolean;
+  blockedActiveContent?: boolean;
+  externalReferences?: string[];
+  surface?: SurfaceCapture;
+  children?: AttachmentNodeCapture[];
+}
+
+export interface AttachmentBundleSurfaceCapture extends BaseSurfaceCapture {
+  surfaceType: "attachment_bundle";
+  rootAttachmentId?: string;
+  attachments: AttachmentNodeCapture[];
+  extractionAttestations?: ExtractionAttestation[];
+  sourceDigest?: string;
+}
+
 export type SurfaceCapture =
   | HtmlSurfaceCapture
   | PdfSurfaceCapture
   | ImageSurfaceCapture
+  | EmailSurfaceCapture
+  | DocxSurfaceCapture
+  | XlsxSurfaceCapture
+  | PptxSurfaceCapture
+  | AttachmentBundleSurfaceCapture
+  | ExternalApiSurfaceCapture
   | ToolManifestSurfaceCapture
   | MemoryCandidateSurfaceCapture;
 
@@ -420,7 +674,18 @@ export interface ProvenanceSpan {
 
 export interface ExtractedTarget {
   targetId: string;
-  kind: "navigate" | "download_artifact" | "connector_prepare";
+  kind:
+    | "navigate"
+    | "download_artifact"
+    | "connector_prepare"
+    | "email_send"
+    | "email_reply"
+    | "email_forward"
+    | "api_read"
+    | "api_write"
+    | "api_delete"
+    | "api_export";
+  operationClass: OperationClass;
   href?: string;
   selector?: string;
   sourceSpanIds: string[];
@@ -428,6 +693,22 @@ export interface ExtractedTarget {
   frameOrigin: string;
   targetOrigin: string;
   displayText: string;
+  providerId?: string;
+  operationId?: string;
+  method?: string;
+  pathTemplate?: string;
+  requestSchemaHash?: string;
+  responseSchemaHash?: string;
+  resourceId?: string;
+  mailboxId?: string;
+  accountId?: string;
+  messageId?: string;
+  threadId?: string;
+  recipients?: string[];
+  recipientSetHash?: string;
+  subjectHash?: string;
+  bodyDigest?: string;
+  attachmentDigestSet?: string[];
   sourceNodePathHash?: string;
   sourceChannelSet?: ProvenanceChannel[];
   visibleOnlyFlag?: boolean;
@@ -500,16 +781,74 @@ export interface TaskSession {
   taskId: string;
   userGoal: string;
   phase?: string;
+  taskPurposeClass?: TaskPurposeClass;
+  taskPhase?: string;
   allowedOrigins: string[];
   allowedVerbs: string[];
   forbiddenSinks: string[];
+  allowedPathClasses?: TargetPathClass[];
+  approvalRequiredPathClasses?: TargetPathClass[];
   workflowHash: string;
   currentStep: number;
   createdAt: string;
   expiresAt: string;
-  claimProfile?: "legacy_compatibility" | "secure_v5";
+  claimProfile?: "secure_v6";
   approvalBrokerRequired?: boolean;
   legacyRoutesDisabled?: boolean;
+}
+
+export type TaskPurposeClass =
+  | "content_read"
+  | "docs_navigation"
+  | "workflow_continue"
+  | "reconciliation_review"
+  | "connector_setup"
+  | "account_settings"
+  | "admin"
+  | "export"
+  | "finalize"
+  | "authorize"
+  | "billing"
+  | "payment";
+
+export type TargetPathClass =
+  | "content_read"
+  | "docs_navigation"
+  | "workflow_continue"
+  | "reconciliation_review"
+  | "account_settings"
+  | "admin"
+  | "export"
+  | "finalize"
+  | "authorize"
+  | "billing"
+  | "payment"
+  | "connector_setup"
+  | "reconciliation"
+  | "logout"
+  | "delete"
+  | "destructive_action"
+  | "credential_reset";
+
+export type OperationClass =
+  | "browser_navigation"
+  | "connector_setup"
+  | "memory_promotion"
+  | "email_send"
+  | "email_reply"
+  | "email_forward"
+  | "api_read"
+  | "api_write"
+  | "api_delete"
+  | "api_export";
+
+export interface CaptureAttestation {
+  captureMethod: "rendered_dom" | "ax_tree" | "api" | "download" | "ocr";
+  visibilityAttested: boolean;
+  frameCoverage: "none" | "partial" | "full";
+  shadowDomCoverage: "none" | "partial" | "full";
+  unsupportedSubtrees: string[];
+  evidenceHash?: string;
 }
 
 export interface CapabilityDescriptor {
@@ -520,12 +859,22 @@ export interface CapabilityDescriptor {
     | "navigate"
     | "download_artifact"
     | "connector_prepare"
-    | "memory_promote";
+    | "memory_promote"
+    | "email_send"
+    | "email_reply"
+    | "email_forward"
+    | "api_read"
+    | "api_write"
+    | "api_delete"
+    | "api_export";
+  operationClass: OperationClass;
   targetClass:
     | "browser_navigation"
     | "artifact_ingest"
     | "connector"
-    | "memory_promotion";
+    | "memory_promotion"
+    | "email_operation"
+    | "api_operation";
   originBoundTo: string;
   targetOrigin: string;
   targetUrl?: string;
@@ -536,8 +885,27 @@ export interface CapabilityDescriptor {
   frameOrigins: string[];
   sourceSpanIds: string[];
   parameterSchema: Record<string, JsonValue>;
-  derivedSinkClass: "browser_navigation" | "connector_oauth" | "memory_promotion";
+  derivedSinkClass:
+    | "browser_navigation"
+    | "connector_oauth"
+    | "memory_promotion"
+    | "email_outbound"
+    | "api_operation";
   derivedSensitiveSink: boolean;
+  providerId?: string;
+  operationId?: string;
+  method?: string;
+  pathTemplate?: string;
+  requestSchemaHash?: string;
+  responseSchemaHash?: string;
+  mailboxId?: string;
+  accountId?: string;
+  messageId?: string;
+  threadId?: string;
+  recipientSetHash?: string;
+  subjectHash?: string;
+  bodyDigest?: string;
+  attachmentDigestSet?: string[];
   expiresAt: string;
   nonReplayable: true;
   workflowHash: string;
@@ -572,8 +940,24 @@ export interface CapabilityDescriptorV5 {
   sessionId: string;
   workflowHash: string;
   workflowStep: number;
-  kind: "navigate" | "connector_prepare" | "memory_promote";
-  targetClass: "browser_navigation" | "connector" | "memory_promotion";
+  kind:
+    | "navigate"
+    | "connector_prepare"
+    | "memory_promote"
+    | "email_send"
+    | "email_reply"
+    | "email_forward"
+    | "api_read"
+    | "api_write"
+    | "api_delete"
+    | "api_export";
+  operationClass: OperationClass;
+  targetClass:
+    | "browser_navigation"
+    | "connector"
+    | "memory_promotion"
+    | "email_operation"
+    | "api_operation";
   originBoundTo: string;
   targetOrigin: string;
   targetUrl?: string;
@@ -586,13 +970,32 @@ export interface CapabilityDescriptorV5 {
   mintedFromChannels: ProvenanceChannel[];
   visibleOnlyFlag: boolean;
   parameterSchema: Record<string, JsonValue>;
-  derivedSinkClass: "browser_navigation" | "connector_oauth" | "memory_promotion";
+  derivedSinkClass:
+    | "browser_navigation"
+    | "connector_oauth"
+    | "memory_promotion"
+    | "email_outbound"
+    | "api_operation";
   derivedSensitiveSink: boolean;
   registryEntryId?: string;
   registryBundleId?: string;
   registryBundleVersion?: string;
   registrySigner?: string;
   connectorId?: string;
+  providerId?: string;
+  operationId?: string;
+  method?: string;
+  pathTemplate?: string;
+  requestSchemaHash?: string;
+  responseSchemaHash?: string;
+  mailboxId?: string;
+  accountId?: string;
+  messageId?: string;
+  threadId?: string;
+  recipientSetHash?: string;
+  subjectHash?: string;
+  bodyDigest?: string;
+  attachmentDigestSet?: string[];
   requestedScopes?: string[];
   callbackUri?: string;
   callbackOrigin?: string;
@@ -620,8 +1023,16 @@ export interface ApprovalEnvelopeV5 {
   capabilityId: string;
   capabilityDigest: string;
   semanticDigest: string;
-  sinkClass: "connector_oauth" | "memory_promotion";
+  sinkClass:
+    | "connector_oauth"
+    | "memory_promotion"
+    | "browser_navigation"
+    | "email_outbound"
+    | "api_operation";
+  operationClass?: OperationClass;
   connectorId?: string;
+  providerId?: string;
+  operationId?: string;
   registryEntryId?: string;
   registryBundleId?: string;
   registryBundleVersion?: string;
@@ -632,6 +1043,16 @@ export interface ApprovalEnvelopeV5 {
   callbackOrigin?: string;
   manifestHash?: string;
   schemaHash?: string;
+  requestSchemaHash?: string;
+  responseSchemaHash?: string;
+  mailboxId?: string;
+  accountId?: string;
+  messageId?: string;
+  threadId?: string;
+  recipientSetHash?: string;
+  subjectHash?: string;
+  bodyDigest?: string;
+  attachmentDigestSet?: string[];
   targetOrigin: string;
   issuedAt: string;
   expiresAt: string;
@@ -845,7 +1266,182 @@ export interface V5AuthorityCandidate {
   expiresAt: string;
 }
 
-export type V6AuthorityCandidate = V5AuthorityCandidate;
+export interface AuthorityFinding {
+  findingId: string;
+  code: string;
+  severity: "low" | "medium" | "high";
+  evidenceSpanIds: string[];
+  targetPathClass?: TargetPathClass;
+}
+
+export type ModelGuardDecisionLabel =
+  | "allow_read_only"
+  | "require_shadow_replay"
+  | "require_user_approval"
+  | "deny";
+
+export type ModelGuardEnforcementMode = "off" | "shadow" | "tighten";
+
+export interface ModelGuardPipelineMetadata {
+  runtimeMode: "python_sidecar";
+  enforcementMode: ModelGuardEnforcementMode;
+  scoredAt: string;
+  latencyMs?: number;
+  sentinelVersion?: string;
+  expertVersion?: string;
+  stackerVersion?: string;
+}
+
+export interface ModelGuardAssessment {
+  assessmentId: string;
+  bundleVersion: string;
+  featureSchemaVersion: string;
+  bundleDigest?: string;
+  componentDigests?: Record<string, string>;
+  binaryThreatProbability: number;
+  decisionLabel: ModelGuardDecisionLabel;
+  calibratedDecisionLabel: ModelGuardDecisionLabel;
+  coarseReasonCodes: string[];
+  evidenceChunkIds: string[];
+  pipeline: ModelGuardPipelineMetadata;
+}
+
+export interface ModelGuardEvidenceChunk {
+  chunkId: string;
+  score?: number;
+  excerpt: string;
+}
+
+export interface ModelGuardCandidateTarget {
+  kind:
+    | "navigate"
+    | "download_artifact"
+    | "connector_prepare"
+    | "email_send"
+    | "email_reply"
+    | "email_forward"
+    | "api_read"
+    | "api_write"
+    | "api_delete"
+    | "api_export";
+  operationClass: OperationClass;
+  targetUrl?: string;
+  displayText?: string;
+  selector?: string;
+  targetOrigin?: string;
+  targetPathClass?: TargetPathClass;
+  requiresApproval?: boolean;
+  sourceSpanIds: string[];
+}
+
+export interface ModelGuardObservationRequest {
+  session: {
+    sessionId: string;
+    taskId: string;
+    userGoal: string;
+    taskPurposeClass?: TaskPurposeClass;
+    taskPhase?: string;
+    allowedOrigins: string[];
+    allowedVerbs: string[];
+    allowedPathClasses?: TargetPathClass[];
+    approvalRequiredPathClasses?: TargetPathClass[];
+  };
+  observation: {
+    observationId: string;
+    sourceOrigin: string;
+    frameOrigin: string;
+    surfaceType: V4SurfaceType;
+    parseStatus: CompiledObservation["parseStatus"];
+    visibleText: string;
+    contextText: string;
+    suspicionFlags: string[];
+    matchedPatternIds: string[];
+    riskFindings: string[];
+    semanticAuthorityFindings: string[];
+    policyFindings: string[];
+    blockedChannels: ProvenanceChannel[];
+    channelFlags: Record<string, boolean>;
+    secretRedactionCount: number;
+    captureAttestation: CaptureAttestation;
+    contextChars: number;
+  };
+  targets: ModelGuardCandidateTarget[];
+  structuredFeatures: Record<string, JsonValue>;
+}
+
+export interface ModelGuardObservationResponse {
+  assessment: ModelGuardAssessment;
+  evidenceChunks?: ModelGuardEvidenceChunk[];
+}
+
+export interface ModelGuardHealthResponse {
+  status: "ok" | "error";
+  ready: boolean;
+  runtimeMode: "python_sidecar";
+  enforcementMode: ModelGuardEnforcementMode;
+  bundleVersion?: string;
+  featureSchemaVersion?: string;
+  bundleDigest?: string;
+  componentDigests?: Record<string, string>;
+}
+
+export interface CompiledObservationV6 extends CompiledObservationV5 {
+  provenanceFindings: AuthorityFinding[];
+  semanticAuthorityFindings: AuthorityFinding[];
+  policyFindings: AuthorityFinding[];
+  authorityReductionReasonIds: string[];
+  factsOnlyReasonCodes: string[];
+  evidenceSpanIds: string[];
+  captureAttestation: CaptureAttestation;
+  modelAssessment?: ModelGuardAssessment;
+}
+
+export interface PlannerViewV6 extends PlannerViewV5 {
+  authorityReductionReasonIds: string[];
+  factsOnlyReasonCodes: string[];
+  evidenceSpanIds: string[];
+}
+
+export interface CapabilityDescriptorV6 extends CapabilityDescriptorV5 {
+  targetPathClass?: TargetPathClass;
+  requiresApproval: boolean;
+  evidenceSpanIds: string[];
+}
+
+export interface CapabilityUseRequestV6 {
+  sessionId: string;
+  authorityId: string;
+  authorityDigest: string;
+  approvalId?: string;
+  parameters?: Record<string, JsonValue>;
+}
+
+export interface ApprovalEnvelopeV6 extends Omit<ApprovalEnvelopeV5, "sinkClass"> {
+  sinkClass:
+    | "browser_navigation"
+    | "connector_oauth"
+    | "memory_promotion"
+    | "email_outbound"
+    | "api_operation";
+  targetPathClass?: TargetPathClass;
+  evidenceSpanIds?: string[];
+}
+
+export interface ToolOnboardingSessionV6 extends ToolOnboardingSessionV5 {}
+
+export interface V6AuthorityCandidate {
+  authorityId: string;
+  authorityDigest: string;
+  semanticDigest: string;
+  title: string;
+  kind: CapabilityDescriptorV6["kind"];
+  operationClass: OperationClass;
+  targetPathClass?: TargetPathClass;
+  requiresApproval: boolean;
+  evidenceSpanIds: string[];
+  parameterSchema: Record<string, JsonValue>;
+  expiresAt: string;
+}
 
 export interface V5ArtifactRef {
   artifactId: string;
@@ -873,7 +1469,14 @@ export interface V5ObserveResponse {
   replayEventId: string;
 }
 
-export type V6ObserveResponse = V5ObserveResponse;
+export interface V6ObserveResponse {
+  compiledObservation: CompiledObservationV6;
+  plannerView: PlannerViewV6;
+  authorityCandidates: V6AuthorityCandidate[];
+  artifactRefs: V6ArtifactRef[];
+  observationVerdict: SafeVerdict;
+  replayEventId: string;
+}
 
 export interface V5ActionEvaluateRequest {
   sessionId: string;
@@ -882,7 +1485,13 @@ export interface V5ActionEvaluateRequest {
   parameters?: Record<string, JsonValue>;
 }
 
-export type V6ActionEvaluateRequest = V5ActionEvaluateRequest;
+export interface V6ActionEvaluateRequest {
+  sessionId: string;
+  authorityId: string;
+  authorityDigest: string;
+  approvalId?: string;
+  parameters?: Record<string, JsonValue>;
+}
 
 export interface V5ActionEvaluateResponse {
   observationDecision: SafeVerdict;
@@ -891,7 +1500,12 @@ export interface V5ActionEvaluateResponse {
   executionPlan?: Record<string, JsonValue>;
 }
 
-export type V6ActionEvaluateResponse = V5ActionEvaluateResponse;
+export interface V6ActionEvaluateResponse {
+  observationDecision: SafeVerdict;
+  authorityDecision: SafeVerdict;
+  effectDecision: SafeVerdict;
+  executionPlan?: Record<string, JsonValue>;
+}
 
 export interface V5ArtifactIngestResponse {
   compiledObservation: CompiledObservationV5;
@@ -902,7 +1516,48 @@ export interface V5ArtifactIngestResponse {
   replayEventId: string;
 }
 
-export type V6ArtifactIngestResponse = V5ArtifactIngestResponse;
+export interface V6ArtifactIngestResponse {
+  compiledObservation: CompiledObservationV6;
+  plannerView: PlannerViewV6;
+  artifactRef: V6ArtifactRef;
+  mismatchSignals: string[];
+  artifactVerdict: SafeVerdict;
+  replayEventId: string;
+}
+
+export interface AttachmentGraphNode {
+  nodeId: string;
+  parentNodeId?: string;
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  sha256?: string;
+  surfaceType?: V4SurfaceType;
+  encrypted?: boolean;
+  passwordProtected?: boolean;
+  unsupported?: boolean;
+  blockedActiveContent?: boolean;
+  childNodeIds: string[];
+  derivedVerdict: SafeDecision;
+}
+
+export interface ArtifactExtractionRequestV6 {
+  sessionId: string;
+  capture: AttachmentBundleSurfaceCapture;
+}
+
+export interface ArtifactExtractionResponseV6 {
+  artifactGraph: {
+    rootNodeIds: string[];
+    nodes: AttachmentGraphNode[];
+  };
+  childRefs: V6ArtifactRef[];
+  blockedChildren: string[];
+  unsupportedChildren: string[];
+  extractionAttestations: ExtractionAttestation[];
+  artifactVerdict: SafeVerdict;
+  replayEventId: string;
+}
 
 export interface ParserWorkerProbe {
   mode: ParserIsolationMode;
@@ -986,6 +1641,27 @@ export interface PolicyLayer {
     enableDocumentHandoff?: boolean;
     quarantineOnHiddenTextMismatch?: boolean;
     allowMimeTypes?: string[];
+    allowAttachmentMimeFamilies?: string[];
+    maxExtractionDepth?: number;
+    encryptedAttachmentDecision?: "block" | "quarantine" | "manual_review";
+  };
+  email?: {
+    allowedProviders?: string[];
+    allowedRecipientDomains?: string[];
+    forbiddenRecipientDomains?: string[];
+  };
+  extraction?: {
+    allowedExtractorIds?: string[];
+    maxRecursionDepth?: number;
+    maxExpandedBytes?: number;
+    blockEncryptedChildren?: boolean;
+  };
+  api?: {
+    allowedProviders?: string[];
+    allowedOperationClasses?: OperationClass[];
+    mutationRequiresApproval?: boolean;
+    exportRequiresApproval?: boolean;
+    maxResponseBytes?: number;
   };
   memory?: {
     durableWrites?: "allow" | "deny" | "approval";
@@ -1036,7 +1712,20 @@ export interface CompiledPolicy {
   approvalActions: ReadonlySet<string>;
   deniedActions: ReadonlySet<string>;
   allowedMimeTypes: ReadonlySet<string>;
+  allowedAttachmentMimeFamilies: ReadonlySet<string>;
   protectedMemoryKeys: ReadonlySet<string>;
+  allowedEmailProviders: ReadonlySet<string>;
+  allowedRecipientDomains: ReadonlySet<string>;
+  forbiddenRecipientDomains: ReadonlySet<string>;
+  allowedExtractorIds: ReadonlySet<string>;
+  maxExtractionDepth: number;
+  maxExpandedBytes: number;
+  blockEncryptedChildren: boolean;
+  allowedApiProviders: ReadonlySet<string>;
+  allowedApiOperationClasses: ReadonlySet<OperationClass>;
+  apiMutationRequiresApproval: boolean;
+  apiExportRequiresApproval: boolean;
+  apiMaxResponseBytes: number;
   memoryDurableWrites: "allow" | "deny" | "approval";
   forbidTokenPassthrough: boolean;
   enforceExactRedirectUri: boolean;
@@ -1048,6 +1737,7 @@ export interface CompiledPolicy {
   allowLoopbackCallbacksInDev: boolean;
   enableDocumentHandoff: boolean;
   quarantineOnHiddenTextMismatch: boolean;
+  encryptedAttachmentDecision: "block" | "quarantine" | "manual_review";
   replayBundle: boolean;
   redactSensitiveValues: boolean;
   telemetrySampling: "full" | "adaptive" | "off";

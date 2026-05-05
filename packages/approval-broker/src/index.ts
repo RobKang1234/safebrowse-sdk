@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 
-import { createApprovalIntentPayloadV5 } from "@safebrowse/core";
+import { createApprovalIntentPayloadV6 } from "@safebrowse/core";
 
 export interface ApprovalBrokerOptions {
   host?: string;
@@ -124,7 +124,7 @@ function createApprovalSignature(
   privateKey: KeyObject,
   payload: ApprovalBrokerSignRequest
 ): ApprovalBrokerSignResponse {
-  const signingPayload = createApprovalIntentPayloadV5(payload);
+  const signingPayload = createApprovalIntentPayloadV6(payload);
   return {
     brokerSignature: sign(null, Buffer.from(signingPayload, "utf8"), privateKey).toString("base64"),
     payload: signingPayload,
@@ -246,7 +246,7 @@ export async function createApprovalBrokerServer(
         return;
       }
 
-      if (request.method !== "POST" || request.url !== "/v5/approval/sign") {
+      if (request.method !== "POST" || request.url !== "/v6/approval/sign") {
         writeJson(response, 404, { error: "not_found" });
         return;
       }
@@ -347,7 +347,7 @@ export async function issueApprovalSignature(
   authToken: string | undefined,
   payload: ApprovalBrokerSignRequest
 ): Promise<ApprovalBrokerSignResponse> {
-  const response = await fetch(`${baseUrl}/v5/approval/sign`, {
+  const response = await fetch(`${baseUrl}/v6/approval/sign`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -357,7 +357,7 @@ export async function issueApprovalSignature(
   });
 
   if (!response.ok) {
-    throw new Error(`Approval broker returned ${response.status} for /v5/approval/sign`);
+    throw new Error(`Approval broker returned ${response.status} for /v6/approval/sign`);
   }
 
   return response.json() as Promise<ApprovalBrokerSignResponse>;

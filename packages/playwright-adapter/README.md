@@ -1,6 +1,6 @@
 # `@safebrowse/playwright-adapter`
 
-Reference Playwright adapter for the SafeBrowse runtime.
+Reference payload builder for wiring Playwright-hosted agents to the SafeBrowse V6 daemon surface.
 
 ## Install
 
@@ -8,8 +8,34 @@ Reference Playwright adapter for the SafeBrowse runtime.
 npm install @safebrowse/playwright-adapter playwright-core
 ```
 
-This package keeps `playwright-core` as a peer dependency so you can match your own browser runtime.
+`playwright-core` stays a peer dependency so hosts can control their own browser runtime.
 
-See the repository README for the broader SafeBrowse workflow:
+## What It Provides
 
-- https://github.com/RobKang1234/safebrowse-sdk#readme
+- page snapshot helpers for `/v6/observe`
+- artifact ingest helpers for rendered page captures
+- email observe payload builders
+- office artifact ingest payload builders for DOCX, XLSX, and PPTX
+- external API observe payload builders
+- attachment extraction payload builders
+- action payload builders for minted V6 authorities
+
+Useful exports include:
+
+- `createSurfaceCaptureFromSnapshot`
+- `buildObservePayloadV6`
+- `buildArtifactIngestPayloadV6`
+- `buildEmailObservePayloadV6`
+- `buildOfficeArtifactIngestPayloadV6`
+- `buildExternalApiObservePayloadV6`
+- `buildAttachmentExtractPayloadV6`
+- `buildActionEvaluatePayloadV6`
+
+The email and office snapshot types also support direct raw binary handoff through:
+
+- `EmailSnapshot.rawMimeBase64`
+- `OfficeDocumentSnapshot.contentBase64`
+
+See the repository README for the full runtime contract:
+
+- [https://github.com/RobKang1234/safebrowse-sdk](https://github.com/RobKang1234/safebrowse-sdk)

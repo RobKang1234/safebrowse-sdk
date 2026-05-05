@@ -1,10 +1,10 @@
 import type {
   ActionProposal,
+  CaptureAttestation,
   HtmlSurfaceCapture,
   RawObservationInput,
   SafeVerdict
 } from "@safebrowse/core";
-import { extractTextFromHtml } from "@safebrowse/core";
 
 export interface PageLike {
   url(): string;
@@ -24,14 +24,73 @@ export interface PlaywrightPageSnapshot {
   renderedText?: string;
   extractedText?: string;
   userShared?: boolean;
+  captureAttestation?: CaptureAttestation;
 }
 
-export interface V5AuthorityCandidateRef {
+export interface V6AuthorityCandidateRef {
   authorityId: string;
   authorityDigest: string;
 }
 
-export type V6AuthorityCandidateRef = V5AuthorityCandidateRef;
+export interface EmailSnapshot {
+  url: string;
+  providerId: string;
+  subject: string;
+  bodyText: string;
+  rawMimeBase64?: string;
+  mailboxId?: string;
+  accountId?: string;
+  messageId?: string;
+  threadId?: string;
+  to?: string[];
+  cc?: string[];
+  headers?: string[];
+  authResults?: string[];
+  quotedThreadText?: string[];
+  remoteContent?: string[];
+  actionCandidates?: Array<Record<string, unknown>>;
+  attachments?: Array<Record<string, unknown>>;
+}
+
+export interface OfficeDocumentSnapshot {
+  surfaceType: "docx" | "xlsx" | "pptx";
+  url: string;
+  visibleText: string;
+  contentBase64?: string;
+  metadataText?: string[];
+  comments?: string[];
+  notes?: string[];
+  trackedChanges?: string[];
+  hiddenText?: string[];
+  formulas?: string[];
+  externalRelationships?: string[];
+  embeddedObjects?: string[];
+  links?: Array<{ href: string; text?: string; selector?: string }>;
+  attachments?: Array<Record<string, unknown>>;
+  unsupportedSubtrees?: string[];
+}
+
+export interface ExternalApiSnapshot {
+  url: string;
+  providerId: string;
+  operationId: string;
+  method: string;
+  baseUrl: string;
+  pathTemplate: string;
+  responseText?: string;
+  responseFields?: string[];
+  linkedUrls?: string[];
+  actionCandidates?: Array<Record<string, unknown>>;
+  requestSchemaHash?: string;
+  responseSchemaHash?: string;
+}
+
+export interface AttachmentBundleSnapshot {
+  url: string;
+  rootAttachmentId?: string;
+  attachments: Array<Record<string, unknown>>;
+  extractionAttestations?: Array<Record<string, unknown>>;
+}
 
 export function createObservationFromSnapshot(
   snapshot: PlaywrightPageSnapshot
@@ -95,39 +154,133 @@ export function createSurfaceCaptureFromSnapshot(
     hiddenText,
     metadataText: snapshot.metadataText,
     annotations: snapshot.annotations,
-    userShared: snapshot.userShared
+    userShared: snapshot.userShared,
+    captureAttestation:
+      snapshot.captureAttestation ?? {
+        captureMethod: "rendered_dom",
+        visibilityAttested: Boolean(snapshot.visibleText.trim()),
+        frameCoverage: "full",
+        shadowDomCoverage: "full",
+        unsupportedSubtrees: []
+      }
   };
 }
 
-export function buildObservePayloadV5(sessionId: string, snapshot: PlaywrightPageSnapshot) {
+export function buildObservePayloadV6(sessionId: string, snapshot: PlaywrightPageSnapshot) {
   return {
     sessionId,
     capture: createSurfaceCaptureFromSnapshot(snapshot)
   };
 }
 
-export function buildObservePayloadV6(sessionId: string, snapshot: PlaywrightPageSnapshot) {
-  return buildObservePayloadV5(sessionId, snapshot);
-}
-
-export function buildArtifactIngestPayloadV5(sessionId: string, snapshot: PlaywrightPageSnapshot) {
-  return buildObservePayloadV5(sessionId, snapshot);
-}
-
 export function buildArtifactIngestPayloadV6(sessionId: string, snapshot: PlaywrightPageSnapshot) {
-  return buildArtifactIngestPayloadV5(sessionId, snapshot);
+  return {
+    sessionId,
+    capture: createSurfaceCaptureFromSnapshot(snapshot)
+  };
 }
 
-export function buildActionEvaluatePayloadV5(
+export function buildEmailObservePayloadV6(sessionId: string, snapshot: EmailSnapshot) {
+  return {
+    sessionId,
+    capture: {
+      surfaceType: "email_message",
+      url: snapshot.url,
+      providerId: snapshot.providerId,
+      subject: snapshot.subject,
+      bodyText: snapshot.bodyText,
+      rawMimeBase64: snapshot.rawMimeBase64,
+      mailboxId: snapshot.mailboxId,
+      accountId: snapshot.accountId,
+      messageId: snapshot.messageId,
+      threadId: snapshot.threadId,
+      to: snapshot.to ?? [],
+      cc: snapshot.cc ?? [],
+      headers: snapshot.headers ?? [],
+      authResults: snapshot.authResults ?? [],
+      quotedThreadText: snapshot.quotedThreadText ?? [],
+      remoteContent: snapshot.remoteContent ?? [],
+      actionCandidates: snapshot.actionCandidates ?? [],
+      attachments: snapshot.attachments ?? [],
+      extractionAttestation: {
+        extractorId: "playwright-email-extractor",
+        extractorVersion: "1.0.0",
+        parserDigest: "playwright-email-extractor",
+        networkPolicy: "deny",
+        maxRecursionDepth: 3,
+        maxExpandedBytes: 5000000,
+        extractedAt: new Date().toISOString()
+      }
+    }
+  };
+}
+
+export function buildOfficeArtifactIngestPayloadV6(
   sessionId: string,
-  authority: V5AuthorityCandidateRef,
-  parameters?: Record<string, unknown>
+  snapshot: OfficeDocumentSnapshot
 ) {
   return {
     sessionId,
-    authorityId: authority.authorityId,
-    authorityDigest: authority.authorityDigest,
-    parameters
+    capture: {
+      ...snapshot,
+      extractionAttestation: {
+        extractorId: `playwright-${snapshot.surfaceType}-extractor`,
+        extractorVersion: "1.0.0",
+        parserDigest: `playwright-${snapshot.surfaceType}-extractor`,
+        networkPolicy: "deny",
+        maxRecursionDepth: 3,
+        maxExpandedBytes: 5000000,
+        extractedAt: new Date().toISOString()
+      }
+    }
+  };
+}
+
+export function buildExternalApiObservePayloadV6(
+  sessionId: string,
+  snapshot: ExternalApiSnapshot
+) {
+  return {
+    sessionId,
+    capture: {
+      surfaceType: "external_api_response",
+      ...snapshot,
+      extractionAttestation: {
+        extractorId: "playwright-api-extractor",
+        extractorVersion: "1.0.0",
+        parserDigest: "playwright-api-extractor",
+        networkPolicy: "deny",
+        maxRecursionDepth: 3,
+        maxExpandedBytes: 5000000,
+        extractedAt: new Date().toISOString()
+      }
+    }
+  };
+}
+
+export function buildAttachmentExtractPayloadV6(
+  sessionId: string,
+  snapshot: AttachmentBundleSnapshot
+) {
+  return {
+    sessionId,
+    capture: {
+      surfaceType: "attachment_bundle",
+      ...snapshot,
+      extractionAttestations:
+        snapshot.extractionAttestations ??
+        [
+          {
+            extractorId: "playwright-attachment-extractor",
+            extractorVersion: "1.0.0",
+            parserDigest: "playwright-attachment-extractor",
+            networkPolicy: "deny",
+            maxRecursionDepth: 3,
+            maxExpandedBytes: 5000000,
+            extractedAt: new Date().toISOString()
+          }
+        ]
+    }
   };
 }
 
@@ -136,7 +289,12 @@ export function buildActionEvaluatePayloadV6(
   authority: V6AuthorityCandidateRef,
   parameters?: Record<string, unknown>
 ) {
-  return buildActionEvaluatePayloadV5(sessionId, authority, parameters);
+  return {
+    sessionId,
+    authorityId: authority.authorityId,
+    authorityDigest: authority.authorityDigest,
+    parameters
+  };
 }
 
 export function proposeNavigationAction(input: {
@@ -165,15 +323,20 @@ export async function snapshotPage(page: PageLike): Promise<PlaywrightPageSnapsh
     page.content?.() ?? Promise.resolve(""),
     page.title?.() ?? Promise.resolve("")
   ]);
-  const visibleText = page.visibleText
-    ? await page.visibleText()
-    : extractTextFromHtml(html);
+  const visibleText = page.visibleText ? await page.visibleText() : "";
 
   return {
     url: page.url(),
     visibleText,
     html,
-    metadataText: title ? [title] : []
+    metadataText: title ? [title] : [],
+    captureAttestation: {
+      captureMethod: "rendered_dom",
+      visibilityAttested: Boolean(visibleText.trim()),
+      frameCoverage: "full",
+      shadowDomCoverage: "full",
+      unsupportedSubtrees: []
+    }
   };
 }
 
@@ -188,4 +351,3 @@ export async function enforceVerdict<T>(
   }
   return allowedAction();
 }
-
