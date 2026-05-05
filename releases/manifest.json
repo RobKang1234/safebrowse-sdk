@@ -1,10 +1,10 @@
 {
   "latest": {
-    "tag": "v0.1.4",
-    "javascriptVersion": "0.1.4",
-    "pythonVersion": "0.1.4",
-    "releasedAt": "2026-04-03T19:12:00Z",
-    "sourceSha": "01f9c9c0d579567192d1fa40145c5d8eef3bc360",
+    "tag": "v0.1.5",
+    "javascriptVersion": "0.1.5",
+    "pythonVersion": "0.1.5",
+    "releasedAt": "2026-05-05T02:45:20Z",
+    "sourceSha": "6663ba8e75317dc03eb1d798f2f1dfe57a497b9a",
     "channel": "release",
     "npmPackages": [
       "@safebrowse/core",
@@ -48,6 +48,20 @@
       "pythonVersion": "0.1.4",
       "releasedAt": "2026-04-03T19:12:00Z",
       "sourceSha": "01f9c9c0d579567192d1fa40145c5d8eef3bc360",
+      "channel": "release",
+      "npmPackages": [
+        "@safebrowse/core",
+        "@safebrowse/daemon",
+        "@safebrowse/playwright-adapter"
+      ],
+      "pythonPackage": "safebrowse-client"
+    },
+    {
+      "tag": "v0.1.5",
+      "javascriptVersion": "0.1.5",
+      "pythonVersion": "0.1.5",
+      "releasedAt": "2026-05-05T02:45:20Z",
+      "sourceSha": "6663ba8e75317dc03eb1d798f2f1dfe57a497b9a",
       "channel": "release",
       "npmPackages": [
         "@safebrowse/core",
