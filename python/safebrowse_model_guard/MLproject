@@ -1,0 +1,79 @@
+name: safebrowse-model-guard
+
+python_env: python_env.yaml
+
+entry_points:
+  prepare_data:
+    parameters:
+      manifest: {type: path, default: "../../model/prompt_injection_ml_dataset/manifest.json"}
+    command: "python -m safebrowse_model_guard.cli prepare_data --manifest {manifest}"
+
+  train_sentinel:
+    parameters:
+      manifest: {type: path, default: "../../model/prompt_injection_ml_dataset/manifest.json"}
+      output_dir: {type: path, default: "./artifacts/sentinel"}
+    command: "python -m safebrowse_model_guard.cli train_sentinel --manifest {manifest} --output-dir {output_dir}"
+
+  train_expert:
+    parameters:
+      manifest: {type: path, default: "../../model/prompt_injection_ml_dataset/manifest.json"}
+      output_dir: {type: path, default: "./artifacts/expert"}
+      backbone: {type: str, default: "answerdotai/ModernBERT-base"}
+      backend: {type: str, default: "transformers"}
+      max_length: {type: int, default: 1024}
+      top_k_chunks: {type: int, default: 3}
+      epochs: {type: float, default: 1.0}
+      batch_size: {type: int, default: 1}
+      gradient_accumulation_steps: {type: int, default: 1}
+      learning_rate: {type: float, default: 2e-5}
+    command: "python -m safebrowse_model_guard.cli train_expert --manifest {manifest} --output-dir {output_dir} --backbone {backbone} --backend {backend} --max-length {max_length} --top-k-chunks {top_k_chunks} --epochs {epochs} --batch-size {batch_size} --gradient-accumulation-steps {gradient_accumulation_steps} --learning-rate {learning_rate}"
+
+  train_recipe:
+    parameters:
+      manifest: {type: path, default: "../../model/prompt_injection_ml_dataset/manifest.json"}
+      recipe: {type: path, default: "../../model/prompt_injection_ml_dataset/training_recipe_additional_v2_rtx4060ti_8gb.json"}
+      output_dir: {type: path, default: "./artifacts/full_recipe"}
+      backbone: {type: str, default: "answerdotai/ModernBERT-base"}
+      backend: {type: str, default: "transformers"}
+      threat_threshold: {type: float, default: 0.55}
+      checkpoint_steps: {type: int, default: 100}
+      milestone_checkpoint_steps: {type: int, default: 1000}
+    command: "python -m safebrowse_model_guard.cli train_recipe --manifest {manifest} --recipe {recipe} --output-dir {output_dir} --backbone {backbone} --backend {backend} --threat-threshold {threat_threshold} --checkpoint-steps {checkpoint_steps} --milestone-checkpoint-steps {milestone_checkpoint_steps} --resume"
+
+  train_stacker:
+    parameters:
+      manifest: {type: path, default: "../../model/prompt_injection_ml_dataset/manifest.json"}
+      sentinel_dir: {type: path, default: "./artifacts/sentinel"}
+      expert_dir: {type: path, default: "./artifacts/expert"}
+      output_dir: {type: path, default: "./artifacts/stacker"}
+    command: "python -m safebrowse_model_guard.cli train_stacker --manifest {manifest} --sentinel-dir {sentinel_dir} --expert-dir {expert_dir} --output-dir {output_dir}"
+
+  evaluate:
+    parameters:
+      manifest: {type: path, default: "../../model/prompt_injection_ml_dataset/manifest.json"}
+      bundle_dir: {type: path, default: "./artifacts/runtime_bundle"}
+      split: {type: str, default: "valid"}
+    command: "python -m safebrowse_model_guard.cli evaluate --manifest {manifest} --bundle-dir {bundle_dir} --split {split}"
+
+  package_runtime_bundle:
+    parameters:
+      sentinel_dir: {type: path, default: "./artifacts/sentinel"}
+      expert_dir: {type: path, default: "./artifacts/expert"}
+      stacker_dir: {type: path, default: "./artifacts/stacker"}
+      output_dir: {type: path, default: "./artifacts/runtime_bundle"}
+      bundle_version: {type: str, default: "runtime-bundle-v1"}
+    command: "python -m safebrowse_model_guard.cli package_runtime_bundle --sentinel-dir {sentinel_dir} --expert-dir {expert_dir} --stacker-dir {stacker_dir} --output-dir {output_dir} --bundle-version {bundle_version}"
+
+  serve:
+    parameters:
+      bundle_dir: {type: path, default: "./artifacts/runtime_bundle"}
+      host: {type: str, default: "127.0.0.1"}
+      port: {type: int, default: 8788}
+    command: "python -m safebrowse_model_guard.cli serve --bundle-dir {bundle_dir} --host {host} --port {port}"
+
+  monitor:
+    parameters:
+      run_dir: {type: path, default: "./artifacts/full_recipe"}
+      host: {type: str, default: "127.0.0.1"}
+      port: {type: int, default: 8790}
+    command: "python -m safebrowse_model_guard.cli monitor --run-dir {run_dir} --host {host} --port {port}"

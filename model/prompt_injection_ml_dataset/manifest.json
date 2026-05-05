@@ -1,0 +1,254 @@
+{
+  "name": "synthetic_browser_agent_prompt_injection_training_set",
+  "version": "1.0",
+  "created_utc": "2026-04-03T21:28:32Z",
+  "record_counts": {
+    "train_specs": 2600000,
+    "valid_specs": 200000,
+    "test_specs": 200000,
+    "rendered_sample": 10000
+  },
+  "schema_summary": {
+    "id": "int",
+    "sp": "split code",
+    "lg": "language code",
+    "sf": "surface code",
+    "ch": "channel code",
+    "af": "attack family code",
+    "dm": "domain code",
+    "ac": "candidate action code",
+    "tg": "target class code",
+    "ob": "obfuscation code",
+    "nt": "noise theme code",
+    "ctx": "approx context token target",
+    "bb": "benign block count",
+    "seed": "render seed",
+    "goal": "user goal text",
+    "y": "decision label code",
+    "fx": "structured features",
+    "rs": "reason labels"
+  },
+  "codebooks": {
+    "langs": [
+      "en",
+      "es",
+      "fr",
+      "de",
+      "pt",
+      "it",
+      "nl",
+      "ja"
+    ],
+    "surfaces": [
+      "html_visible",
+      "html_hidden_css",
+      "html_comment",
+      "html_aria_alt_title",
+      "iframe_cross_origin",
+      "pdf_body",
+      "pdf_annotation",
+      "pdf_metadata",
+      "email_body",
+      "email_header",
+      "oauth_callback",
+      "tool_manifest",
+      "memory_candidate",
+      "ocr_text",
+      "csv_attachment",
+      "calendar_invite",
+      "chat_export",
+      "browser_history"
+    ],
+    "channels": [
+      "visible",
+      "hidden",
+      "comment",
+      "metadata",
+      "annotation",
+      "ocr",
+      "callback",
+      "schema",
+      "memory",
+      "header"
+    ],
+    "attack_families": [
+      "none",
+      "workflow_smuggling",
+      "authority_confusion",
+      "approval_spoof",
+      "same_origin_sensitive_path",
+      "cross_origin_bait",
+      "callback_drift",
+      "memory_promotion_poison",
+      "manifest_schema_poison",
+      "capability_replay",
+      "hidden_channel_control",
+      "semantic_declassification",
+      "ui_copy_confusion",
+      "multilingual_confusion",
+      "unicode_confusable"
+    ],
+    "domains": [
+      "shopping",
+      "finance",
+      "support",
+      "travel",
+      "productivity",
+      "devops",
+      "healthcare_admin",
+      "hiring",
+      "real_estate",
+      "education"
+    ],
+    "actions": [
+      "navigate",
+      "submit_form",
+      "click_button",
+      "connect_tool",
+      "promote_memory",
+      "read_attachment",
+      "download_file",
+      "approve_change",
+      "update_setting"
+    ],
+    "target_classes": [
+      "same_origin_safe",
+      "same_origin_sensitive",
+      "cross_origin",
+      "tool_connector",
+      "trusted_memory",
+      "attachment",
+      "callback_uri"
+    ],
+    "obfuscations": [
+      "plain",
+      "quoted",
+      "jsonish",
+      "markdownish",
+      "table_embedded",
+      "legalese",
+      "faq_style",
+      "release_note_style",
+      "unicode_mixed",
+      "typoglycemia"
+    ],
+    "noise_themes": [
+      "faq",
+      "pricing",
+      "invoice",
+      "travel_policy",
+      "support_article",
+      "changelog",
+      "product_grid",
+      "ticket_thread",
+      "dashboard_widget",
+      "release_notes",
+      "terms_snippet"
+    ],
+    "decision_labels": [
+      "allow",
+      "allow_read_only",
+      "require_shadow_replay",
+      "require_user_approval",
+      "deny"
+    ]
+  },
+  "recommended_tasks": [
+    "segment_taint_classification",
+    "action_gating_classification",
+    "approval_escalation_prediction",
+    "calibrated_risk_scoring"
+  ],
+  "recommended_loss_heads": {
+    "primary": "5-way decision label: allow / allow_read_only / require_shadow_replay / require_user_approval / deny",
+    "auxiliary_1": "binary unauthorized-effect risk",
+    "auxiliary_2": "surface/channel classification",
+    "auxiliary_3": "reason code multilabel prediction"
+  },
+  "storage": {
+    "data_root_env": "SAFEBROWSE_DATA_ROOT",
+    "default_private_root": "~/.safebrowse/private_data",
+    "dataset_subdir": "prompt_injection_ml_dataset",
+    "layout": "manifest-only in repo; JSONL payloads live under the private data root",
+    "files": [
+      {
+        "split": "test",
+        "relative_path": "test_additional_part_00.jsonl/test_additional_part_00.jsonl",
+        "size_bytes": 565612080,
+        "sha256": "8226a009bbd2e9f2a8988a03bf60a3688e92b027841c30111c7afa2075a2e249"
+      },
+      {
+        "split": "train",
+        "relative_path": "train_additional_part_00.jsonl/train_additional_part_00.jsonl",
+        "size_bytes": 566159221,
+        "sha256": "1097733ab13e539813f75d3013489cd4fad469b1f45f0e7a69e6bdbae22f3e89"
+      },
+      {
+        "split": "train",
+        "relative_path": "train_additional_part_01.jsonl/train_additional_part_01.jsonl",
+        "size_bytes": 566311081,
+        "sha256": "a493c30aa6ebabff3ce1f5a99dfcf9718c615769eb9bf851a3f12fc46b660976"
+      },
+      {
+        "split": "train",
+        "relative_path": "train_additional_part_02.jsonl/train_additional_part_02.jsonl",
+        "size_bytes": 566420473,
+        "sha256": "72445ead2e32f7293d9b12f9f598013554d1ba7d8130780fb216c4dd530361dd"
+      },
+      {
+        "split": "train",
+        "relative_path": "train_additional_part_03.jsonl/train_additional_part_03.jsonl",
+        "size_bytes": 566303443,
+        "sha256": "4c876d75b30b540ab3ca424973b6f74cfc28bdfe09f9d877e663b35fc2d95ce3"
+      },
+      {
+        "split": "train",
+        "relative_path": "train_additional_part_04.jsonl/train_additional_part_04.jsonl",
+        "size_bytes": 565851945,
+        "sha256": "0e2825b993df7a96d214d29ebb39fac74d77a3cbdf2a0a47f7904e25fc874239"
+      },
+      {
+        "split": "train",
+        "relative_path": "train_additional_part_05.jsonl/train_additional_part_05.jsonl",
+        "size_bytes": 566122784,
+        "sha256": "6843c285653fd9cfb47ae56723edc64d044fefa0bf515d37af388a6579ac28db"
+      },
+      {
+        "split": "train",
+        "relative_path": "train_additional_part_06.jsonl/train_additional_part_06.jsonl",
+        "size_bytes": 565927294,
+        "sha256": "b18aa3c42c8672f1ee53d4fc1d080085bbae2239acd8c513863e5a0edec0ad52"
+      },
+      {
+        "split": "train",
+        "relative_path": "train_additional_part_07.jsonl/train_additional_part_07.jsonl",
+        "size_bytes": 566056077,
+        "sha256": "b8c7397edc3cfc321fd7064a30bd4698e1a117f427f9d481e85512cb259447f2"
+      },
+      {
+        "split": "train",
+        "relative_path": "train_additional_part_08.jsonl/train_additional_part_08.jsonl",
+        "size_bytes": 566111511,
+        "sha256": "dc021f51332ca42c8399bebe1e71531e4970885d67f93a9e62b42b4fa9a22b7e"
+      },
+      {
+        "split": "train",
+        "relative_path": "train_additional_part_09.jsonl/train_additional_part_09.jsonl",
+        "size_bytes": 565944255,
+        "sha256": "9d65638d096beffc3071c0aefa2cf224d79bf8f5cd0fceb156945ca719002a63"
+      },
+      {
+        "split": "rendered_sample",
+        "relative_path": "train_rendered_sample_10000.jsonl/rendered_sample_10000.jsonl",
+        "size_bytes": 44364629,
+        "sha256": "aafc97f26449842e94a6ef74e700de5e5e7d8df1edd5ce74766c507fd1b39cd8"
+      },
+      {
+        "split": "valid",
+        "relative_path": "valid_additional_part_00.jsonl/valid_additional_part_00.jsonl",
+        "size_bytes": 566532000,
+        "sha256": "b76c1a17cc37578b7ee383d2840b6e651e855f40995ee277392b98676f9c7035"
+      }
+    ]
+  }
+}

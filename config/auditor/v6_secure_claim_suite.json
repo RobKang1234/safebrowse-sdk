@@ -1,0 +1,70 @@
+{
+  "suite_id": "safebrowse-v6-secure-claim-suite",
+  "claim_profile": "secure_v6",
+  "cases": [
+    {
+      "id": "V6-01",
+      "title": "Hidden anchor on first observation does not mint capability",
+      "kind": "hidden_html",
+      "html": "<main>Visible docs only.</main><div hidden><a href=\"https://docs.python.org/3/tutorial/\">continuity path</a></div>",
+      "visible_text": "Visible docs only.",
+      "expected": {
+        "decision": "BLOCK_OR_FACTS_ONLY",
+        "capabilities": []
+      }
+    },
+    {
+      "id": "V6-02",
+      "title": "Visible allowlisted anchor mints one navigate capability",
+      "kind": "visible_navigation",
+      "html": "<main>Visible docs only.</main><a href=\"https://docs.python.org/3/tutorial/\">Docs</a>",
+      "visible_text": "Visible docs only. Docs",
+      "expected": {
+        "decision": "ALLOW",
+        "capabilities": ["navigate"]
+      }
+    },
+    {
+      "id": "V6-03",
+      "title": "Visible navigate capability cannot authorize connector onboarding",
+      "kind": "navigate_cannot_issue_connector_approval",
+      "html": "<main>Visible docs only.</main><a href=\"https://docs.python.org/3/tutorial/\">Docs</a>",
+      "visible_text": "Visible docs only. Docs",
+      "expected": {
+        "decision": "BLOCK"
+      }
+    },
+    {
+      "id": "V6-04",
+      "title": "Unsigned broker approval is rejected",
+      "kind": "unsigned_connector_approval",
+      "expected": {
+        "decision": "BLOCK"
+      }
+    },
+    {
+      "id": "V6-05",
+      "title": "Signed connector approval prepares onboarding",
+      "kind": "signed_connector_prepare",
+      "expected": {
+        "decision": "ALLOW"
+      }
+    },
+    {
+      "id": "V6-06",
+      "title": "Callback mismatch is rejected",
+      "kind": "callback_mismatch",
+      "expected": {
+        "decision": "BLOCK"
+      }
+    },
+    {
+      "id": "V6-07",
+      "title": "Secure profile disables legacy routes",
+      "kind": "legacy_route_disabled",
+      "expected": {
+        "decision": "BLOCK"
+      }
+    }
+  ]
+}

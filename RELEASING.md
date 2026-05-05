@@ -1,113 +1,140 @@
-# Releasing SafeBrowse v3
+# Releasing SafeBrowse
 
-This repo is set up for coordinated public release across npm, PyPI, and GHCR.
+This repository publishes coordinated releases to npm, PyPI, and GHCR.
 
-The repository is no longer Apache-licensed. Future releases should carry the
-`SafeBrowse Non-Commercial License 1.0` terms and preserve the package-level
-`LICENSE` files included in each public distribution surface.
+As of April 5, 2026:
+
+- The latest published public release is `v0.1.4`.
+- Version history is tracked in [releases/manifest.json](releases/manifest.json).
+- `main` is the release branch.
+- The `V6` branch is ahead of the latest public release and is not published automatically until it is merged to `main`.
+
+## Release Automation
+
+The repo now has two release-facing GitHub Actions workflows:
+
+- `.github/workflows/main-release.yml`
+  - triggers on pushes to `main`
+  - computes the next patch version
+  - syncs package versions
+  - updates `releases/manifest.json`
+  - runs `pnpm release:ready`
+  - commits the version bump and tags `vX.Y.Z`
+- `.github/workflows/release.yml`
+  - triggers on pushed `v*` tags
+  - validates the repo again
+  - publishes npm packages
+  - publishes the Python client
+  - publishes the daemon image to GHCR
+  - attaches release assets
+
+There is also a manual PyPI fallback workflow in `.github/workflows/publish-pypi.yml`.
+
+## Version Tracking
+
+Use these files and scripts as the single source of truth for public versions:
+
+- `package.json`
+- `packages/*/package.json`
+- `python/safebrowse_client/pyproject.toml`
+- `releases/manifest.json`
+- `scripts/release/sync-version.mjs`
+- `scripts/release/next-version.mjs`
+- `scripts/release/update-release-manifest.mjs`
+
+Do not hand-edit only one public package version and leave the others behind.
 
 ## One-Time Setup
 
-Before the first public release:
+Before relying on automated public releases:
 
 1. Confirm ownership of the npm scope `@safebrowse`.
-2. Configure PyPI publishing for:
-   - TestPyPI
-   - PyPI
-   - Prefer Trusted Publishing, but this repo also supports GitHub Actions secrets named `TEST_PYPI_API_TOKEN` and `PYPI_API_TOKEN` for token-backed uploads.
-3. Configure npm Trusted Publishing for these packages against `.github/workflows/release.yml`:
+2. Configure npm Trusted Publishing for:
    - `@safebrowse/core`
    - `@safebrowse/daemon`
    - `@safebrowse/playwright-adapter`
-   - Do not set a GitHub environment name for npm trusted publishing. The npm publish job intentionally runs without an Actions environment so the same workflow can handle both prerelease and production tags with one npm trusted publisher configuration per package.
-4. Create protected GitHub environments:
+3. Configure PyPI Trusted Publishing for `safebrowse-client`, or provide `PYPI_API_TOKEN` / `TEST_PYPI_API_TOKEN`.
+4. Create GitHub environments:
    - `release-rc`
    - `release-prod`
-5. Add the production KB signing secret:
-   - `SAFEBROWSE_KB_SIGNING_KEY_B64`
-6. Enable GitHub repository hygiene features where available:
-   - Dependabot alerts
-   - secret scanning
-   - push protection
+5. Add `SAFEBROWSE_KB_SIGNING_KEY_B64`.
+6. If branch protection blocks Actions from pushing version bumps or tags to `main`, add `RELEASE_GH_PAT`.
 
-## Local Release Prep
+## Normal Release Flow
 
-Use Changesets for npm-side version orchestration, then sync the Python client version:
+For routine production releases:
 
-```bash
-pnpm changeset
-pnpm release:version
-```
+1. Merge the intended changes to `main`.
+2. Let `main-release.yml` cut the next patch version automatically.
+3. Let `release.yml` publish from the new tag.
+4. Confirm registry state against [releases/manifest.json](releases/manifest.json).
 
-That flow keeps the public npm packages, the internal workspace packages, the root version, and `python/safebrowse_client/pyproject.toml` aligned.
+This is the preferred path for public releases.
 
-## Local Validation
+## Local Validation Before Merge
 
-Run the release gate locally before tagging:
+Run the release gate locally when changing publish surfaces:
 
 ```bash
-pnpm build
-pnpm test
-python -m pip install build twine
-pnpm release:build:python
-pnpm release:check:python
-pnpm release:audit
-pnpm release:smoke:artifacts
-pnpm release:smoke:docker
+corepack pnpm build
+corepack pnpm test
+corepack pnpm perf:smoke
+corepack pnpm perf:daemon:gate
+corepack pnpm release:build:python
+corepack pnpm release:check:python
+corepack pnpm release:audit
+corepack pnpm release:smoke:artifacts
+corepack pnpm release:smoke:docker
 ```
 
-## Tagging Strategy
+The shortcut is:
 
-- prerelease: `vX.Y.Z-rc.N`
-- production: `vX.Y.Z`
+```bash
+corepack pnpm release:ready
+```
+
+## Manual Version Cut
+
+If you need to prepare a release locally instead of waiting for `main-release.yml`:
+
+```bash
+corepack pnpm changeset
+corepack pnpm release:version
+```
+
+Then validate, commit the version bump, tag `vX.Y.Z`, and push the tag so `release.yml` can publish.
+
+## Tagging
+
+- prerelease tag: `vX.Y.Z-rc.N`
+- production tag: `vX.Y.Z`
 
 Examples:
 
 - `v0.2.0-rc.1`
 - `v0.2.0`
 
-The Git tag keeps npm/GHCR SemVer form. The Python package version is derived automatically:
+Python prerelease versions are derived automatically. For example, `v0.2.0-rc.1` becomes `0.2.0rc1`.
 
-- tag `v0.2.0-rc.1`
-- PyPI version `0.2.0rc1`
+## Artifact Boundaries
 
-## GitHub Release Workflow
+Do not publish these in public artifacts:
 
-The release workflow will:
+- private signing keys
+- `demo-output/`
+- threat-lab logs
+- raw prompt-injection datasets
+- training checkpoints
+- local model bundles
+- model adapters, sidecar runtime bundles, and MLflow/CatBoost run outputs
+- `.local/model_guard/`
+- `python/safebrowse_model_guard/artifacts/`
+- `python/safebrowse_model_guard/bundles/`
+- `python/safebrowse_model_guard/checkpoints/`
+- `knowledge_base/signing/private`
 
-- validate build, tests, packaging, and Docker smoke checks
-- build KB artifacts with the protected signing key instead of a dev key
-- publish npm packages with provenance through npm Trusted Publishing from `.github/workflows/release.yml`
-- publish `safebrowse-client` through Trusted Publishing when configured, or through `PYPI_API_TOKEN` / `TEST_PYPI_API_TOKEN` when those secrets are present
-- publish the daemon image to GHCR with provenance and SBOM
-- sign the GHCR image with Cosign
-- attach release notes and artifacts to the GitHub Release
+The supported public model-guard surface is the daemon protocol, configuration, health metadata, and tightening semantics. Trained model bundles are private deploy artifacts referenced by path, URL, version, and digest outside the public SDK artifacts.
 
-## PyPI-First Publishing
+Before promoting a private model bundle for use with a public release, validate its `bundleVersion`, `featureSchemaVersion`, component digests, and held-out metrics. The current default promotion floor is valid/test threat recall `>= 0.995` and macro F1 `>= 0.98`.
 
-If you want to ship the Python client before npm and GHCR are live, use the dedicated Actions workflow:
-
-- Workflow: `publish-pypi`
-- Inputs:
-  - `ref`
-  - `version`
-  - `repository` (`pypi` or `testpypi`)
-  - `skip_existing`
-
-Recommended setup for the current repo:
-
-1. Add `PYPI_API_TOKEN` as a GitHub Actions secret in the `release-prod` environment.
-2. Optionally add `TEST_PYPI_API_TOKEN` in the `release-rc` environment for TestPyPI prereleases.
-3. Keep any local token file outside git. This repo ignores `pypi_token.txt` to reduce accidental commits.
-4. Run the `publish-pypi` workflow from the GitHub Actions UI when you are ready.
-
-Important: `safebrowse-client 0.1.0` was already published to PyPI before this
-license change. If you want PyPI to reflect the non-commercial terms, publish a
-new version rather than trying to retroactively change the old release.
-
-## Operational Notes
-
-- Deploy containers by digest, not just by tag.
-- Do not publish `@safebrowse/kb-tools`.
-- Do not ship `knowledge_base/signing/private`, `demo-output/`, or threat-lab logs in public artifacts.
-- Treat missing PyPI/npm Trusted Publisher setup as a release blocker, not a warning.
+Repo-generated internal assessment output and model-guard assessments are not external audit deliverables and should not be labeled that way in release notes.

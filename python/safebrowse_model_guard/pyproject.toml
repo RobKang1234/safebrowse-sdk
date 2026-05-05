@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=77.0.3", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "safebrowse-model-guard"
+version = "0.1.0"
+description = "Private prompt-injection model guard sidecar and training pipeline for SafeBrowse"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "LicenseRef-SafeBrowse-NC-1.0"
+authors = [{ name = "RobKang1234" }]
+dependencies = []
+
+[project.optional-dependencies]
+train = [
+  "accelerate>=1.5",
+  "catboost>=1.2",
+  "datasets>=3.0",
+  "mlflow>=3.0",
+  "numpy>=2.0",
+  "peft>=0.17",
+  "safetensors>=0.6",
+  "scikit-learn>=1.5",
+  "torch>=2.6",
+  "transformers>=4.51",
+  "xgboost>=2.1"
+]
+
+[project.scripts]
+safebrowse-model-guard = "safebrowse_model_guard.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

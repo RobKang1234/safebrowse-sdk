@@ -1,0 +1,60 @@
+{
+  "latest": {
+    "tag": "v0.1.4",
+    "javascriptVersion": "0.1.4",
+    "pythonVersion": "0.1.4",
+    "releasedAt": "2026-04-03T19:12:00Z",
+    "sourceSha": "01f9c9c0d579567192d1fa40145c5d8eef3bc360",
+    "channel": "release",
+    "npmPackages": [
+      "@safebrowse/core",
+      "@safebrowse/daemon",
+      "@safebrowse/playwright-adapter"
+    ],
+    "pythonPackage": "safebrowse-client"
+  },
+  "history": [
+    {
+      "tag": "v0.1.2",
+      "javascriptVersion": "0.1.2",
+      "pythonVersion": "0.1.2",
+      "releasedAt": "2026-03-29T21:57:56-04:00",
+      "sourceSha": "6ba72d1251379e7685eccd989c41bd07872d81cc",
+      "channel": "release",
+      "npmPackages": [
+        "@safebrowse/core",
+        "@safebrowse/daemon",
+        "@safebrowse/playwright-adapter"
+      ],
+      "pythonPackage": "safebrowse-client"
+    },
+    {
+      "tag": "v0.1.3",
+      "javascriptVersion": "0.1.3",
+      "pythonVersion": "0.1.3",
+      "releasedAt": "2026-03-30T13:13:41-04:00",
+      "sourceSha": "2b7348d76c3f66dc42e06e4929d90b6d5a22e647",
+      "channel": "release",
+      "npmPackages": [
+        "@safebrowse/core",
+        "@safebrowse/daemon",
+        "@safebrowse/playwright-adapter"
+      ],
+      "pythonPackage": "safebrowse-client"
+    },
+    {
+      "tag": "v0.1.4",
+      "javascriptVersion": "0.1.4",
+      "pythonVersion": "0.1.4",
+      "releasedAt": "2026-04-03T19:12:00Z",
+      "sourceSha": "01f9c9c0d579567192d1fa40145c5d8eef3bc360",
+      "channel": "release",
+      "npmPackages": [
+        "@safebrowse/core",
+        "@safebrowse/daemon",
+        "@safebrowse/playwright-adapter"
+      ],
+      "pythonPackage": "safebrowse-client"
+    }
+  ]
+}

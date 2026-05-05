@@ -1,0 +1,77 @@
+name: private-model-guard-retrain
+
+on:
+  schedule:
+    - cron: "0 5 * * *"
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "nightly_eval or weekly_retrain"
+        required: true
+        default: nightly_eval
+        type: choice
+        options:
+          - nightly_eval
+          - weekly_retrain
+
+jobs:
+  nightly-eval:
+    if: github.event.schedule == '0 5 * * *' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'nightly_eval')
+    runs-on: [self-hosted, linux, gpu]
+    permissions:
+      contents: read
+    env:
+      SAFEBROWSE_DATA_ROOT: ${{ secrets.SAFEBROWSE_DATA_ROOT }}
+      SAFEBROWSE_MODEL_GUARD_BUNDLE_DIR: ${{ secrets.SAFEBROWSE_MODEL_GUARD_BUNDLE_DIR }}
+      MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+      MLFLOW_EXPERIMENT_NAME: safebrowse-model-guard
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/run-python-module.mjs -m pip install -e python/safebrowse_model_guard[train]
+      - run: node scripts/run-python-module.mjs -m mlflow run python/safebrowse_model_guard -e prepare_data -P manifest=model/prompt_injection_ml_dataset/manifest.json
+      - run: node scripts/run-python-module.mjs -m mlflow run python/safebrowse_model_guard -e evaluate -P manifest=model/prompt_injection_ml_dataset/manifest.json -P bundle_dir=${{ env.SAFEBROWSE_MODEL_GUARD_BUNDLE_DIR }} -P split=valid
+
+  weekly-retrain:
+    if: github.event.schedule == '0 6 * * 1' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'weekly_retrain')
+    runs-on: [self-hosted, linux, gpu]
+    permissions:
+      contents: read
+    env:
+      SAFEBROWSE_DATA_ROOT: ${{ secrets.SAFEBROWSE_DATA_ROOT }}
+      MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+      MLFLOW_EXPERIMENT_NAME: safebrowse-model-guard
+      MODEL_OUTPUT_ROOT: .local/model_guard/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/run-python-module.mjs -m pip install -e python/safebrowse_model_guard[train]
+      - run: node scripts/run-python-module.mjs -m mlflow run python/safebrowse_model_guard -e prepare_data -P manifest=model/prompt_injection_ml_dataset/manifest.json
+      - run: node scripts/run-python-module.mjs -m mlflow run python/safebrowse_model_guard -e train_recipe -P manifest=model/prompt_injection_ml_dataset/manifest.json -P recipe=model/prompt_injection_ml_dataset/training_recipe_additional_v2_rtx4060ti_8gb.json -P output_dir=${{ env.MODEL_OUTPUT_ROOT }} -P backbone=answerdotai/ModernBERT-base -P checkpoint_steps=100 -P milestone_checkpoint_steps=1000
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: model-guard-${{ github.run_id }}-summaries
+          path: |
+            ${{ env.MODEL_OUTPUT_ROOT }}/status.json
+            ${{ env.MODEL_OUTPUT_ROOT }}/progress.json
+            ${{ env.MODEL_OUTPUT_ROOT }}/recipe_summary.json
+            ${{ env.MODEL_OUTPUT_ROOT }}/train.log
+            ${{ env.MODEL_OUTPUT_ROOT }}/bundle/bundle_manifest.json
+            ${{ env.MODEL_OUTPUT_ROOT }}/bundle/manifest.json
+          if-no-files-found: warn

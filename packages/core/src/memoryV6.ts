@@ -1,16 +1,19 @@
 import { randomUUID } from "node:crypto";
 
+import { redactJsonValue } from "./secretIsolation.js";
 import type {
-  ApprovalEnvelopeV5,
-  CapabilityDescriptorV5,
-  MemoryStageSourceClassV5,
+  ApprovalEnvelopeV6,
+  CapabilityDescriptorV6,
   MemoryRecord,
-  MemoryStageRequestV5,
-  StagedMemoryPromotionRequestV5,
+  MemoryRollbackRequest,
+  MemoryRollbackResult,
+  MemorySourceClassV6,
+  MemoryStageRequestV6,
+  MemoryStageSourceClassV5,
   SafeVerdict,
+  StagedMemoryPromotionRequestV5,
   TaskSession
 } from "./types.js";
-import { redactJsonValue } from "./secretIsolation.js";
 import { clamp, sha256Hex, stableStringify, uniq } from "./utils.js";
 
 function resolveMemorySource(
@@ -34,8 +37,29 @@ function corroborationRequired(sourceClass: MemoryStageSourceClassV5): boolean {
   return ["web_observation", "model_summary", "retrieval_fact"].includes(sourceClass);
 }
 
-export function stageMemoryRecordV5(
-  request: MemoryStageRequestV5,
+function stageVerdict(
+  decision: SafeVerdict["decision"],
+  reasonCodes: string[],
+  riskScore: number,
+  sourceClass: MemorySourceClassV6
+): SafeVerdict {
+  return {
+    decision,
+    reasonCodes: uniq(reasonCodes),
+    riskScore: clamp(riskScore),
+    safeConstraints: {
+      claim_profile: "secure_v6",
+      staged_only: true,
+      requires_corroboration: corroborationRequired(sourceClass as MemoryStageSourceClassV5),
+      source_class: sourceClass,
+      summary_only: true
+    },
+    telemetryTags: uniq(["memory_v6_stage", sourceClass, decision.toLowerCase()])
+  };
+}
+
+export function stageMemoryRecordV6(
+  request: MemoryStageRequestV6,
   session: TaskSession | undefined
 ): {
   verdict: SafeVerdict;
@@ -59,7 +83,6 @@ export function stageMemoryRecordV5(
 
   const tier = request.durable ? "candidate_durable" : "tainted_ephemeral";
   const source = resolveMemorySource(request.sourceClass);
-
   const record: MemoryRecord = {
     recordId: randomUUID(),
     sessionId: request.sessionId,
@@ -70,8 +93,7 @@ export function stageMemoryRecordV5(
     source: source.source,
     sourceClass: source.sourceClass,
     sourceObservationId: request.sourceObservationId,
-    sourceDigest:
-      request.sourceDigest ?? sha256Hex(stableStringify(redacted.value)),
+    sourceDigest: request.sourceDigest ?? sha256Hex(stableStringify(redacted.value)),
     corroboration: request.corroboration,
     secretFindings: redacted.secretFindings,
     summaryOnly: true,
@@ -85,31 +107,17 @@ export function stageMemoryRecordV5(
   };
 
   return {
-    verdict: {
-      decision,
-      reasonCodes: uniq(reasonCodes),
-      riskScore: clamp(riskScore),
-      safeConstraints: {
-        claim_profile: "secure_v5",
-        staged_only: true,
-        requires_corroboration: corroborationRequired(request.sourceClass),
-        source_class: request.sourceClass,
-        summary_only: true
-      },
-      telemetryTags: uniq(["memory_v5_stage", request.sourceClass, decision.toLowerCase()])
-    },
+    verdict: stageVerdict(decision, reasonCodes, riskScore, request.sourceClass),
     record
   };
 }
 
-export const stageMemoryRecordV6 = stageMemoryRecordV5;
-
-export function promoteStagedMemoryRecordV5(
+export function promoteMemoryRecordV6(
   request: StagedMemoryPromotionRequestV5,
   session: TaskSession | undefined,
   record: MemoryRecord | undefined,
-  capability: CapabilityDescriptorV5 | undefined,
-  approvalEnvelope: ApprovalEnvelopeV5 | undefined,
+  authority: CapabilityDescriptorV6 | undefined,
+  approvalEnvelope: ApprovalEnvelopeV6 | undefined,
   options: {
     sourceClass: MemoryStageSourceClassV5 | undefined;
     priorTrustedRecord?: MemoryRecord;
@@ -132,9 +140,9 @@ export function promoteStagedMemoryRecordV5(
     reasonCodes.push("UNKNOWN_MEMORY_RECORD");
     riskScore = 0.99;
   }
-  if (!capability) {
+  if (!authority) {
     decision = "BLOCK";
-    reasonCodes.push("MEMORY_PROMOTION_TICKET_REQUIRED");
+    reasonCodes.push("MEMORY_PROMOTION_AUTHORITY_REQUIRED");
     riskScore = 0.99;
   }
   if (!approvalEnvelope) {
@@ -149,43 +157,43 @@ export function promoteStagedMemoryRecordV5(
     riskScore = 0.99;
   }
 
-  if (capability) {
-    if (capability.kind !== "memory_promote") {
+  if (authority) {
+    if (authority.kind !== "memory_promote") {
       decision = "BLOCK";
-      reasonCodes.push("MEMORY_PROMOTION_TICKET_INVALID");
+      reasonCodes.push("MEMORY_PROMOTION_AUTHORITY_INVALID");
       riskScore = 0.99;
     }
-    if (capability.memoryRecordId !== record?.recordId) {
+    if (authority.memoryRecordId !== record?.recordId) {
       decision = "BLOCK";
       reasonCodes.push("MEMORY_PROMOTION_RECORD_MISMATCH");
       riskScore = 0.99;
     }
-    if (capability.capabilityId !== request.ticketId) {
+    if (authority.capabilityId !== request.ticketId) {
       decision = "BLOCK";
-      reasonCodes.push("MEMORY_PROMOTION_TICKET_ID_MISMATCH");
+      reasonCodes.push("MEMORY_PROMOTION_AUTHORITY_ID_MISMATCH");
       riskScore = 0.99;
     }
-    if (capability.capabilityDigest !== request.ticketDigest) {
+    if (authority.capabilityDigest !== request.ticketDigest) {
       decision = "BLOCK";
-      reasonCodes.push("MEMORY_PROMOTION_TICKET_DIGEST_MISMATCH");
+      reasonCodes.push("MEMORY_PROMOTION_AUTHORITY_DIGEST_MISMATCH");
       riskScore = 0.99;
     }
-    if (capability.consumedAt) {
+    if (authority.consumedAt) {
       decision = "BLOCK";
-      reasonCodes.push("MEMORY_PROMOTION_TICKET_ALREADY_USED");
+      reasonCodes.push("MEMORY_PROMOTION_AUTHORITY_ALREADY_USED");
       riskScore = 0.99;
     }
   }
 
-  if (approvalEnvelope && capability) {
-    if (approvalEnvelope.capabilityId !== capability.capabilityId) {
+  if (approvalEnvelope && authority) {
+    if (approvalEnvelope.capabilityId !== authority.capabilityId) {
       decision = "BLOCK";
-      reasonCodes.push("APPROVAL_CAPABILITY_MISMATCH");
+      reasonCodes.push("APPROVAL_AUTHORITY_MISMATCH");
       riskScore = 0.99;
     }
-    if (approvalEnvelope.capabilityDigest !== capability.capabilityDigest) {
+    if (approvalEnvelope.capabilityDigest !== authority.capabilityDigest) {
       decision = "BLOCK";
-      reasonCodes.push("APPROVAL_CAPABILITY_DIGEST_MISMATCH");
+      reasonCodes.push("APPROVAL_AUTHORITY_DIGEST_MISMATCH");
       riskScore = 0.99;
     }
     if (approvalEnvelope.sinkClass !== "memory_promotion") {
@@ -222,10 +230,10 @@ export function promoteStagedMemoryRecordV5(
         reasonCodes: uniq(reasonCodes),
         riskScore: clamp(riskScore),
         safeConstraints: {
-          claim_profile: "secure_v5",
+          claim_profile: "secure_v6",
           source_class: options.sourceClass ?? "unknown"
         },
-        telemetryTags: uniq(["memory_v5_promote", decision.toLowerCase()])
+        telemetryTags: uniq(["memory_v6_promote", decision.toLowerCase()])
       }
     };
   }
@@ -245,15 +253,107 @@ export function promoteStagedMemoryRecordV5(
       reasonCodes: uniq(reasonCodes),
       riskScore: clamp(riskScore),
       safeConstraints: {
-        claim_profile: "secure_v5",
+        claim_profile: "secure_v6",
         source_class: options.sourceClass ?? "unknown",
         snapshot_required: true,
         rollback_required: true
       },
-      telemetryTags: uniq(["memory_v5_promote", decision.toLowerCase()])
+      telemetryTags: uniq(["memory_v6_promote", decision.toLowerCase()])
     },
     promotedRecord
   };
 }
 
-export const promoteMemoryRecordV6 = promoteStagedMemoryRecordV5;
+export function rollbackMemoryRecordV6(
+  request: MemoryRollbackRequest,
+  session: TaskSession | undefined,
+  record: MemoryRecord | undefined,
+  snapshot: {
+    snapshotRecord?: MemoryRecord;
+    baselineAbsent?: boolean;
+  }
+): MemoryRollbackResult {
+  const reasonCodes: string[] = [];
+  let decision: SafeVerdict["decision"] = "ALLOW";
+  let riskScore = 0.25;
+
+  if (!session) {
+    decision = "BLOCK";
+    reasonCodes.push("UNKNOWN_SESSION");
+    riskScore = 0.99;
+  }
+  if (!record) {
+    decision = "BLOCK";
+    reasonCodes.push("UNKNOWN_MEMORY_RECORD");
+    riskScore = 0.99;
+  }
+  if (!snapshot.snapshotRecord && !snapshot.baselineAbsent) {
+    decision = "BLOCK";
+    reasonCodes.push("UNKNOWN_MEMORY_SNAPSHOT");
+    riskScore = 0.99;
+  }
+
+  if (record && session && record.sessionId !== session.sessionId) {
+    decision = "BLOCK";
+    reasonCodes.push("MEMORY_RECORD_OUTSIDE_SESSION");
+    riskScore = 0.99;
+  }
+
+  if (record?.snapshotId && record.snapshotId !== request.snapshotId) {
+    decision = "BLOCK";
+    reasonCodes.push("SNAPSHOT_ID_MISMATCH");
+    riskScore = 0.99;
+  }
+
+  if (decision !== "ALLOW") {
+    return {
+      verdict: {
+        decision,
+        reasonCodes: uniq(reasonCodes),
+        riskScore: clamp(riskScore),
+        safeConstraints: {
+          claim_profile: "secure_v6"
+        },
+        telemetryTags: uniq(["memory_v6_rollback", decision.toLowerCase()])
+      }
+    };
+  }
+
+  if (snapshot.baselineAbsent) {
+    return {
+      verdict: {
+        decision,
+        reasonCodes: uniq(["ROLLBACK_APPLIED", "ROLLBACK_RESTORED_EMPTY_BASELINE", ...reasonCodes]),
+        riskScore: clamp(riskScore),
+        safeConstraints: {
+          claim_profile: "secure_v6",
+          rollback_applied: true,
+          snapshot_id: request.snapshotId,
+          baseline_absent: true
+        },
+        telemetryTags: uniq(["memory_v6_rollback", decision.toLowerCase()])
+      }
+    };
+  }
+
+  return {
+    verdict: {
+      decision,
+      reasonCodes: uniq(["ROLLBACK_APPLIED", ...reasonCodes]),
+      riskScore: clamp(riskScore),
+      safeConstraints: {
+        claim_profile: "secure_v6",
+        rollback_applied: true,
+        snapshot_id: request.snapshotId
+      },
+      telemetryTags: uniq(["memory_v6_rollback", decision.toLowerCase()])
+    },
+    restoredRecord: {
+      ...snapshot.snapshotRecord!,
+      tier: "trusted_durable",
+      summaryOnly: false
+    }
+  };
+}
+
+export const promoteStagedMemoryRecordV6 = promoteMemoryRecordV6;

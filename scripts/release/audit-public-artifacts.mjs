@@ -48,7 +48,24 @@ const bannedFragments = [
   "scripts/threat-demo",
   "watch-live",
   "live-watch",
-  ".log"
+  ".log",
+  "prompt_injection_ml_dataset/train_",
+  "prompt_injection_ml_dataset/valid_",
+  "prompt_injection_ml_dataset/test_",
+  "rendered_sample_10000.jsonl",
+  "mlruns/",
+  ".local/model_guard",
+  ".local/mlflow",
+  "runtime_bundle",
+  "checkpoints/",
+  "bundles/",
+  "private_data",
+  "artifacts/sentinel",
+  "artifacts/expert",
+  "artifacts/stacker",
+  "safebrowse_model_guard/artifacts",
+  "safebrowse_model_guard/bundles",
+  "safebrowse_model_guard/checkpoints"
 ];
 
 function normalizePath(value) {

@@ -17,7 +17,7 @@ def call_model(messages: list[dict]) -> dict:
     Return JSON like:
     {"action": "summarize"}
     or:
-    {"action": "use_capability", "capability_id": "..."}
+    {"action": "use_authority", "authority_id": "..."}
     \"""
     raise NotImplementedError("Plug your model client in here")
 
@@ -36,7 +36,7 @@ def run_agent():
     sb = SafeBrowseClient("http://127.0.0.1:8787")
 
     print("Daemon health:", sb.health())
-    session = sb.start_session_v5(
+    session = sb.start_session(
         {
             "taskId": f"task-{uuid.uuid4()}",
             "userGoal": "Summarize relevant public research pages without leaving the allowed origin set unless SafeBrowse mints a capability.",
@@ -58,7 +58,7 @@ def run_agent():
         for step in range(5):
             visible_text = extract_visible_text(page)
             html = page.content()
-            observe_result = sb.observe_v5(
+            observe_result = sb.observe(
                 {
                     "sessionId": session["sessionId"],
                     "capture": make_surface_capture(page, visible_text, html),
@@ -66,7 +66,7 @@ def run_agent():
             )
             print(f"\\n[step {step}] observe:", json.dumps(observe_result, indent=2)[:800])
             planner_view = observe_result["plannerView"]
-            capabilities = observe_result["capabilities"]
+            authorities = observe_result["authorityCandidates"]
 
             model_input = [
                 {
@@ -74,8 +74,8 @@ def run_agent():
                     "content": (
                         "You are a browsing agent. "
                         "Return only JSON. "
-                        "Allowed actions: summarize, use_capability. "
-                        "Use only one capability from the supplied list. "
+                        "Allowed actions: summarize, use_authority. "
+                        "Use only one authority from the supplied list. "
                         "Do not invent URLs, selectors, connectors, or tool callbacks."
                     ),
                 },
@@ -85,7 +85,7 @@ def run_agent():
                         {
                             "current_url": page.url,
                             "planner_view": planner_view,
-                            "capabilities": capabilities,
+                            "authorities": authorities,
                         }
                     ),
                 },
@@ -98,27 +98,30 @@ def run_agent():
                 print("[agent] summary requested; stopping.")
                 break
 
-            if decision["action"] == "use_capability":
-                verdict = sb.action_v5(
+            if decision["action"] == "use_authority":
+                result = sb.action(
                     {
                         "sessionId": session["sessionId"],
-                        "capabilityId": decision["capability_id"],
-                        "capabilityDigest": next(
-                            capability["capabilityDigest"]
-                            for capability in capabilities
-                            if capability["capabilityId"] == decision["capability_id"]
+                        "authorityId": decision["authority_id"],
+                        "authorityDigest": next(
+                            authority["authorityDigest"]
+                            for authority in authorities
+                            if authority["authorityId"] == decision["authority_id"]
                         ),
                         "parameters": {},
                     }
                 )
-                print(f"[step {step}] verdict:", json.dumps(verdict, indent=2))
+                print(f"[step {step}] action:", json.dumps(result, indent=2))
 
-                verdict_payload = verdict.get("verdict", {})
-                if verdict_payload.get("decision") != "ALLOW":
+                effect_decision = result.get("effectDecision", {})
+                if effect_decision.get("decision") == "APPROVAL_REQUIRED":
+                    print("[agent] action requires an approval envelope; stopping.")
+                    break
+                if effect_decision.get("decision") != "ALLOW":
                     print("[agent] navigation blocked by SafeBrowse")
                     break
 
-                execution_plan = verdict.get("executionPlan", {})
+                execution_plan = result.get("executionPlan", {})
                 target_url = execution_plan.get("targetUrl")
                 if not target_url:
                     print("[agent] no target URL returned; stopping.")

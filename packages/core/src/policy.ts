@@ -1,4 +1,4 @@
-import type { CompiledPolicy, PolicyLayer, PolicyPack } from "./types.js";
+import type { CompiledPolicy, OperationClass, PolicyLayer, PolicyPack } from "./types.js";
 import { normalizeOrigin } from "./utils.js";
 
 function mergeArrays(...groups: Array<string[] | undefined>): ReadonlySet<string> {
@@ -70,7 +70,54 @@ export function compilePolicy(policyPack: PolicyPack): CompiledPolicy {
     approvalActions: mergeArrays(...layers.map((layer) => layer.actions?.requireApproval)),
     deniedActions: mergeArrays(...layers.map((layer) => layer.actions?.deny)),
     allowedMimeTypes: mergeArrays(...layers.map((layer) => layer.artifacts?.allowMimeTypes)),
+    allowedAttachmentMimeFamilies: mergeArrays(
+      ...layers.map((layer) => layer.artifacts?.allowAttachmentMimeFamilies)
+    ),
     protectedMemoryKeys: mergeArrays(...layers.map((layer) => layer.memory?.protectedKeys)),
+    allowedEmailProviders: mergeArrays(...layers.map((layer) => layer.email?.allowedProviders)),
+    allowedRecipientDomains: mergeArrays(
+      ...layers.map((layer) => layer.email?.allowedRecipientDomains)
+    ),
+    forbiddenRecipientDomains: mergeArrays(
+      ...layers.map((layer) => layer.email?.forbiddenRecipientDomains)
+    ),
+    allowedExtractorIds: mergeArrays(
+      ...layers.map((layer) => layer.extraction?.allowedExtractorIds)
+    ),
+    maxExtractionDepth:
+      [...layers]
+        .reverse()
+        .find((layer) => typeof layer.extraction?.maxRecursionDepth === "number")
+        ?.extraction?.maxRecursionDepth ?? 3,
+    maxExpandedBytes:
+      [...layers]
+        .reverse()
+        .find((layer) => typeof layer.extraction?.maxExpandedBytes === "number")
+        ?.extraction?.maxExpandedBytes ?? 5_000_000,
+    blockEncryptedChildren: mergeBooleans(
+      layers,
+      (layer) => layer.extraction?.blockEncryptedChildren,
+      true
+    ),
+    allowedApiProviders: mergeArrays(...layers.map((layer) => layer.api?.allowedProviders)),
+    allowedApiOperationClasses: new Set(
+      [...mergeArrays(...layers.map((layer) => layer.api?.allowedOperationClasses as string[] | undefined))]
+    ) as ReadonlySet<OperationClass>,
+    apiMutationRequiresApproval: mergeBooleans(
+      layers,
+      (layer) => layer.api?.mutationRequiresApproval,
+      true
+    ),
+    apiExportRequiresApproval: mergeBooleans(
+      layers,
+      (layer) => layer.api?.exportRequiresApproval,
+      true
+    ),
+    apiMaxResponseBytes:
+      [...layers]
+        .reverse()
+        .find((layer) => typeof layer.api?.maxResponseBytes === "number")
+        ?.api?.maxResponseBytes ?? 1_000_000,
     memoryDurableWrites,
     forbidTokenPassthrough: mergeBooleans(
       layers,
@@ -120,6 +167,11 @@ export function compilePolicy(policyPack: PolicyPack): CompiledPolicy {
       (layer) => layer.artifacts?.quarantineOnHiddenTextMismatch,
       true
     ),
+    encryptedAttachmentDecision:
+      [...layers]
+        .reverse()
+        .find((layer) => layer.artifacts?.encryptedAttachmentDecision)
+        ?.artifacts?.encryptedAttachmentDecision ?? "quarantine",
     replayBundle: mergeBooleans(layers, (layer) => layer.telemetry?.replayBundle, true),
     redactSensitiveValues: mergeBooleans(
       layers,

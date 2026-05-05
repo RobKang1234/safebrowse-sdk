@@ -3,10 +3,12 @@ import { readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import type {
+  ExtractorProfileEntry,
   JsonValue,
   KnowledgeBaseContext,
   PolicyLayer,
   PolicyPack,
+  VerifiedApiProviderEntry,
   VerifiedRegistryBundle,
   VerifiedRegistryEntry
 } from "@safebrowse/core";
@@ -52,6 +54,58 @@ interface RawRegistryBundle {
   signer?: string;
   publicKeyId?: string;
   adapters?: RawRegistryAdapter[];
+  apiProviders?: Array<{
+    providerId?: string;
+    authType?: "none" | "oauth" | "api_key";
+    allowedBaseUrls?: string[];
+    allowedMethods?: string[];
+    allowedOperationClasses?: Array<
+      | "browser_navigation"
+      | "connector_setup"
+      | "memory_promotion"
+      | "email_send"
+      | "email_reply"
+      | "email_forward"
+      | "api_read"
+      | "api_write"
+      | "api_delete"
+      | "api_export"
+    >;
+    requestSchemaHash?: string;
+    responseSchemaHash?: string;
+    allowedScopes?: string[];
+    allowedCallbackOrigins?: string[];
+    allowedRedirectUris?: string[];
+    signer?: string;
+    readOnly?: boolean;
+    mutating?: boolean;
+    expiresAt?: string;
+  }>;
+  extractorProfiles?: Array<{
+    extractorId?: string;
+    supportedMimeTypes?: string[];
+    supportedSurfaceTypes?: Array<
+      | "html"
+      | "pdf"
+      | "image"
+      | "email_message"
+      | "docx"
+      | "xlsx"
+      | "pptx"
+      | "attachment_bundle"
+      | "external_api_response"
+      | "tool_manifest"
+      | "memory_candidate"
+    >;
+    parserDigest?: string;
+    maxRecursionDepth?: number;
+    maxExpandedBytes?: number;
+    networkPolicy?: "deny" | "allowlisted_only";
+    activeContentPolicy?: "block" | "quarantine";
+    supportedChannels?: string[];
+    signer?: string;
+    expiresAt?: string;
+  }>;
 }
 
 interface LoadVerifiedRegistryBundleOptions {
@@ -92,6 +146,9 @@ function toPolicyLayer(name: string, input: Record<string, unknown>): PolicyLaye
   const origins = (input.origins ?? {}) as Record<string, unknown>;
   const actions = (input.actions ?? {}) as Record<string, unknown>;
   const artifacts = (input.artifacts ?? {}) as Record<string, unknown>;
+  const email = (input.email ?? {}) as Record<string, unknown>;
+  const extraction = (input.extraction ?? {}) as Record<string, unknown>;
+  const api = (input.api ?? {}) as Record<string, unknown>;
   const memory = (input.memory ?? {}) as Record<string, unknown>;
   const toolProtocol = (input.tool_protocol ?? {}) as Record<string, unknown>;
   const telemetry = (input.telemetry ?? {}) as Record<string, unknown>;
@@ -114,7 +171,41 @@ function toPolicyLayer(name: string, input: Record<string, unknown>): PolicyLaye
       quarantineOnHiddenTextMismatch: Boolean(
         artifacts.quarantine_on_hidden_text_mismatch ?? true
       ),
-      allowMimeTypes: (artifacts.allow_mime_types as string[] | undefined) ?? []
+      allowMimeTypes: (artifacts.allow_mime_types as string[] | undefined) ?? [],
+      allowAttachmentMimeFamilies:
+        (artifacts.allow_attachment_mime_families as string[] | undefined) ?? [],
+      maxExtractionDepth: Number(artifacts.max_extraction_depth ?? 3),
+      encryptedAttachmentDecision:
+        (artifacts.encrypted_attachment_decision as
+          | "block"
+          | "quarantine"
+          | "manual_review"
+          | undefined) ?? "quarantine"
+    },
+    email: {
+      allowedProviders: (email.allowed_providers as string[] | undefined) ?? [],
+      allowedRecipientDomains:
+        (email.allowed_recipient_domains as string[] | undefined) ?? [],
+      forbiddenRecipientDomains:
+        (email.forbidden_recipient_domains as string[] | undefined) ?? []
+    },
+    extraction: {
+      allowedExtractorIds: (extraction.allowed_extractor_ids as string[] | undefined) ?? [],
+      maxRecursionDepth: Number(extraction.max_recursion_depth ?? 3),
+      maxExpandedBytes: Number(extraction.max_expanded_bytes ?? 5_000_000),
+      blockEncryptedChildren: Boolean(extraction.block_encrypted_children ?? true)
+    },
+    api: {
+      allowedProviders: (api.allowed_providers as string[] | undefined) ?? [],
+      allowedOperationClasses:
+        (
+          api.allowed_operation_classes as
+            | NonNullable<PolicyLayer["api"]>["allowedOperationClasses"]
+            | undefined
+        ) ?? [],
+      mutationRequiresApproval: Boolean(api.mutation_requires_approval ?? true),
+      exportRequiresApproval: Boolean(api.export_requires_approval ?? true),
+      maxResponseBytes: Number(api.max_response_bytes ?? 1_000_000)
     },
     memory: {
       durableWrites:
@@ -171,6 +262,53 @@ function toVerifiedEntry(
     expiresAt: adapter.expiresAt ?? bundle.expiresAt,
     allowPrivateEgress: adapter.allowPrivateEgress ?? false,
     allowLoopbackCallbacks: adapter.allowLoopbackCallbacks ?? false
+  };
+}
+
+function toVerifiedApiProviderEntry(
+  provider: NonNullable<RawRegistryBundle["apiProviders"]>[number],
+  bundle: RawRegistryBundle,
+  version: string
+): VerifiedApiProviderEntry {
+  return {
+    providerId: String(provider.providerId ?? "unknown-provider"),
+    bundleId: String(bundle.bundleId ?? "adapter-registry"),
+    bundleVersion: version,
+    signer: String(provider.signer ?? bundle.signer ?? "unknown"),
+    authType: provider.authType ?? "none",
+    allowedBaseUrls: provider.allowedBaseUrls ?? [],
+    allowedMethods: provider.allowedMethods ?? [],
+    allowedOperationClasses: provider.allowedOperationClasses ?? [],
+    requestSchemaHash: provider.requestSchemaHash,
+    responseSchemaHash: provider.responseSchemaHash,
+    allowedScopes: provider.allowedScopes ?? [],
+    allowedCallbackOrigins: provider.allowedCallbackOrigins ?? [],
+    allowedRedirectUris: provider.allowedRedirectUris ?? [],
+    readOnly: provider.readOnly ?? false,
+    mutating: provider.mutating ?? false,
+    expiresAt: provider.expiresAt ?? bundle.expiresAt
+  };
+}
+
+function toExtractorProfileEntry(
+  extractor: NonNullable<RawRegistryBundle["extractorProfiles"]>[number],
+  bundle: RawRegistryBundle,
+  version: string
+): ExtractorProfileEntry {
+  return {
+    extractorId: String(extractor.extractorId ?? "unknown-extractor"),
+    bundleId: String(bundle.bundleId ?? "adapter-registry"),
+    bundleVersion: version,
+    signer: String(extractor.signer ?? bundle.signer ?? "unknown"),
+    supportedMimeTypes: extractor.supportedMimeTypes ?? [],
+    supportedSurfaceTypes: extractor.supportedSurfaceTypes ?? [],
+    parserDigest: String(extractor.parserDigest ?? ""),
+    maxRecursionDepth: extractor.maxRecursionDepth ?? 3,
+    maxExpandedBytes: extractor.maxExpandedBytes ?? 5_000_000,
+    networkPolicy: extractor.networkPolicy ?? "deny",
+    activeContentPolicy: extractor.activeContentPolicy ?? "block",
+    supportedChannels: (extractor.supportedChannels ?? []) as ExtractorProfileEntry["supportedChannels"],
+    expiresAt: extractor.expiresAt ?? bundle.expiresAt
   };
 }
 
@@ -262,7 +400,13 @@ export async function loadVerifiedRegistryBundle(
     expiresAt: bundle.expiresAt,
     publicKeyId: bundle.publicKeyId,
     signatureVerified,
-    entries: (bundle.adapters ?? []).map((adapter) => toVerifiedEntry(adapter, bundle, version))
+    entries: (bundle.adapters ?? []).map((adapter) => toVerifiedEntry(adapter, bundle, version)),
+    apiProviders: (bundle.apiProviders ?? []).map((provider) =>
+      toVerifiedApiProviderEntry(provider, bundle, version)
+    ),
+    extractorProfiles: (bundle.extractorProfiles ?? []).map((extractor) =>
+      toExtractorProfileEntry(extractor, bundle, version)
+    )
   };
 }
 

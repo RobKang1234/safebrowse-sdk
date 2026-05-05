@@ -1,0 +1,62 @@
+name: main-release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: main-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  cut_release:
+    if: github.actor != 'github-actions[bot]' && !startsWith(github.event.head_commit.message, 'chore: release v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - run: corepack enable
+      - run: npm install -g npm@11.6.2
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/run-python-module.mjs -m pip install build twine
+      - id: next
+        shell: bash
+        run: |
+          node scripts/release/next-version.mjs > next-release.json
+          NEXT_VERSION="$(node -e "const fs = require('fs'); const payload = JSON.parse(fs.readFileSync('next-release.json', 'utf8')); process.stdout.write(payload.nextVersion);")"
+          echo "version=${NEXT_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${NEXT_VERSION}" >> "$GITHUB_OUTPUT"
+      - run: node scripts/release/sync-version.mjs --version "${{ steps.next.outputs.version }}"
+      - run: node scripts/release/update-release-manifest.mjs --version "${{ steps.next.outputs.version }}" --tag "${{ steps.next.outputs.tag }}" --source-sha "${{ github.sha }}" --released-at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+      - run: pnpm release:ready
+      - name: Configure push auth
+        shell: bash
+        env:
+          RELEASE_GH_PAT: ${{ secrets.RELEASE_GH_PAT }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [[ -n "${RELEASE_GH_PAT}" ]]; then
+            git remote set-url origin "https://x-access-token:${RELEASE_GH_PAT}@github.com/${GITHUB_REPOSITORY}.git"
+          else
+            git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          fi
+      - name: Commit version bump
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json packages/core/package.json packages/daemon/package.json packages/kb-tools/package.json packages/playwright-adapter/package.json python/safebrowse_client/pyproject.toml releases/manifest.json
+          git commit -m "chore: release ${{ steps.next.outputs.tag }}"
+          git tag -a "${{ steps.next.outputs.tag }}" -m "Release ${{ steps.next.outputs.tag }}"
+          git push origin HEAD:main --follow-tags
