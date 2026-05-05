@@ -35,6 +35,9 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      HAS_TEST_PYPI_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN != '' }}
+      HAS_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN != '' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
@@ -57,7 +60,7 @@ jobs:
       - run: pnpm release:audit
       - run: pnpm release:smoke:artifacts
       - name: Publish to TestPyPI using token
-        if: inputs.repository == 'testpypi' && secrets.TEST_PYPI_API_TOKEN != ''
+        if: inputs.repository == 'testpypi' && env.HAS_TEST_PYPI_TOKEN == 'true'
         uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
         with:
           packages-dir: python/dist
@@ -66,14 +69,14 @@ jobs:
           skip-existing: ${{ inputs.skip_existing }}
           attestations: false
       - name: Publish to TestPyPI using trusted publishing
-        if: inputs.repository == 'testpypi' && secrets.TEST_PYPI_API_TOKEN == ''
+        if: inputs.repository == 'testpypi' && env.HAS_TEST_PYPI_TOKEN != 'true'
         uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
         with:
           packages-dir: python/dist
           repository-url: https://test.pypi.org/legacy/
           skip-existing: ${{ inputs.skip_existing }}
       - name: Publish to PyPI using token
-        if: inputs.repository == 'pypi' && secrets.PYPI_API_TOKEN != ''
+        if: inputs.repository == 'pypi' && env.HAS_PYPI_TOKEN == 'true'
         uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
         with:
           packages-dir: python/dist
@@ -81,7 +84,7 @@ jobs:
           skip-existing: ${{ inputs.skip_existing }}
           attestations: false
       - name: Publish to PyPI using trusted publishing
-        if: inputs.repository == 'pypi' && secrets.PYPI_API_TOKEN == ''
+        if: inputs.repository == 'pypi' && env.HAS_PYPI_TOKEN != 'true'
         uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
         with:
           packages-dir: python/dist
