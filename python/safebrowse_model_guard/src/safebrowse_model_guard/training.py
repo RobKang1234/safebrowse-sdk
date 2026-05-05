@@ -1,20 +1,25 @@
 from __future__ import annotations
 
+import gzip
 import hashlib
 import importlib.metadata
 import json
 import math
 import os
 import platform
+import pickle
 import random
 import shutil
 import subprocess
+import sys
+import tempfile
 import time
 from collections import Counter, deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from threading import RLock
+from typing import Any, Callable, Iterable, Iterator
 
 from .bundle import (
     copy_component_file,
@@ -55,10 +60,18 @@ from .recipe_model import (
 
 _TRANSFORMER_ARTIFACT_CACHE: dict[str, dict[str, Any]] = {}
 _DEFAULT_RANDOM_SEED = 7
-_DEFAULT_SENTINEL_CHECKPOINT_BATCHES = 32
-_DEFAULT_LATEST_CHECKPOINT_STEPS = 100
+_DEFAULT_SENTINEL_CHECKPOINT_BATCHES = 16
+_DEFAULT_LATEST_CHECKPOINT_STEPS = 50
 _DEFAULT_MILESTONE_CHECKPOINT_STEPS = 1000
 _BOOTSTRAP_CHECKPOINT_STEPS = {25, 100}
+_DEFAULT_RUN_LOG_MAX_BYTES = 512 * 1024
+_DEFAULT_EVENT_LOG_MAX_BYTES = 512 * 1024
+_DEFAULT_LOG_BACKUP_COUNT = 4
+_DEFAULT_REPLAY_CHECKPOINT_ITEMS = 500
+_DEFAULT_REPLAY_MILESTONE_ITEMS = 5000
+_DEFAULT_STACKER_CHECKPOINT_ROWS = 250
+_DEFAULT_STACKER_CHUNK_ROWS = 2000
+_DEFAULT_STACKER_MILESTONE_ROWS = 10000
 
 
 @dataclass
@@ -183,10 +196,8 @@ class ExpertCheckpointManager:
             scaler=scaler,
             include_optimizer=True,
         )
-        if self.latest_dir.exists():
-            shutil.rmtree(self.latest_dir)
         self.active_dir.mkdir(parents=True, exist_ok=True)
-        tmp_path.rename(self.latest_dir)
+        _publish_directory(tmp_path, self.latest_dir)
         self.worker.submit(self._prune_active)
         return digest
 
@@ -235,9 +246,107 @@ class ExpertCheckpointManager:
                 shutil.rmtree(child, ignore_errors=True)
 
 
+class StateCheckpointManager:
+    def __init__(
+        self,
+        *,
+        stage_dir: Path,
+        preserve_names: set[str] | None = None,
+    ) -> None:
+        self.stage_dir = stage_dir
+        self.active_dir = stage_dir / "active"
+        self.latest_dir = self.active_dir / "latest"
+        self.milestone_dir = self.active_dir / "milestones"
+        self.preserve_names = {"latest", "milestones", *(preserve_names or set())}
+        self.worker = RetentionWorker()
+
+    def _write_checkpoint(
+        self,
+        target: Path,
+        *,
+        state_payload: dict[str, Any],
+        json_payloads: dict[str, Any] | None = None,
+        pickle_payloads: dict[str, Any] | None = None,
+    ) -> str:
+        if target.exists():
+            _remove_tree_with_retries(target)
+        target.mkdir(parents=True, exist_ok=True)
+        _write_json(target / "state.json", state_payload)
+        for name, payload in (json_payloads or {}).items():
+            _write_json(target / name, payload)
+        for name, payload in (pickle_payloads or {}).items():
+            _write_pickle_gz(target / name, payload)
+        digest = _hash_tree(target)
+        _write_json(target / "manifest.json", {"hash": digest, "state": state_payload})
+        return digest
+
+    def save_latest(
+        self,
+        *,
+        state_payload: dict[str, Any],
+        json_payloads: dict[str, Any] | None = None,
+        pickle_payloads: dict[str, Any] | None = None,
+    ) -> str:
+        tmp_path = self.active_dir / f".latest_tmp_{int(time.time() * 1000)}"
+        digest = self._write_checkpoint(
+            tmp_path,
+            state_payload=state_payload,
+            json_payloads=json_payloads,
+            pickle_payloads=pickle_payloads,
+        )
+        self.active_dir.mkdir(parents=True, exist_ok=True)
+        _publish_directory(tmp_path, self.latest_dir)
+        self.worker.submit(self._prune_active)
+        return digest
+
+    def save_milestone(
+        self,
+        *,
+        step_key: int,
+        state_payload: dict[str, Any],
+        json_payloads: dict[str, Any] | None = None,
+        pickle_payloads: dict[str, Any] | None = None,
+    ) -> str:
+        milestone_path = self.milestone_dir / f"step-{step_key:07d}"
+        self.milestone_dir.mkdir(parents=True, exist_ok=True)
+        return self._write_checkpoint(
+            milestone_path,
+            state_payload=state_payload,
+            json_payloads=json_payloads,
+            pickle_payloads=pickle_payloads,
+        )
+
+    def cleanup_completed(self, *, keep_milestones: bool = False) -> None:
+        if not self.active_dir.exists():
+            return
+        for child in list(self.active_dir.iterdir()):
+            if keep_milestones and child.name == "milestones":
+                continue
+            if child.is_dir():
+                _remove_tree_with_retries(child, retries=3)
+            else:
+                child.unlink(missing_ok=True)
+        if not keep_milestones and self.active_dir.exists():
+            try:
+                self.active_dir.rmdir()
+            except OSError:
+                pass
+
+    def close(self) -> None:
+        self.worker.close()
+
+    def _prune_active(self) -> None:
+        self.active_dir.mkdir(parents=True, exist_ok=True)
+        for child in self.active_dir.iterdir():
+            if child.name in self.preserve_names:
+                continue
+            if child.is_dir():
+                shutil.rmtree(child, ignore_errors=True)
+
+
 def _require_training_dependencies() -> dict[str, Any]:
     try:
-        from scipy.sparse import hstack  # type: ignore
+        from scipy.sparse import hstack, vstack  # type: ignore
         from sklearn.feature_extraction import DictVectorizer  # type: ignore
         from sklearn.feature_extraction.text import HashingVectorizer, TfidfVectorizer  # type: ignore
         from sklearn.linear_model import LogisticRegression, SGDClassifier  # type: ignore
@@ -254,12 +363,15 @@ def _require_training_dependencies() -> dict[str, Any]:
         CatBoostClassifier = None
 
     try:
+        import xgboost as xgb  # type: ignore
         from xgboost import XGBClassifier  # type: ignore
     except ModuleNotFoundError:
+        xgb = None
         XGBClassifier = None
 
     return {
         "hstack": hstack,
+        "vstack": vstack,
         "DictVectorizer": DictVectorizer,
         "HashingVectorizer": HashingVectorizer,
         "TfidfVectorizer": TfidfVectorizer,
@@ -267,6 +379,7 @@ def _require_training_dependencies() -> dict[str, Any]:
         "SGDClassifier": SGDClassifier,
         "CatBoostClassifier": CatBoostClassifier,
         "XGBClassifier": XGBClassifier,
+        "xgboost": xgb,
         "f1_score": f1_score,
         "log_loss": log_loss,
         "precision_recall_fscore_support": precision_recall_fscore_support,
@@ -289,8 +402,102 @@ def _require_transformer_dependencies() -> dict[str, Any]:
     return {"torch": torch, "GradScaler": GradScaler, "AutoTokenizer": AutoTokenizer}
 
 
-def _maybe_report(message: str) -> None:
-    print(message, flush=True)
+def _rotate_with_backups(path: Path, *, backup_count: int) -> None:
+    if backup_count <= 0:
+        if path.exists():
+            path.unlink()
+        return
+    oldest = path.with_name(f"{path.name}.{backup_count}")
+    if oldest.exists():
+        oldest.unlink()
+    for index in range(backup_count - 1, 0, -1):
+        source = path.with_name(f"{path.name}.{index}")
+        target = path.with_name(f"{path.name}.{index + 1}")
+        if source.exists():
+            source.replace(target)
+    if path.exists():
+        path.replace(path.with_name(f"{path.name}.1"))
+
+
+def _remove_tree_with_retries(path: str | Path, *, retries: int = 5, delay_seconds: float = 0.2) -> None:
+    target = Path(path)
+    if not target.exists():
+        return
+    last_error: BaseException | None = None
+    for attempt in range(retries):
+        try:
+            shutil.rmtree(target)
+            return
+        except FileNotFoundError:
+            return
+        except PermissionError as exc:
+            last_error = exc
+            time.sleep(delay_seconds * (attempt + 1))
+    if last_error is not None:
+        raise last_error
+
+
+def _publish_directory(source: str | Path, target: str | Path, *, retries: int = 5, delay_seconds: float = 0.2) -> None:
+    source_path = Path(source)
+    target_path = Path(target)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    last_error: BaseException | None = None
+    for attempt in range(retries):
+        try:
+            if target_path.exists():
+                _remove_tree_with_retries(target_path, retries=1, delay_seconds=delay_seconds)
+            source_path.rename(target_path)
+            return
+        except FileNotFoundError:
+            if target_path.exists():
+                return
+            raise
+        except (PermissionError, OSError) as exc:
+            last_error = exc
+            time.sleep(delay_seconds * (attempt + 1))
+    _remove_tree_with_retries(target_path, retries=retries, delay_seconds=delay_seconds)
+    for attempt in range(retries):
+        try:
+            shutil.copytree(source_path, target_path)
+            _remove_tree_with_retries(source_path, retries=retries, delay_seconds=delay_seconds)
+            return
+        except FileExistsError:
+            _remove_tree_with_retries(target_path, retries=1, delay_seconds=delay_seconds)
+        except PermissionError as exc:
+            last_error = exc
+            time.sleep(delay_seconds * (attempt + 1))
+    if last_error is not None:
+        raise last_error
+
+
+def _append_text_with_retention(
+    path: str | Path,
+    text: str,
+    *,
+    max_bytes: int,
+    backup_count: int,
+) -> Path:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    encoded = text.encode("utf-8")
+    if target.exists() and target.stat().st_size + len(encoded) > max_bytes:
+        _rotate_with_backups(target, backup_count=backup_count)
+    with target.open("ab") as handle:
+        handle.write(encoded)
+    return target
+
+
+def _maybe_report(message: str, *, run_log_path: str | Path | None = None) -> None:
+    line = message.rstrip("\n") + "\n"
+    if run_log_path is not None:
+        _append_text_with_retention(
+            run_log_path,
+            line,
+            max_bytes=_DEFAULT_RUN_LOG_MAX_BYTES,
+            backup_count=_DEFAULT_LOG_BACKUP_COUNT,
+        )
+    if sys.stdout is not None and sys.stdout.isatty():
+        print(message, flush=True)
 
 
 def _mlflow_client() -> Any | None:
@@ -349,8 +556,30 @@ def _write_json(path: str | Path, payload: dict[str, Any]) -> Path:
     return target
 
 
+def _append_jsonl(path: str | Path, payload: dict[str, Any]) -> Path:
+    return _append_text_with_retention(
+        path,
+        json.dumps(payload) + "\n",
+        max_bytes=_DEFAULT_EVENT_LOG_MAX_BYTES,
+        backup_count=_DEFAULT_LOG_BACKUP_COUNT,
+    )
+
+
 def _load_json(path: str | Path) -> dict[str, Any]:
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _write_pickle_gz(path: str | Path, payload: Any) -> Path:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(target, "wb") as handle:
+        pickle.dump(payload, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    return target
+
+
+def _load_pickle_gz(path: str | Path) -> Any:
+    with gzip.open(Path(path), "rb") as handle:
+        return pickle.load(handle)
 
 
 def _hash_tree(root: str | Path) -> str:
@@ -755,12 +984,61 @@ def _save_status(output_path: Path, payload: dict[str, Any]) -> None:
     _write_json(output_path / "status.json", {"updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), **payload})
 
 
+def _mark_run_failed(
+    output_path: Path,
+    *,
+    fallback_step: str,
+    fallback_stage: str | None,
+    error: BaseException,
+) -> None:
+    try:
+        current_status = _load_json(output_path / "status.json") if (output_path / "status.json").is_file() else {}
+    except Exception:
+        current_status = {}
+    try:
+        current_progress = _load_json(output_path / "progress.json") if (output_path / "progress.json").is_file() else {}
+    except Exception:
+        current_progress = {}
+    current_step = str(current_status.get("currentStep") or fallback_step)
+    current_stage = current_progress.get("currentStage") or current_status.get("currentStage") or fallback_stage
+    message = f"{type(error).__name__}: {error}"
+    _save_status(
+        output_path,
+        {
+            "currentStep": current_step,
+            "currentStage": current_stage,
+            "state": "failed",
+            "errorMessage": message,
+        },
+    )
+    _save_progress(
+        output_path,
+        {
+            **current_progress,
+            "currentStage": current_stage,
+            "state": "failed",
+            "errorMessage": message,
+        },
+    )
+    _append_jsonl(
+        output_path / "events.jsonl",
+        {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "type": "run_failed",
+            "currentStep": current_step,
+            "currentStage": current_stage,
+            "errorMessage": message,
+        },
+    )
+
+
 def _score_dual_sentinel_artifact(
     sentinel_artifact: dict[str, Any],
     example: Any,
 ) -> dict[str, float]:
     deps = _require_training_dependencies()
     hstack = deps["hstack"]
+    xgb = deps.get("xgboost")
 
     lexical = sentinel_artifact["lexical"]
     structured = sentinel_artifact["structured"]
@@ -784,9 +1062,20 @@ def _score_dual_sentinel_artifact(
             structured["text_vectorizer"].transform([_hierarchical_text(example, top_k_chunks=3)]),
         ],
         format="csr",
-    )
+    ).astype("float32")
     structured_classifier = structured["classifier"]
-    if structured["backend"] == "catboost_binary_cpu":
+    if structured["backend"].startswith("xgboost_binary") and xgb is not None:
+        booster = structured.get("_booster")
+        if booster is None:
+            classifier_payload = structured_classifier
+            if isinstance(classifier_payload, xgb.Booster):
+                booster = classifier_payload
+            else:
+                booster = xgb.Booster()
+                booster.load_model(bytearray(classifier_payload))
+            structured["_booster"] = booster
+        structured_probability = float(booster.predict(xgb.DMatrix(structured_matrix))[0])
+    elif structured["backend"] == "catboost_binary_cpu":
         structured_probability = float(structured_classifier.predict_proba(structured_matrix.toarray())[0][1])
     elif hasattr(structured_classifier, "predict_proba"):
         structured_probability = float(structured_classifier.predict_proba(structured_matrix)[0][1])
@@ -803,17 +1092,11 @@ def _score_dual_sentinel_artifact(
     }
 
 
-def _choose_threat_threshold(
-    valid_examples: list[Any],
-    sentinel_artifact: dict[str, Any],
+def _select_threat_threshold_from_rows(
+    rows: list[tuple[float, int]],
     *,
     minimum_recall: float,
 ) -> tuple[float, float]:
-    rows: list[tuple[float, int]] = []
-    for example in valid_examples:
-        if example.threat_positive is None:
-            continue
-        rows.append((_score_dual_sentinel_artifact(sentinel_artifact, example)["max"], int(example.threat_positive)))
     if not rows:
         return 0.55, 1.0
     candidate_thresholds = sorted({score for score, _ in rows}, reverse=True)
@@ -831,6 +1114,27 @@ def _choose_threat_threshold(
     return float(best_threshold), float(best_recall)
 
 
+def _choose_threat_threshold(
+    valid_examples: Iterable[Any],
+    sentinel_artifact: dict[str, Any],
+    *,
+    minimum_recall: float,
+    progress_callback: Callable[[int], None] | None = None,
+) -> tuple[float, float]:
+    rows: list[tuple[float, int]] = []
+    for example in valid_examples:
+        if example.threat_positive is None:
+            continue
+        rows.append((_score_dual_sentinel_artifact(sentinel_artifact, example)["max"], int(example.threat_positive)))
+        if progress_callback is not None and (len(rows) <= 4 or len(rows) % 2048 == 0):
+            progress_callback(len(rows))
+    if not rows:
+        return 0.55, 1.0
+    if progress_callback is not None:
+        progress_callback(len(rows))
+    return _select_threat_threshold_from_rows(rows, minimum_recall=minimum_recall)
+
+
 def train_sentinel(
     manifest_path: str | Path,
     *,
@@ -846,50 +1150,185 @@ def train_sentinel(
 ) -> dict[str, Any]:
     deps = _require_training_dependencies()
     HashingVectorizer = deps["HashingVectorizer"]
-    TfidfVectorizer = deps["TfidfVectorizer"]
     DictVectorizer = deps["DictVectorizer"]
     SGDClassifier = deps["SGDClassifier"]
     XGBClassifier = deps["XGBClassifier"]
     CatBoostClassifier = deps["CatBoostClassifier"]
     hstack = deps["hstack"]
+    vstack = deps["vstack"]
+    xgb = deps["xgboost"]
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     progress_output_path = Path(progress_root) if progress_root is not None else output_path
     checkpoint_root = Path(checkpoint_dir) if checkpoint_dir is not None else output_path / "active" / "latest"
     state_path = checkpoint_root / "state.json"
+    structured_checkpoint_path = checkpoint_root / "structured.pkl"
+    threshold_cache_path = checkpoint_root / "threshold_rows.pkl"
     total_train_examples = _total_examples(manifest_path, "train", data_root=data_root, limit=limit) or 0
+    total_valid_examples = _total_examples(manifest_path, "valid", data_root=data_root, limit=limit) or 0
     lexical_batch_size = 2048
     processed_batches = 0
+    partial_records_seen = 0
     sentinel_started_monotonic = time.perf_counter()
+    bootstrap_report_batches = {1, 2, 4, 8, 16}
+    progress_heartbeat_seconds = 10.0
+    last_progress_report_monotonic = sentinel_started_monotonic
+    events_path = progress_output_path / "events.jsonl"
+    run_log_path = progress_output_path / "run.log"
+    progress_lock = RLock()
+    structured_phase = "pending"
+    structured_vocab_records_seen = 0
+    structured_vectorize_records_seen = 0
+    structured_train_pass = 0
+    structured_train_round = 0
+    threshold_records_seen = 0
+    resume_state = _load_json(state_path) if resume and state_path.is_file() else {}
+    resume_phase = str(resume_state.get("phase") or "")
+    direct_structured_resume = bool(
+        resume
+        and structured_checkpoint_path.is_file()
+        and resume_phase in {"structured_train", "threshold_tuning", "complete"}
+    )
 
-    def report_sentinel_progress(*, state: str, phase: str, threshold: float | None = None, threshold_recall: float | None = None) -> None:
-        records_seen = min(total_train_examples, processed_batches * lexical_batch_size)
+    def _structured_fraction_locked() -> float:
+        if total_train_examples <= 0:
+            valid_fraction = min(1.0, threshold_records_seen / max(1, total_valid_examples)) if total_valid_examples else 1.0
+            return 1.0 if structured_phase == "complete" else valid_fraction
+        if structured_phase == "pending":
+            return 0.0
+        if structured_phase == "structured_vocab":
+            return 0.35 * min(1.0, structured_vocab_records_seen / total_train_examples)
+        if structured_phase == "structured_vectorize":
+            return 0.35 + 0.45 * min(1.0, structured_vectorize_records_seen / total_train_examples)
+        if structured_phase == "structured_train":
+            return 0.80 + 0.10 * min(1.0, structured_train_round / 200.0)
+        if structured_phase == "threshold_tuning":
+            valid_fraction = min(1.0, threshold_records_seen / max(1, total_valid_examples)) if total_valid_examples else 1.0
+            return 0.90 + 0.10 * valid_fraction
+        if structured_phase == "complete":
+            return 1.0
+        return 0.0
+
+    def report_sentinel_progress(
+        *,
+        state: str,
+        phase: str,
+        threshold: float | None = None,
+        threshold_recall: float | None = None,
+        include_throughput: bool = True,
+    ) -> None:
+        with progress_lock:
+            lexical_records_seen = min(total_train_examples, max(partial_records_seen, processed_batches * lexical_batch_size))
+            phase_records_seen = lexical_records_seen
+            phase_total_records = total_train_examples
+            phase_unit = "examples"
+            display_progress_text = (
+                f"lexical: {lexical_records_seen:,} / {total_train_examples:,} examples"
+                if total_train_examples
+                else "lexical: waiting"
+            )
+            if phase == "structured_vocab":
+                phase_records_seen = structured_vocab_records_seen
+                phase_total_records = total_train_examples
+                display_progress_text = (
+                    f"structured vocab: {structured_vocab_records_seen:,} / {total_train_examples:,} examples"
+                    if total_train_examples
+                    else "structured vocab: waiting"
+                )
+            elif phase == "structured_vectorize":
+                phase_records_seen = structured_vectorize_records_seen
+                phase_total_records = total_train_examples
+                display_progress_text = (
+                    f"structured vectorize: {structured_vectorize_records_seen:,} / {total_train_examples:,} examples"
+                    if total_train_examples
+                    else "structured vectorize: waiting"
+                )
+            elif phase == "structured_train":
+                phase_records_seen = structured_vectorize_records_seen
+                phase_total_records = total_train_examples
+                display_progress_text = (
+                    f"structured train: pass {max(1, structured_train_pass)}, "
+                    f"round {structured_train_round:,} / 200, "
+                    f"{structured_vectorize_records_seen:,} / {total_train_examples:,} examples streamed"
+                    if total_train_examples
+                    else f"structured train: pass {max(1, structured_train_pass)}, round {structured_train_round:,} / 200"
+                )
+            elif phase == "threshold_tuning":
+                phase_records_seen = threshold_records_seen
+                phase_total_records = total_valid_examples
+                display_progress_text = (
+                    f"threshold tuning: {threshold_records_seen:,} / {total_valid_examples:,} validation examples"
+                    if total_valid_examples
+                    else "threshold tuning: scoring validation examples"
+                )
+            elif phase == "complete":
+                phase_records_seen = phase_total_records = max(1, total_valid_examples or total_train_examples)
+                display_progress_text = "complete"
+            lexical_fraction = min(1.0, lexical_records_seen / max(1, total_train_examples)) if total_train_examples else 1.0
+            stage_fraction = 0.5 * lexical_fraction + 0.5 * _structured_fraction_locked()
         elapsed_seconds = max(time.perf_counter() - sentinel_started_monotonic, 1e-9)
         progress_payload: dict[str, Any] = {
             "currentStage": "phase_1_ml_sentinel",
             "optimizerStep": processed_batches,
-            "recordsSeen": records_seen,
-            "totalTargetRecords": total_train_examples,
+            "recordsSeen": phase_records_seen,
+            "totalTargetRecords": phase_total_records,
+            "currentItems": phase_records_seen,
+            "totalItems": phase_total_records,
             "lastCheckpointPath": str(checkpoint_root) if checkpoint_root.exists() else None,
             "lastCheckpointAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) if checkpoint_root.exists() else None,
             "state": state,
             "phase": phase,
+            "unit": phase_unit,
+            "displayProgressText": display_progress_text,
             "processedBatches": processed_batches,
             "batchSize": lexical_batch_size,
-            "progressFraction": (records_seen / total_train_examples) if total_train_examples else None,
-            "examplesPerSecond": records_seen / elapsed_seconds if records_seen else 0.0,
-            "batchesPerSecond": processed_batches / elapsed_seconds if processed_batches else 0.0,
+            "progressFraction": stage_fraction,
+            "examplesPerSecond": (phase_records_seen / elapsed_seconds if phase_records_seen else 0.0)
+            if include_throughput and phase_total_records
+            else None,
+            "batchesPerSecond": (processed_batches / elapsed_seconds if processed_batches else 0.0) if include_throughput else None,
+            "lexicalRecordsSeen": lexical_records_seen,
+            "structuredVocabRecordsSeen": structured_vocab_records_seen,
+            "structuredVectorizeRecordsSeen": structured_vectorize_records_seen,
+            "structuredTrainPass": structured_train_pass,
+            "structuredTrainRound": structured_train_round,
+            "thresholdRecordsSeen": threshold_records_seen,
         }
         if threshold is not None:
             progress_payload["threshold"] = float(threshold)
         if threshold_recall is not None:
             progress_payload["thresholdRecall"] = float(threshold_recall)
         _save_progress(progress_output_path, progress_payload)
+        _append_jsonl(
+            events_path,
+            {
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "type": "sentinel_progress",
+                "state": state,
+                "phase": phase,
+                "processedBatches": processed_batches,
+                "recordsSeen": phase_records_seen,
+                "totalTargetRecords": phase_total_records,
+                "threshold": threshold,
+                "thresholdRecall": threshold_recall,
+                "displayProgressText": display_progress_text,
+            },
+        )
+        throughput_text = (
+            f", {progress_payload['examplesPerSecond']:.2f} ex/s"
+            if isinstance(progress_payload.get("examplesPerSecond"), (int, float))
+            else ""
+        )
+        _maybe_report(
+            f"[sentinel:{phase}] state={state} records={phase_records_seen}/{phase_total_records} "
+            f"batches={processed_batches}{throughput_text}",
+            run_log_path=run_log_path,
+        )
         _mlflow_log_metrics(
             {
-                "sentinel.records_seen": records_seen,
-                "sentinel.total_target_records": total_train_examples,
+                "sentinel.records_seen": phase_records_seen,
+                "sentinel.total_target_records": phase_total_records,
                 "sentinel.processed_batches": processed_batches,
                 "sentinel.progress_fraction": progress_payload["progressFraction"],
                 "sentinel.threshold": threshold,
@@ -897,6 +1336,455 @@ def train_sentinel(
             },
             step=processed_batches,
         )
+
+    def update_threshold_progress(count: int) -> None:
+        nonlocal structured_phase, threshold_records_seen
+        with progress_lock:
+            structured_phase = "threshold_tuning"
+            threshold_records_seen = count
+        _write_json(
+            state_path,
+            {
+                "phase": "threshold_tuning",
+                "processedBatches": processed_batches,
+                "structuredTrainPass": structured_train_pass,
+                "structuredTrainRound": structured_train_round,
+                "structuredVectorizeRecordsSeen": structured_vectorize_records_seen,
+                "thresholdRecordsSeen": threshold_records_seen,
+            },
+        )
+        report_sentinel_progress(state="running", phase="threshold_tuning", include_throughput=False)
+
+    def choose_threat_threshold_with_resume(sentinel_artifact: dict[str, Any]) -> tuple[float, float]:
+        rows: list[tuple[float, int]] = []
+        processed = 0
+        threshold_last_report_monotonic = time.perf_counter()
+        if resume and threshold_cache_path.is_file():
+            try:
+                threshold_cache = load_pickle(threshold_cache_path)
+            except Exception:
+                threshold_cache = None
+            if isinstance(threshold_cache, dict):
+                cached_rows = threshold_cache.get("rows") or []
+                rows = [(float(score), int(label)) for score, label in cached_rows]
+                processed = int(threshold_cache.get("processed", len(rows)))
+        if processed:
+            update_threshold_progress(processed)
+        for example in _iter_examples(
+            manifest_path,
+            "valid",
+            data_root=data_root,
+            limit=limit,
+            skip=processed,
+            ):
+            if example.threat_positive is None:
+                continue
+            rows.append((_score_dual_sentinel_artifact(sentinel_artifact, example)["max"], int(example.threat_positive)))
+            processed += 1
+            now_monotonic = time.perf_counter()
+            if (
+                processed <= 4
+                or processed % 2048 == 0
+                or now_monotonic - threshold_last_report_monotonic >= progress_heartbeat_seconds
+            ):
+                write_pickle(threshold_cache_path, {"rows": rows, "processed": processed})
+                update_threshold_progress(processed)
+                threshold_last_report_monotonic = now_monotonic
+        write_pickle(threshold_cache_path, {"rows": rows, "processed": processed})
+        update_threshold_progress(processed)
+        return _select_threat_threshold_from_rows(rows, minimum_recall=0.995)
+
+    def train_structured_sentinel() -> dict[str, Any]:
+        nonlocal structured_phase, structured_vocab_records_seen, structured_vectorize_records_seen, structured_train_pass, structured_train_round, threshold_records_seen
+        if direct_structured_resume:
+            structured_artifact = load_pickle(structured_checkpoint_path)
+            resumed_phase = "threshold_tuning" if resume_phase in {"structured_train", "threshold_tuning"} else "structured_train"
+            with progress_lock:
+                structured_phase = resumed_phase
+                structured_vocab_records_seen = int(resume_state.get("structuredVocabRecordsSeen", total_train_examples))
+                structured_vectorize_records_seen = int(
+                    resume_state.get("structuredVectorizeRecordsSeen", total_train_examples)
+                )
+                structured_train_pass = int(resume_state.get("structuredTrainPass", max(1, structured_train_pass)))
+                structured_train_round = int(resume_state.get("structuredTrainRound", 200))
+                threshold_records_seen = int(resume_state.get("thresholdRecordsSeen", 0))
+            report_sentinel_progress(
+                state="running",
+                phase=resumed_phase,
+                include_throughput=False,
+            )
+            return structured_artifact
+        text_vectorizer = HashingVectorizer(
+            analyzer="char_wb",
+            ngram_range=(3, 5),
+            n_features=2**14,
+            alternate_sign=False,
+            norm="l2",
+        )
+        dict_vectorizer = DictVectorizer(sparse=True)
+
+        def _iter_structured_rows(split: str) -> Iterable[dict[str, Any]]:
+            nonlocal structured_phase, structured_vocab_records_seen
+            for example in _iter_examples(manifest_path, split, data_root=data_root, limit=limit):
+                if split == "train":
+                    with progress_lock:
+                        structured_phase = "structured_vocab"
+                        structured_vocab_records_seen += 1
+                        if structured_vocab_records_seen <= 4 or structured_vocab_records_seen % structured_batch_size == 0:
+                            report_sentinel_progress(state="running", phase="structured_vocab")
+                yield structured_feature_dict(example.structured)
+
+        def _iter_structured_texts(split: str) -> Iterable[str]:
+            for example in _iter_examples(manifest_path, split, data_root=data_root, limit=limit):
+                yield _hierarchical_text(example, top_k_chunks=3)
+
+        def _iter_threat_labels(split: str) -> Iterable[int]:
+            for example in _iter_examples(manifest_path, split, data_root=data_root, limit=limit):
+                yield int(example.threat_positive or 0)
+
+        structured_batch_size = 4096
+        with progress_lock:
+            structured_phase = "structured_vocab"
+            structured_vocab_records_seen = 0
+            structured_vectorize_records_seen = 0
+        report_sentinel_progress(state="running", phase="structured_vocab", include_throughput=False)
+        dict_vectorizer.fit(_iter_structured_rows("train"))
+        with progress_lock:
+            structured_phase = "structured_vectorize"
+            structured_vocab_records_seen = total_train_examples
+            structured_vectorize_records_seen = 0
+        _write_json(
+            checkpoint_root / "state.json",
+            {
+                "phase": "structured_vocab_complete",
+                "processedBatches": processed_batches,
+                "structuredVocabRecordsSeen": structured_vocab_records_seen,
+            },
+        )
+        train_device = "cpu"
+        if recipe_mode == "dual" and xgb is not None:
+            try:
+                train_device = "cuda" if _require_transformer_dependencies()["torch"].cuda.is_available() else "cpu"
+            except RuntimeError:
+                train_device = "cpu"
+
+            class StructuredBatchIter(xgb.DataIter):
+                def __init__(self) -> None:
+                    self._pass_index = 0
+                    self._processed_examples = 0
+                    self._iterator: Iterator[Any] | None = None
+                    super().__init__()
+                    self.reset()
+
+                def reset(self) -> None:
+                    self._pass_index += 1
+                    self._processed_examples = 0
+                    self._iterator = iter(_iter_examples(manifest_path, "train", data_root=data_root, limit=limit))
+                    with progress_lock:
+                        nonlocal structured_phase, structured_vectorize_records_seen, structured_train_pass, structured_train_round
+                        structured_phase = "structured_train"
+                        structured_vectorize_records_seen = 0
+                        structured_train_pass = self._pass_index
+                        structured_train_round = 0
+                    _write_json(
+                        checkpoint_root / "state.json",
+                        {
+                            "phase": "structured_train",
+                            "processedBatches": processed_batches,
+                            "structuredTrainPass": structured_train_pass,
+                            "structuredTrainRound": structured_train_round,
+                            "structuredVectorizeRecordsSeen": structured_vectorize_records_seen,
+                        },
+                    )
+                    report_sentinel_progress(state="running", phase="structured_train", include_throughput=False)
+
+                def next(self, input_data: Callable[..., None]) -> int:
+                    rows_batch: list[dict[str, Any]] = []
+                    texts_batch: list[str] = []
+                    labels_batch: list[int] = []
+                    assert self._iterator is not None
+                    while len(rows_batch) < structured_batch_size:
+                        try:
+                            example = next(self._iterator)
+                        except StopIteration:
+                            break
+                        rows_batch.append(structured_feature_dict(example.structured))
+                        texts_batch.append(_hierarchical_text(example, top_k_chunks=3))
+                        labels_batch.append(int(example.threat_positive or 0))
+                    if not rows_batch:
+                        return 0
+                    matrix = hstack(
+                        [
+                            dict_vectorizer.transform(rows_batch),
+                            text_vectorizer.transform(texts_batch),
+                        ],
+                        format="csr",
+                    ).astype("float32")
+                    input_data(data=matrix, label=labels_batch)
+                    self._processed_examples += len(labels_batch)
+                    with progress_lock:
+                        nonlocal structured_phase, structured_vectorize_records_seen, structured_train_pass
+                        structured_phase = "structured_train"
+                        structured_vectorize_records_seen = self._processed_examples
+                        structured_train_pass = self._pass_index
+                    if self._processed_examples <= structured_batch_size or self._processed_examples % structured_batch_size == 0:
+                        _write_json(
+                            checkpoint_root / "state.json",
+                            {
+                                "phase": "structured_train",
+                                "processedBatches": processed_batches,
+                                "structuredTrainPass": structured_train_pass,
+                                "structuredTrainRound": structured_train_round,
+                                "structuredVectorizeRecordsSeen": structured_vectorize_records_seen,
+                            },
+                        )
+                        report_sentinel_progress(state="running", phase="structured_train")
+                    return 1
+
+                def cleanup(self) -> None:
+                    return None
+
+            class StructuredTrainProgressCallback(xgb.callback.TrainingCallback):
+                def after_iteration(self, model: Any, epoch: int, evals_log: Any) -> bool:
+                    nonlocal structured_phase, structured_vectorize_records_seen, structured_train_round
+                    with progress_lock:
+                        structured_phase = "structured_train"
+                        structured_vectorize_records_seen = total_train_examples
+                        structured_train_round = epoch + 1
+                    if structured_train_round <= 3 or structured_train_round % 5 == 0 or structured_train_round == 200:
+                        _write_json(
+                            checkpoint_root / "state.json",
+                            {
+                                "phase": "structured_train",
+                                "processedBatches": processed_batches,
+                                "structuredTrainPass": structured_train_pass,
+                                "structuredTrainRound": structured_train_round,
+                                "structuredVectorizeRecordsSeen": structured_vectorize_records_seen,
+                            },
+                        )
+                        report_sentinel_progress(state="running", phase="structured_train", include_throughput=False)
+                    return False
+
+            batch_iter = StructuredBatchIter()
+            try:
+                dtrain = xgb.QuantileDMatrix(batch_iter, max_bin=256)
+                structured_classifier = xgb.train(
+                    {
+                        "objective": "binary:logistic",
+                        "eval_metric": "aucpr",
+                        "max_depth": 8,
+                        "learning_rate": 0.05,
+                        "subsample": 0.8,
+                        "colsample_bytree": 0.6,
+                        "min_child_weight": 2,
+                        "max_bin": 256,
+                        "tree_method": "hist",
+                        "device": train_device,
+                        "nthread": max(1, (os.cpu_count() or 2) - 1),
+                        "seed": _DEFAULT_RANDOM_SEED,
+                    },
+                    dtrain,
+                    num_boost_round=200,
+                    verbose_eval=False,
+                    callbacks=[StructuredTrainProgressCallback()],
+                )
+            finally:
+                batch_iter.cleanup()
+            with progress_lock:
+                structured_phase = "structured_train"
+                structured_vectorize_records_seen = total_train_examples
+                structured_train_round = 200
+            _write_json(
+                checkpoint_root / "state.json",
+                {
+                    "phase": "structured_train",
+                    "processedBatches": processed_batches,
+                    "structuredTrainPass": structured_train_pass,
+                    "structuredTrainRound": structured_train_round,
+                    "structuredVectorizeRecordsSeen": structured_vectorize_records_seen,
+                },
+            )
+            report_sentinel_progress(state="running", phase="structured_train", include_throughput=False)
+            structured_backend = "xgboost_binary"
+        elif CatBoostClassifier is not None:
+            report_sentinel_progress(state="running", phase="structured_vectorize", include_throughput=False)
+            train_labels: list[int] = []
+            structured_blocks: list[Any] = []
+            rows_batch: list[dict[str, Any]] = []
+            texts_batch: list[str] = []
+            processed_examples = 0
+            for example in _iter_examples(manifest_path, "train", data_root=data_root, limit=limit):
+                rows_batch.append(structured_feature_dict(example.structured))
+                texts_batch.append(_hierarchical_text(example, top_k_chunks=3))
+                train_labels.append(int(example.threat_positive or 0))
+                processed_examples += 1
+                if len(rows_batch) < structured_batch_size:
+                    continue
+                structured_blocks.append(
+                    hstack(
+                        [
+                            dict_vectorizer.transform(rows_batch),
+                            text_vectorizer.transform(texts_batch),
+                        ],
+                        format="csr",
+                    ).astype("float32")
+                )
+                with progress_lock:
+                    structured_vectorize_records_seen = processed_examples
+                rows_batch = []
+                texts_batch = []
+                if processed_examples <= structured_batch_size or processed_examples % structured_batch_size == 0:
+                    _write_json(
+                        checkpoint_root / "state.json",
+                        {
+                            "phase": "structured_vectorize",
+                            "processedBatches": processed_batches,
+                            "structuredVectorizeRecordsSeen": structured_vectorize_records_seen,
+                        },
+                    )
+                    report_sentinel_progress(state="running", phase="structured_vectorize")
+            if rows_batch:
+                structured_blocks.append(
+                    hstack(
+                        [
+                            dict_vectorizer.transform(rows_batch),
+                            text_vectorizer.transform(texts_batch),
+                        ],
+                        format="csr",
+                    ).astype("float32")
+                )
+                with progress_lock:
+                    structured_vectorize_records_seen = processed_examples
+                _write_json(
+                    checkpoint_root / "state.json",
+                    {
+                        "phase": "structured_vectorize",
+                        "processedBatches": processed_batches,
+                        "structuredVectorizeRecordsSeen": structured_vectorize_records_seen,
+                    },
+                )
+                report_sentinel_progress(state="running", phase="structured_vectorize")
+            if not structured_blocks:
+                raise RuntimeError("Structured sentinel received no train examples.")
+            structured_matrix = vstack(structured_blocks, format="csr").astype("float32")
+            if processed_examples != len(train_labels):
+                raise RuntimeError(
+                    f"Structured sentinel row/label mismatch: rows={processed_examples} labels={len(train_labels)}."
+                )
+            with progress_lock:
+                structured_phase = "structured_train"
+                structured_vectorize_records_seen = processed_examples
+            _write_json(
+                checkpoint_root / "state.json",
+                {
+                    "phase": "structured_train",
+                    "processedBatches": processed_batches,
+                    "structuredVectorizeRecordsSeen": structured_vectorize_records_seen,
+                },
+            )
+            report_sentinel_progress(state="running", phase="structured_train", include_throughput=False)
+            structured_classifier = CatBoostClassifier(
+                task_type="CPU",
+                loss_function="Logloss",
+                depth=6,
+                learning_rate=0.08,
+                iterations=200,
+                allow_writing_files=False,
+                verbose=False,
+            )
+            structured_backend = "catboost_binary_cpu"
+            structured_classifier.fit(structured_matrix.toarray(), train_labels)
+        else:
+            report_sentinel_progress(state="running", phase="structured_vectorize", include_throughput=False)
+            train_labels = []
+            structured_blocks = []
+            rows_batch = []
+            texts_batch = []
+            processed_examples = 0
+            for example in _iter_examples(manifest_path, "train", data_root=data_root, limit=limit):
+                rows_batch.append(structured_feature_dict(example.structured))
+                texts_batch.append(_hierarchical_text(example, top_k_chunks=3))
+                train_labels.append(int(example.threat_positive or 0))
+                processed_examples += 1
+                if len(rows_batch) < structured_batch_size:
+                    continue
+                structured_blocks.append(
+                    hstack(
+                        [
+                            dict_vectorizer.transform(rows_batch),
+                            text_vectorizer.transform(texts_batch),
+                        ],
+                        format="csr",
+                    ).astype("float32")
+                )
+                with progress_lock:
+                    structured_vectorize_records_seen = processed_examples
+                rows_batch = []
+                texts_batch = []
+                if processed_examples <= structured_batch_size or processed_examples % structured_batch_size == 0:
+                    _write_json(
+                        checkpoint_root / "state.json",
+                        {
+                            "phase": "structured_vectorize",
+                            "processedBatches": processed_batches,
+                            "structuredVectorizeRecordsSeen": structured_vectorize_records_seen,
+                        },
+                    )
+                    report_sentinel_progress(state="running", phase="structured_vectorize")
+            if rows_batch:
+                structured_blocks.append(
+                    hstack(
+                        [
+                            dict_vectorizer.transform(rows_batch),
+                            text_vectorizer.transform(texts_batch),
+                        ],
+                        format="csr",
+                    ).astype("float32")
+                )
+                with progress_lock:
+                    structured_vectorize_records_seen = processed_examples
+                _write_json(
+                    checkpoint_root / "state.json",
+                    {
+                        "phase": "structured_vectorize",
+                        "processedBatches": processed_batches,
+                        "structuredVectorizeRecordsSeen": structured_vectorize_records_seen,
+                    },
+                )
+                report_sentinel_progress(state="running", phase="structured_vectorize")
+            if not structured_blocks:
+                raise RuntimeError("Structured sentinel received no train examples.")
+            structured_matrix = vstack(structured_blocks, format="csr").astype("float32")
+            if processed_examples != len(train_labels):
+                raise RuntimeError(
+                    f"Structured sentinel row/label mismatch: rows={processed_examples} labels={len(train_labels)}."
+                )
+            with progress_lock:
+                structured_phase = "structured_train"
+                structured_vectorize_records_seen = processed_examples
+            _write_json(
+                checkpoint_root / "state.json",
+                {
+                    "phase": "structured_train",
+                    "processedBatches": processed_batches,
+                    "structuredVectorizeRecordsSeen": structured_vectorize_records_seen,
+                },
+            )
+            report_sentinel_progress(state="running", phase="structured_train", include_throughput=False)
+            structured_classifier = SGDClassifier(loss="log_loss", alpha=1e-5, random_state=_DEFAULT_RANDOM_SEED)
+            structured_backend = "sgd_binary_fallback"
+            structured_classifier.fit(structured_matrix, train_labels)
+
+        return {
+            "dict_vectorizer": dict_vectorizer,
+            "text_vectorizer": text_vectorizer,
+            "classifier": structured_classifier.save_raw(raw_format="json")
+            if structured_backend.startswith("xgboost_binary")
+            else structured_classifier,
+            "backend": structured_backend,
+            "train_device": train_device if structured_backend.startswith("xgboost_binary") else "cpu",
+            "inference_device": "cpu",
+        }
 
     _save_status(
         progress_output_path,
@@ -914,8 +1802,16 @@ def train_sentinel(
             "model_guard.recipe_mode": recipe_mode,
         }
     )
-    report_sentinel_progress(state="running", phase="lexical")
-
+    _append_jsonl(
+        events_path,
+        {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "type": "stage_started",
+            "stage": "phase_1_ml_sentinel",
+            "resume": resume,
+        },
+    )
+    _maybe_report("starting phase_1_ml_sentinel dual sentinel training", run_log_path=run_log_path)
     char_vectorizer = HashingVectorizer(
         analyzer="char_wb",
         ngram_range=(3, 6),
@@ -933,33 +1829,43 @@ def train_sentinel(
     lexical_classifier = SGDClassifier(loss="log_loss", alpha=1e-5, random_state=_DEFAULT_RANDOM_SEED)
     fit_started = False
     if resume and state_path.is_file() and (checkpoint_root / "lexical.pkl").is_file():
-        state = _load_json(state_path)
         lexical_payload = load_pickle(checkpoint_root / "lexical.pkl")
         char_vectorizer = lexical_payload["char_vectorizer"]
         word_vectorizer = lexical_payload["word_vectorizer"]
         lexical_classifier = lexical_payload["classifier"]
-        processed_batches = int(state.get("processedBatches", 0))
+        processed_batches = int(resume_state.get("processedBatches", 0))
         fit_started = processed_batches > 0
+    partial_records_seen = processed_batches * lexical_batch_size
+    structured_future_executor = ThreadPoolExecutor(max_workers=1)
+    structured_future = structured_future_executor.submit(train_structured_sentinel)
+    if not direct_structured_resume:
+        report_sentinel_progress(state="running", phase="lexical", include_throughput=not (resume and processed_batches > 0))
 
     texts: list[str] = []
     labels: list[int] = []
-    for example_index, example in enumerate(_iter_examples(manifest_path, "train", data_root=data_root, limit=limit)):
+    lexical_skip = processed_batches * lexical_batch_size
+    for example_index, example in enumerate(
+        _iter_examples(manifest_path, "train", data_root=data_root, limit=limit, skip=lexical_skip),
+        start=lexical_skip,
+    ):
         texts.append(example.text)
         labels.append(int(example.threat_positive or 0))
+        partial_records_seen = example_index + 1
+        now_monotonic = time.perf_counter()
+        if now_monotonic - last_progress_report_monotonic >= progress_heartbeat_seconds:
+            report_sentinel_progress(state="running", phase="lexical")
+            last_progress_report_monotonic = now_monotonic
         if len(texts) < lexical_batch_size:
             continue
         batch_index = example_index // lexical_batch_size
-        if batch_index < processed_batches:
-            texts = []
-            labels = []
-            continue
         matrix = hstack([char_vectorizer.transform(texts), word_vectorizer.transform(texts)], format="csr")
         lexical_classifier.partial_fit(matrix, labels, classes=[0, 1] if not fit_started else None)
         fit_started = True
         processed_batches = batch_index + 1
+        partial_records_seen = processed_batches * lexical_batch_size
         texts = []
         labels = []
-        if processed_batches % max(1, checkpoint_batches) == 0:
+        if processed_batches in bootstrap_report_batches or processed_batches % max(1, checkpoint_batches) == 0:
             checkpoint_root.mkdir(parents=True, exist_ok=True)
             write_pickle(
                 checkpoint_root / "lexical.pkl",
@@ -971,10 +1877,26 @@ def train_sentinel(
             )
             _write_json(checkpoint_root / "state.json", {"phase": "lexical", "processedBatches": processed_batches})
             report_sentinel_progress(state="running", phase="lexical")
+            last_progress_report_monotonic = now_monotonic
+        elif now_monotonic - last_progress_report_monotonic >= progress_heartbeat_seconds:
+            report_sentinel_progress(state="running", phase="lexical")
+            last_progress_report_monotonic = now_monotonic
     if texts:
         matrix = hstack([char_vectorizer.transform(texts), word_vectorizer.transform(texts)], format="csr")
         lexical_classifier.partial_fit(matrix, labels, classes=[0, 1] if not fit_started else None)
         processed_batches += 1
+        partial_records_seen = min(total_train_examples, processed_batches * lexical_batch_size)
+        checkpoint_root.mkdir(parents=True, exist_ok=True)
+        write_pickle(
+            checkpoint_root / "lexical.pkl",
+            {
+                "char_vectorizer": char_vectorizer,
+                "word_vectorizer": word_vectorizer,
+                "classifier": lexical_classifier,
+            },
+        )
+        _write_json(checkpoint_root / "state.json", {"phase": "lexical", "processedBatches": processed_batches})
+        report_sentinel_progress(state="running", phase="lexical")
 
     lexical_artifact = {
         "char_vectorizer": char_vectorizer,
@@ -983,86 +1905,42 @@ def train_sentinel(
         "backend": "hashing_sgd_log_loss",
     }
     write_pickle(checkpoint_root / "lexical.pkl", lexical_artifact)
-    _write_json(checkpoint_root / "state.json", {"phase": "lexical_complete", "processedBatches": processed_batches})
-    report_sentinel_progress(state="running", phase="structured")
-
-    train_examples = list(_iter_examples(manifest_path, "train", data_root=data_root, limit=limit))
-    valid_examples = list(_iter_examples(manifest_path, "valid", data_root=data_root, limit=limit))
-    text_vectorizer = TfidfVectorizer(analyzer="char_wb", ngram_range=(3, 5), max_features=1024, min_df=1)
-    dict_vectorizer = DictVectorizer(sparse=True)
-    train_texts = [_hierarchical_text(example, top_k_chunks=3) for example in train_examples]
-    train_rows = [structured_feature_dict(example.structured) for example in train_examples]
-    train_labels = [int(example.threat_positive or 0) for example in train_examples]
-    structured_matrix = hstack(
-        [dict_vectorizer.fit_transform(train_rows), text_vectorizer.fit_transform(train_texts)],
-        format="csr",
+    if not direct_structured_resume:
+        _write_json(checkpoint_root / "state.json", {"phase": "lexical_complete", "processedBatches": processed_batches})
+    if not direct_structured_resume:
+        report_sentinel_progress(state="running", phase="structured_vocab", include_throughput=False)
+    structured_artifact = structured_future.result()
+    structured_future_executor.shutdown(wait=True)
+    _maybe_report(
+        f"[sentinel:structured] backend={structured_artifact['backend']} "
+        f"train_device={structured_artifact.get('train_device', 'cpu')}",
+        run_log_path=run_log_path,
     )
-
-    if recipe_mode == "dual" and XGBClassifier is not None:
-        try:
-            device_name = "cuda" if _require_transformer_dependencies()["torch"].cuda.is_available() else "cpu"
-        except RuntimeError:
-            device_name = "cpu"
-        structured_classifier = XGBClassifier(
-            objective="binary:logistic",
-            eval_metric="logloss",
-            n_estimators=200,
-            max_depth=6,
-            learning_rate=0.08,
-            subsample=0.9,
-            colsample_bytree=0.8,
-            tree_method="hist",
-            device=device_name,
-            random_state=_DEFAULT_RANDOM_SEED,
-        )
-        structured_backend = "xgboost_binary"
-        structured_classifier.fit(structured_matrix, train_labels)
-        if device_name != "cpu":
-            try:
-                structured_classifier.set_params(device="cpu")
-            except Exception:
-                pass
-    elif CatBoostClassifier is not None:
-        structured_classifier = CatBoostClassifier(
-            task_type="CPU",
-            loss_function="Logloss",
-            depth=6,
-            learning_rate=0.08,
-            iterations=200,
-            allow_writing_files=False,
-            verbose=False,
-        )
-        structured_backend = "catboost_binary_cpu"
-        structured_classifier.fit(structured_matrix.toarray(), train_labels)
-    else:
-        structured_classifier = SGDClassifier(loss="log_loss", alpha=1e-5, random_state=_DEFAULT_RANDOM_SEED)
-        structured_backend = "sgd_binary_fallback"
-        structured_classifier.fit(structured_matrix, train_labels)
-
-    structured_artifact = {
-        "dict_vectorizer": dict_vectorizer,
-        "text_vectorizer": text_vectorizer,
-        "classifier": structured_classifier,
-        "backend": structured_backend,
-        "train_device": device_name if recipe_mode == "dual" and XGBClassifier is not None else "cpu",
-        "inference_device": "cpu" if structured_backend == "xgboost_binary" else "cpu",
-    }
     write_pickle(checkpoint_root / "structured.pkl", structured_artifact)
     sentinel_artifact = {"lexical": lexical_artifact, "structured": structured_artifact}
-    tuned_threshold, tuned_recall = _choose_threat_threshold(valid_examples, sentinel_artifact, minimum_recall=0.995)
+    with progress_lock:
+        structured_phase = "threshold_tuning"
+        threshold_records_seen = 0
+    update_threshold_progress(threshold_records_seen)
+    tuned_threshold, tuned_recall = choose_threat_threshold_with_resume(sentinel_artifact)
     sentinel_artifact["threshold"] = max(tuned_threshold, threat_threshold)
     sentinel_artifact["thresholdRecall"] = tuned_recall
     artifact_path = write_pickle(output_path / "sentinel.pkl", sentinel_artifact)
+    with progress_lock:
+        structured_phase = "complete"
+        threshold_records_seen = total_valid_examples
     _write_json(checkpoint_root / "state.json", {"phase": "complete", "processedBatches": processed_batches, "threshold": sentinel_artifact["threshold"]})
+    if threshold_cache_path.exists():
+        threshold_cache_path.unlink()
 
     summary = {
         "artifact": str(artifact_path),
         "backend": "dual_ml_sentinel",
         "lexicalBackend": lexical_artifact["backend"],
-        "structuredBackend": structured_backend,
+        "structuredBackend": structured_artifact["backend"],
         "threshold": float(sentinel_artifact["threshold"]),
         "thresholdRecall": float(tuned_recall),
-        "examples": len(train_examples),
+        "examples": total_train_examples,
         "batches": processed_batches,
         "batchSize": lexical_batch_size,
         "recipeMode": recipe_mode,
@@ -1077,6 +1955,17 @@ def train_sentinel(
             "currentStage": "phase_1_ml_sentinel",
             "state": "completed",
             "resume": resume,
+        },
+    )
+    _append_jsonl(
+        events_path,
+        {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "type": "stage_completed",
+            "stage": "phase_1_ml_sentinel",
+            "threshold": summary["threshold"],
+            "thresholdRecall": summary["thresholdRecall"],
+            "structuredBackend": summary["structuredBackend"],
         },
     )
     report_sentinel_progress(
@@ -1185,6 +2074,98 @@ def _build_stage_state_payload(
     if gpu_memory_reserved_mb is not None:
         payload["gpuMemoryReservedMb"] = gpu_memory_reserved_mb
     return payload
+
+
+def _hash_index_plan(indices: list[int]) -> str:
+    digest = hashlib.sha256()
+    for value in indices:
+        digest.update(f"{value}\n".encode("utf-8"))
+    return digest.hexdigest()
+
+
+def _load_checkpoint_state(checkpoint_dir: Path) -> tuple[dict[str, Any], Path] | None:
+    latest_state_path = checkpoint_dir / "active" / "latest" / "state.json"
+    if latest_state_path.is_file():
+        return _load_json(latest_state_path), latest_state_path.parent
+    milestone_root = checkpoint_dir / "active" / "milestones"
+    if not milestone_root.is_dir():
+        return None
+    state_paths = sorted(milestone_root.glob("step-*/state.json"))
+    if not state_paths:
+        return None
+    newest = state_paths[-1]
+    return _load_json(newest), newest.parent
+
+
+def _replay_checkpoint_payload(
+    *,
+    records_seen: int,
+    total_target_records: int,
+    selected_indices_hash: str,
+    hard_negative_indices: list[int],
+) -> dict[str, Any]:
+    return {
+        "schemaVersion": "hard_negative_replay_v1",
+        "recordsSeen": records_seen,
+        "totalTargetRecords": total_target_records,
+        "selectedIndicesHash": selected_indices_hash,
+        "hardNegativeIndices": hard_negative_indices,
+    }
+
+
+def _load_stacker_chunk_payloads(
+    chunks_dir: Path,
+    *,
+    committed_rows: int,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    feature_rows: list[dict[str, Any]] = []
+    labels: list[str] = []
+    if committed_rows <= 0 or not chunks_dir.is_dir():
+        return feature_rows, labels
+    for chunk_path in sorted(chunks_dir.glob("chunk-*.pkl.gz")):
+        payload = _load_pickle_gz(chunk_path)
+        end_row = int(payload.get("endRow", 0))
+        if end_row > committed_rows:
+            continue
+        feature_rows.extend(payload.get("featureRows", []))
+        labels.extend(payload.get("labels", []))
+    return feature_rows, labels
+
+
+def _write_stacker_chunk(
+    chunks_dir: Path,
+    *,
+    start_row: int,
+    feature_rows: list[dict[str, Any]],
+    labels: list[str],
+) -> Path:
+    end_row = start_row + len(feature_rows) - 1
+    target = chunks_dir / f"chunk-{end_row:07d}.pkl.gz"
+    payload = {
+        "startRow": start_row,
+        "endRow": end_row,
+        "featureRows": feature_rows,
+        "labels": labels,
+    }
+    return _write_pickle_gz(target, payload)
+
+
+def _stacker_checkpoint_payload(
+    *,
+    records_seen: int,
+    total_target_records: int,
+    committed_rows: int,
+    chunk_rows: int,
+    feature_row_count: int,
+) -> dict[str, Any]:
+    return {
+        "schemaVersion": "stacker_cache_v1",
+        "recordsSeen": records_seen,
+        "totalTargetRecords": total_target_records,
+        "committedRows": committed_rows,
+        "chunkRows": chunk_rows,
+        "stackerFeatureRows": feature_row_count,
+    }
 
 
 def _load_rng_state(path: Path, *, torch_module: Any) -> None:
@@ -1595,6 +2576,7 @@ def train_expert(
         },
     )
     stage_metric_prefix = f"expert.{_safe_stage_name(stage_name or 'default')}"
+    run_log_path = progress_output_path / "run.log"
     _mlflow_set_tags(
         {
             "model_guard.current_stage": stage_name or "train_expert",
@@ -1624,7 +2606,8 @@ def train_expert(
     )
     _maybe_report(
         f"starting recipe expert training on {device} for {total_target_records} records "
-        f"({total_plan_entries} plan entries, stage={stage_name or 'default'})"
+        f"({total_plan_entries} plan entries, stage={stage_name or 'default'})",
+        run_log_path=run_log_path,
     )
 
     optimizer.zero_grad(set_to_none=True)
@@ -1688,7 +2671,8 @@ def train_expert(
                     accumulation_counter = 0
                     if consecutive_nonfinite_gradients == 1 or consecutive_nonfinite_gradients % 5 == 0:
                         _maybe_report(
-                            f"non-finite gradients encountered in {stage_name or 'expert'} at optimizer_step {optimizer_steps + 1}; allowing GradScaler recovery ({consecutive_nonfinite_gradients} consecutive)"
+                            f"non-finite gradients encountered in {stage_name or 'expert'} at optimizer_step {optimizer_steps + 1}; allowing GradScaler recovery ({consecutive_nonfinite_gradients} consecutive)",
+                            run_log_path=run_log_path,
                         )
                     if consecutive_nonfinite_gradients >= 10:
                         raise RuntimeError(
@@ -1815,7 +2799,8 @@ def train_expert(
                         f"last_loss={raw_loss:.8f}, moving_avg_loss={moving_average_loss:.8f}, "
                         f"mean_confidence={sum(recent_confidences) / max(1, len(recent_confidences)):.6f}, "
                         f"gradient_norm={gradient_norm:.6f}"
-                    )
+                    ),
+                    run_log_path=run_log_path,
                 )
                 last_reported_step = optimizer_steps
         if paused_early:
@@ -1944,10 +2929,48 @@ def _collect_hard_negative_indices(
     index_records: list[IndexedRecord],
     selected_indices: list[int],
     sentinel_artifact: dict[str, Any] | None,
+    run_log_path: str | Path | None = None,
+    progress_root: str | Path | None = None,
+    resume: bool = False,
+    checkpoint_items: int = _DEFAULT_REPLAY_CHECKPOINT_ITEMS,
+    milestone_items: int = _DEFAULT_REPLAY_MILESTONE_ITEMS,
 ) -> list[int]:
+    replay_checkpoint_manager: StateCheckpointManager | None = None
+    replay_checkpoint_root = Path(progress_root) / "hard_negative_replay" if progress_root is not None else None
+    selected_indices_hash = _hash_index_plan(selected_indices)
     hard_negative_indices: list[int] = []
     total = len(selected_indices)
-    for position, record_index in enumerate(selected_indices, start=1):
+    resume_processed = 0
+    if replay_checkpoint_root is not None:
+        replay_checkpoint_manager = StateCheckpointManager(stage_dir=replay_checkpoint_root)
+    if resume and replay_checkpoint_root is not None:
+        checkpoint_state = _load_checkpoint_state(replay_checkpoint_root)
+        if checkpoint_state is not None:
+            state_payload, checkpoint_path = checkpoint_state
+            if (
+                state_payload.get("schemaVersion") == "hard_negative_replay_v1"
+                and state_payload.get("selectedIndicesHash") == selected_indices_hash
+            ):
+                resume_processed = int(state_payload.get("recordsSeen", 0))
+                hard_negative_indices = [int(value) for value in state_payload.get("hardNegativeIndices", [])]
+                if progress_root is not None:
+                    _save_progress(
+                        Path(progress_root),
+                        {
+                            "currentStage": "long_context",
+                            "state": "running",
+                            "recordsSeen": resume_processed,
+                            "totalTargetRecords": total,
+                            "progressFraction": (resume_processed / total) if total else None,
+                            "phase": "hard_negative_replay",
+                            "hardNegativeReplayCount": len(hard_negative_indices),
+                            "lastCheckpointPath": str(checkpoint_path),
+                            "lastCheckpointAt": state_payload.get("lastCheckpointAt"),
+                        },
+                    )
+    last_checkpoint_path: str | None = None
+    bootstrap_positions = {1, 100}
+    for position, record_index in enumerate(selected_indices[resume_processed:], start=resume_processed + 1):
         example = example_from_dataset_row(_read_record_by_index(dataset_root, index_records, record_index))
         prediction = _score_recipe_expert_artifact(expert_dir, example, sentinel_artifact=sentinel_artifact)
         predicted_label = max(prediction["probabilities"].items(), key=lambda item: item[1])[0]
@@ -1962,8 +2985,61 @@ def _collect_hard_negative_indices(
         )
         if is_hard_negative:
             hard_negative_indices.append(record_index)
+        if replay_checkpoint_manager is not None and (
+            position in bootstrap_positions or position % max(1, checkpoint_items) == 0
+        ):
+            checkpoint_payload = _replay_checkpoint_payload(
+                records_seen=position,
+                total_target_records=total,
+                selected_indices_hash=selected_indices_hash,
+                hard_negative_indices=hard_negative_indices,
+            )
+            checkpoint_payload["lastCheckpointAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            replay_checkpoint_manager.save_latest(state_payload=checkpoint_payload)
+            last_checkpoint_path = str(replay_checkpoint_manager.latest_dir)
+            if position % max(1, milestone_items) == 0:
+                replay_checkpoint_manager.save_milestone(step_key=position, state_payload=checkpoint_payload)
+            if progress_root is not None:
+                _save_progress(
+                    Path(progress_root),
+                    {
+                        "currentStage": "long_context",
+                        "state": "running",
+                        "recordsSeen": position,
+                        "totalTargetRecords": total,
+                        "progressFraction": (position / total) if total else None,
+                        "phase": "hard_negative_replay",
+                        "hardNegativeReplayCount": len(hard_negative_indices),
+                        "lastCheckpointPath": last_checkpoint_path,
+                        "lastCheckpointAt": checkpoint_payload["lastCheckpointAt"],
+                    },
+                )
         if position == 1 or position % 2000 == 0:
-            _maybe_report(f"scored {position}/{total} stage examples for hard-negative replay; found {len(hard_negative_indices)}")
+            _maybe_report(
+                f"scored {position}/{total} stage examples for hard-negative replay; found {len(hard_negative_indices)}",
+                run_log_path=run_log_path,
+            )
+    if replay_checkpoint_manager is not None:
+        final_payload = _replay_checkpoint_payload(
+            records_seen=total,
+            total_target_records=total,
+            selected_indices_hash=selected_indices_hash,
+            hard_negative_indices=hard_negative_indices,
+        )
+        final_payload["lastCheckpointAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        replay_checkpoint_manager.save_latest(state_payload=final_payload)
+        _write_json(
+            replay_checkpoint_root / "summary.json",
+            {
+                "recordsSeen": total,
+                "totalTargetRecords": total,
+                "hardNegativeReplayCount": len(hard_negative_indices),
+                "selectedIndicesHash": selected_indices_hash,
+                "retentionOutcome": "active_checkpoint_pruned_after_completion",
+            },
+        )
+        replay_checkpoint_manager.cleanup_completed(keep_milestones=False)
+        replay_checkpoint_manager.close()
     return hard_negative_indices
 
 
@@ -2024,6 +3100,10 @@ def train_stacker(
     data_root: str | Path | None = None,
     limit: int | None = None,
     progress_root: str | Path | None = None,
+    resume: bool = False,
+    checkpoint_rows: int = _DEFAULT_STACKER_CHECKPOINT_ROWS,
+    chunk_rows: int = _DEFAULT_STACKER_CHUNK_ROWS,
+    milestone_rows: int = _DEFAULT_STACKER_MILESTONE_ROWS,
 ) -> dict[str, Any]:
     deps = _require_training_dependencies()
     DictVectorizer = deps["DictVectorizer"]
@@ -2035,143 +3115,253 @@ def train_stacker(
     output_path.mkdir(parents=True, exist_ok=True)
     progress_output_path = Path(progress_root) if progress_root is not None else output_path
     sentinel_artifact = load_pickle(Path(sentinel_dir) / "sentinel.pkl")
+    checkpoint_manager = StateCheckpointManager(stage_dir=output_path, preserve_names={"chunks"})
+    chunks_dir = output_path / "active" / "chunks"
     feature_rows: list[dict[str, Any]] = []
     labels: list[str] = []
+    pending_rows: list[dict[str, Any]] = []
+    pending_labels: list[str] = []
+    committed_rows = 0
+    resume_processed = 0
+    last_checkpoint_path: str | None = None
+    last_checkpoint_at: str | None = None
     total_train_examples = _total_examples(manifest_path, "train", data_root=data_root, limit=limit) or 0
+
+    if resume:
+        checkpoint_state = _load_checkpoint_state(output_path)
+        if checkpoint_state is not None:
+            state_payload, checkpoint_path = checkpoint_state
+            if state_payload.get("schemaVersion") == "stacker_cache_v1":
+                committed_rows = int(state_payload.get("committedRows", 0))
+                feature_rows, labels = _load_stacker_chunk_payloads(chunks_dir, committed_rows=committed_rows)
+                pending_path = checkpoint_path / "pending.pkl.gz"
+                if pending_path.is_file():
+                    pending_payload = _load_pickle_gz(pending_path)
+                    pending_rows = list(pending_payload.get("featureRows", []))
+                    pending_labels = [str(value) for value in pending_payload.get("labels", [])]
+                    feature_rows.extend(pending_rows)
+                    labels.extend(pending_labels)
+                recovered_rows = len(feature_rows)
+                requested_resume_rows = int(state_payload.get("recordsSeen", recovered_rows))
+                if committed_rows > 0 and recovered_rows < committed_rows:
+                    _maybe_report(
+                        "stacker checkpoint cache incomplete; restarting stacker from scratch for correctness",
+                        run_log_path=progress_output_path / "run.log" if progress_root is not None else None,
+                    )
+                    committed_rows = 0
+                    feature_rows = []
+                    labels = []
+                    pending_rows = []
+                    pending_labels = []
+                    resume_processed = 0
+                    last_checkpoint_path = None
+                    last_checkpoint_at = None
+                else:
+                    resume_processed = requested_resume_rows
+                    last_checkpoint_path = str(checkpoint_path)
+                    last_checkpoint_at = state_payload.get("lastCheckpointAt")
 
     _save_progress(
         progress_output_path,
         {
             "currentStage": "phase_3_stacker" if progress_root is not None else "train_stacker",
             "state": "running",
-            "recordsSeen": 0,
+            "recordsSeen": resume_processed,
             "totalTargetRecords": total_train_examples,
-            "progressFraction": 0.0 if total_train_examples else None,
-            "lastCheckpointPath": None,
-            "lastCheckpointAt": None,
-            "stackerFeatureRows": 0,
-        },
-    )
-
-    for example_index, example in enumerate(_iter_examples(manifest_path, "train", data_root=data_root, limit=limit), start=1):
-        if example.decision_label not in LABEL_TO_ID:
-            continue
-        sentinel_scores = _score_dual_sentinel_artifact(sentinel_artifact, example)
-        expert_output = _score_recipe_expert_artifact(expert_dir, example, sentinel_artifact=sentinel_artifact)
-        feature_rows.append(_stacker_feature_row(example, sentinel_scores=sentinel_scores, expert_output=expert_output))
-        labels.append(example.decision_label or "allow_read_only")
-        if example_index == 1 or example_index % 250 == 0:
-            _save_progress(
-                progress_output_path,
-                {
-                    "currentStage": "phase_3_stacker" if progress_root is not None else "train_stacker",
-                    "state": "running",
-                    "recordsSeen": example_index,
-                    "totalTargetRecords": total_train_examples,
-                    "progressFraction": (example_index / total_train_examples) if total_train_examples else None,
-                    "lastCheckpointPath": None,
-                    "lastCheckpointAt": None,
-                    "stackerFeatureRows": len(feature_rows),
-                },
-            )
-
-    vectorizer = DictVectorizer(sparse=False)
-    matrix = vectorizer.fit_transform(feature_rows)
-    backend = "sklearn_multiclass"
-    if CatBoostClassifier is not None:
-        classifier = CatBoostClassifier(
-            task_type="CPU",
-            loss_function="MultiClass",
-            depth=6,
-            learning_rate=0.08,
-            iterations=200,
-            allow_writing_files=False,
-            verbose=False,
-        )
-        classifier.fit(matrix, labels)
-        backend = "catboost_multiclass_cpu"
-    elif XGBClassifier is not None:
-        classifier = XGBClassifier(
-            objective="multi:softprob",
-            num_class=len(LABEL_TO_ID),
-            n_estimators=200,
-            max_depth=6,
-            learning_rate=0.08,
-            tree_method="hist",
-            device="cpu",
-            random_state=_DEFAULT_RANDOM_SEED,
-        )
-        classifier.fit(matrix, [LABEL_TO_ID[label] for label in labels])
-        backend = "xgboost_multiclass_cpu"
-    else:
-        classifier = SGDClassifier(loss="log_loss", alpha=1e-5, random_state=_DEFAULT_RANDOM_SEED)
-        classifier.fit(matrix, labels)
-
-    valid_scores: list[float] = []
-    valid_binary_labels: list[int] = []
-    valid_logits: list[list[float]] = []
-    valid_labels: list[str] = []
-    for example in _iter_examples(manifest_path, "valid", data_root=data_root, limit=limit):
-        if example.decision_label not in LABEL_TO_ID:
-            continue
-        sentinel_scores = _score_dual_sentinel_artifact(sentinel_artifact, example)
-        expert_output = _score_recipe_expert_artifact(expert_dir, example, sentinel_artifact=sentinel_artifact)
-        valid_scores.append(float(sentinel_scores["max"]))
-        valid_binary_labels.append(int(example.threat_positive or 0))
-        valid_logits.append([float(value) for value in expert_output["logits"][: len(LABEL_TO_ID)]])
-        valid_labels.append(example.decision_label or "allow_read_only")
-
-    calibration = {
-        "expertTemperature": _search_temperature(valid_logits, valid_labels) if valid_logits else 1.0,
-        "binaryThreatCalibrator": _fit_binary_calibrator(valid_scores, valid_binary_labels),
-    }
-
-    artifact_path = write_pickle(
-        output_path / "stacker.pkl",
-        {"vectorizer": vectorizer, "classifier": classifier, "label_order": list(getattr(classifier, "classes_", sorted(set(labels))))},
-    )
-    calibration_path = write_pickle(output_path / "calibration.pkl", calibration)
-    summary = {
-        "artifact": str(artifact_path),
-        "calibrationArtifact": str(calibration_path),
-        "backend": backend,
-        "examples": len(labels),
-        "inputs": [
-            "sentinel_lexical_probability",
-            "sentinel_structured_probability",
-            "sentinel_or_probability",
-            "expert_logits",
-            "expert_pooled_embeddings",
-            "structured_features",
-        ],
-        "calibration": {
-            "expertTemperature": calibration["expertTemperature"],
-            "binaryThreatCalibrator": calibration["binaryThreatCalibrator"]["kind"],
-        },
-    }
-    _write_json(output_path / "summary.json", summary)
-    _mlflow_log_metrics(
-        {
-            "stacker.examples": len(labels),
-            "stacker.expert_temperature": calibration["expertTemperature"],
-        }
-    )
-    _mlflow_log_dict(summary, "summaries/stacker_summary.json")
-    _save_progress(
-        progress_output_path,
-        {
-            "currentStage": "phase_3_stacker" if progress_root is not None else "train_stacker",
-            "state": "completed",
-            "recordsSeen": len(feature_rows),
-            "totalTargetRecords": total_train_examples,
-            "progressFraction": 1.0 if total_train_examples else None,
-            "lastCheckpointPath": None,
-            "lastCheckpointAt": None,
+            "progressFraction": (resume_processed / total_train_examples) if total_train_examples else None,
+            "lastCheckpointPath": last_checkpoint_path,
+            "lastCheckpointAt": last_checkpoint_at,
             "stackerFeatureRows": len(feature_rows),
-            "stackerBackend": backend,
         },
     )
-    return summary
+
+    def persist_stacker_checkpoint(processed_rows: int) -> None:
+        nonlocal last_checkpoint_path, last_checkpoint_at
+        checkpoint_payload = _stacker_checkpoint_payload(
+            records_seen=processed_rows,
+            total_target_records=total_train_examples,
+            committed_rows=committed_rows,
+            chunk_rows=chunk_rows,
+            feature_row_count=len(feature_rows),
+        )
+        checkpoint_payload["lastCheckpointAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        pickle_payloads = None
+        if pending_rows:
+            pickle_payloads = {"pending.pkl.gz": {"featureRows": pending_rows, "labels": pending_labels}}
+        checkpoint_manager.save_latest(state_payload=checkpoint_payload, pickle_payloads=pickle_payloads)
+        last_checkpoint_path = str(checkpoint_manager.latest_dir)
+        last_checkpoint_at = checkpoint_payload["lastCheckpointAt"]
+        if processed_rows % max(1, milestone_rows) == 0:
+            checkpoint_manager.save_milestone(
+                step_key=processed_rows,
+                state_payload=checkpoint_payload,
+                pickle_payloads=pickle_payloads,
+            )
+        _save_progress(
+            progress_output_path,
+            {
+                "currentStage": "phase_3_stacker" if progress_root is not None else "train_stacker",
+                "state": "running",
+                "recordsSeen": processed_rows,
+                "totalTargetRecords": total_train_examples,
+                "progressFraction": (processed_rows / total_train_examples) if total_train_examples else None,
+                "lastCheckpointPath": last_checkpoint_path,
+                "lastCheckpointAt": last_checkpoint_at,
+                "stackerFeatureRows": len(feature_rows),
+            },
+        )
+
+    bootstrap_positions = {1, 100}
+
+    try:
+        for example_index, example in enumerate(
+            _iter_examples(
+                manifest_path,
+                "train",
+                data_root=data_root,
+                limit=limit,
+                skip=resume_processed,
+            ),
+            start=resume_processed + 1,
+        ):
+            if example.decision_label not in LABEL_TO_ID:
+                continue
+            sentinel_scores = _score_dual_sentinel_artifact(sentinel_artifact, example)
+            expert_output = _score_recipe_expert_artifact(expert_dir, example, sentinel_artifact=sentinel_artifact)
+            feature_row = _stacker_feature_row(example, sentinel_scores=sentinel_scores, expert_output=expert_output)
+            label = example.decision_label or "allow_read_only"
+            feature_rows.append(feature_row)
+            labels.append(label)
+            pending_rows.append(feature_row)
+            pending_labels.append(label)
+            if len(pending_rows) >= max(1, chunk_rows):
+                chunks_dir.mkdir(parents=True, exist_ok=True)
+                _write_stacker_chunk(
+                    chunks_dir,
+                    start_row=committed_rows + 1,
+                    feature_rows=pending_rows,
+                    labels=pending_labels,
+                )
+                committed_rows += len(pending_rows)
+                pending_rows = []
+                pending_labels = []
+            if example_index in bootstrap_positions or example_index % max(1, checkpoint_rows) == 0:
+                persist_stacker_checkpoint(example_index)
+        if pending_rows:
+            chunks_dir.mkdir(parents=True, exist_ok=True)
+            _write_stacker_chunk(
+                chunks_dir,
+                start_row=committed_rows + 1,
+                feature_rows=pending_rows,
+                labels=pending_labels,
+            )
+            committed_rows += len(pending_rows)
+            pending_rows = []
+            pending_labels = []
+        if feature_rows:
+            persist_stacker_checkpoint(len(feature_rows))
+
+        vectorizer = DictVectorizer(sparse=False)
+        matrix = vectorizer.fit_transform(feature_rows)
+        backend = "sklearn_multiclass"
+        if CatBoostClassifier is not None:
+            classifier = CatBoostClassifier(
+                task_type="CPU",
+                loss_function="MultiClass",
+                depth=6,
+                learning_rate=0.08,
+                iterations=200,
+                allow_writing_files=False,
+                verbose=False,
+            )
+            classifier.fit(matrix, labels)
+            backend = "catboost_multiclass_cpu"
+        elif XGBClassifier is not None:
+            classifier = XGBClassifier(
+                objective="multi:softprob",
+                num_class=len(LABEL_TO_ID),
+                n_estimators=200,
+                max_depth=6,
+                learning_rate=0.08,
+                tree_method="hist",
+                device="cpu",
+                random_state=_DEFAULT_RANDOM_SEED,
+            )
+            classifier.fit(matrix, [LABEL_TO_ID[label] for label in labels])
+            backend = "xgboost_multiclass_cpu"
+        else:
+            classifier = SGDClassifier(loss="log_loss", alpha=1e-5, random_state=_DEFAULT_RANDOM_SEED)
+            classifier.fit(matrix, labels)
+
+        valid_scores: list[float] = []
+        valid_binary_labels: list[int] = []
+        valid_logits: list[list[float]] = []
+        valid_labels: list[str] = []
+        for example in _iter_examples(manifest_path, "valid", data_root=data_root, limit=limit):
+            if example.decision_label not in LABEL_TO_ID:
+                continue
+            sentinel_scores = _score_dual_sentinel_artifact(sentinel_artifact, example)
+            expert_output = _score_recipe_expert_artifact(expert_dir, example, sentinel_artifact=sentinel_artifact)
+            valid_scores.append(float(sentinel_scores["max"]))
+            valid_binary_labels.append(int(example.threat_positive or 0))
+            valid_logits.append([float(value) for value in expert_output["logits"][: len(LABEL_TO_ID)]])
+            valid_labels.append(example.decision_label or "allow_read_only")
+
+        calibration = {
+            "expertTemperature": _search_temperature(valid_logits, valid_labels) if valid_logits else 1.0,
+            "binaryThreatCalibrator": _fit_binary_calibrator(valid_scores, valid_binary_labels),
+        }
+
+        artifact_path = write_pickle(
+            output_path / "stacker.pkl",
+            {"vectorizer": vectorizer, "classifier": classifier, "label_order": list(getattr(classifier, "classes_", sorted(set(labels))))},
+        )
+        calibration_path = write_pickle(output_path / "calibration.pkl", calibration)
+        summary = {
+            "artifact": str(artifact_path),
+            "calibrationArtifact": str(calibration_path),
+            "backend": backend,
+            "examples": len(labels),
+            "inputs": [
+                "sentinel_lexical_probability",
+                "sentinel_structured_probability",
+                "sentinel_or_probability",
+                "expert_logits",
+                "expert_pooled_embeddings",
+                "structured_features",
+            ],
+            "calibration": {
+                "expertTemperature": calibration["expertTemperature"],
+                "binaryThreatCalibrator": calibration["binaryThreatCalibrator"]["kind"],
+            },
+            "retentionOutcome": "active_cache_pruned_after_completion",
+        }
+        _write_json(output_path / "summary.json", summary)
+        _mlflow_log_metrics(
+            {
+                "stacker.examples": len(labels),
+                "stacker.expert_temperature": calibration["expertTemperature"],
+            }
+        )
+        _mlflow_log_dict(summary, "summaries/stacker_summary.json")
+        checkpoint_manager.cleanup_completed(keep_milestones=False)
+        _save_progress(
+            progress_output_path,
+            {
+                "currentStage": "phase_3_stacker" if progress_root is not None else "train_stacker",
+                "state": "completed",
+                "recordsSeen": len(feature_rows),
+                "totalTargetRecords": total_train_examples,
+                "progressFraction": 1.0 if total_train_examples else None,
+                "lastCheckpointPath": None,
+                "lastCheckpointAt": None,
+                "stackerFeatureRows": len(feature_rows),
+                "stackerBackend": backend,
+            },
+        )
+        return summary
+    finally:
+        checkpoint_manager.close()
 
 
 def package_runtime_bundle(
@@ -2442,8 +3632,13 @@ def train_recipe(
 ) -> dict[str, Any]:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
+    run_log_path = output_path / "run.log"
     recipe = _load_recipe(recipe_path)
     stages = _load_recipe_stages(recipe)
+    _maybe_report(
+        f"starting train_recipe with {Path(recipe_path).name} into {output_path}",
+        run_log_path=run_log_path,
+    )
     _mlflow_set_tags(
         {
             "model_guard.recipe_version": recipe.get("version"),
@@ -2495,6 +3690,7 @@ def train_recipe(
     sentinel_dir = output_path / "sentinel"
     if resume and (sentinel_dir / "summary.json").is_file():
         sentinel_summary = _load_json(sentinel_dir / "summary.json")
+        _maybe_report("reusing completed phase_1_ml_sentinel summary", run_log_path=run_log_path)
     else:
         sentinel_summary = train_sentinel(
             manifest_path,
@@ -2526,6 +3722,7 @@ def train_recipe(
         completed = _completed_stage_summary(stage_dir) if resume else None
         if completed is not None:
             stage_summary = completed
+            _maybe_report(f"reusing completed expert stage {stage.name}", run_log_path=run_log_path)
         else:
             stage_summary = train_expert(
                 manifest_path,
@@ -2557,13 +3754,67 @@ def train_recipe(
     final_selected_indices = _select_stage_indices(index_records, stage=final_stage, hard_families=hard_families, label_distribution=label_distribution, seed=_DEFAULT_RANDOM_SEED + 999)
     hard_negative_indices: list[int] = []
     if previous_stage_dir is not None:
-        hard_negative_indices = _collect_hard_negative_indices(
-            previous_stage_dir,
-            dataset_root=dataset_root,
-            index_records=index_records,
-            selected_indices=final_selected_indices,
-            sentinel_artifact=sentinel_artifact,
+        replay_root = output_path / "hard_negative_replay"
+        replay_selected_hash = _hash_index_plan(final_selected_indices)
+        completed_replay_summary = None
+        if resume and (replay_root / "summary.json").is_file():
+            try:
+                replay_summary = _load_json(replay_root / "summary.json")
+            except Exception:
+                replay_summary = None
+            if isinstance(replay_summary, dict) and replay_summary.get("selectedIndicesHash") == replay_selected_hash:
+                completed_replay_summary = replay_summary
+        _save_status(
+            output_path,
+            {
+                "currentStep": "hard_negative_replay",
+                "currentStage": "long_context",
+                "state": "running",
+                "resume": resume,
+            },
         )
+        _save_progress(
+            output_path,
+            {
+                "currentStage": "long_context",
+                "state": "running",
+                "recordsSeen": 0,
+                "totalTargetRecords": len(final_selected_indices),
+                "progressFraction": 0.0 if final_selected_indices else None,
+                "phase": "hard_negative_replay",
+                "hardNegativeReplayCount": 0,
+                "lastCheckpointPath": None,
+                "lastCheckpointAt": None,
+            },
+        )
+        if completed_replay_summary is not None:
+            hard_negative_indices = []
+            _maybe_report("reusing completed hard-negative replay summary", run_log_path=run_log_path)
+            _save_progress(
+                output_path,
+                {
+                    "currentStage": "long_context",
+                    "state": "completed",
+                    "recordsSeen": int(completed_replay_summary.get("recordsSeen", len(final_selected_indices))),
+                    "totalTargetRecords": len(final_selected_indices),
+                    "progressFraction": 1.0 if final_selected_indices else None,
+                    "phase": "hard_negative_replay",
+                    "hardNegativeReplayCount": int(completed_replay_summary.get("hardNegativeReplayCount", 0)),
+                    "lastCheckpointPath": None,
+                    "lastCheckpointAt": None,
+                },
+            )
+        else:
+            hard_negative_indices = _collect_hard_negative_indices(
+                previous_stage_dir,
+                dataset_root=dataset_root,
+                index_records=index_records,
+                selected_indices=final_selected_indices,
+                sentinel_artifact=sentinel_artifact,
+                run_log_path=run_log_path,
+                progress_root=output_path,
+                resume=resume,
+            )
     replay_factor = int(recipe.get("training_plan", {}).get("phase_3_hard_negative_mining", {}).get("replay_factor", 3))
     final_indices = list(final_selected_indices)
     for _ in range(max(0, replay_factor - 1)):
@@ -2573,6 +3824,7 @@ def train_recipe(
     completed_final = _completed_stage_summary(final_stage_dir) if resume else None
     if completed_final is not None:
         final_stage_summary = completed_final
+        _maybe_report(f"reusing completed expert stage {final_stage.name}", run_log_path=run_log_path)
     else:
         final_stage_summary = train_expert(
             manifest_path,
@@ -2622,6 +3874,7 @@ def train_recipe(
     )
     if resume and (stacker_dir / "summary.json").is_file():
         stacker_summary = _load_json(stacker_dir / "summary.json")
+        _maybe_report("reusing completed phase_3_stacker summary", run_log_path=run_log_path)
     else:
         stacker_summary = train_stacker(
             manifest_path,
@@ -2631,6 +3884,7 @@ def train_recipe(
             data_root=data_root,
             limit=train_limit,
             progress_root=output_path,
+            resume=resume,
         )
 
     _save_status(
@@ -2660,6 +3914,10 @@ def train_recipe(
         output_dir=output_path / "bundle",
         bundle_version=bundle_version or f"recipe-{Path(recipe_path).stem}",
         recipe_path=recipe_path,
+    )
+    _maybe_report(
+        f"packaged runtime bundle {(bundle_summary or {}).get('bundleVersion')}",
+        run_log_path=run_log_path,
     )
     _save_status(
         output_path,
@@ -2717,6 +3975,11 @@ def train_recipe(
         data_root=data_root,
         limit=test_limit,
         progress_root=output_path,
+    )
+    _maybe_report(
+        f"completed train_recipe validThreatRecall={valid_metrics.get('threatRecall')} "
+        f"testThreatRecall={test_metrics.get('threatRecall')}",
+        run_log_path=run_log_path,
     )
 
     summary = {

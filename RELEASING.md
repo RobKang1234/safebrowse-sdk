@@ -126,6 +126,15 @@ Do not publish these in public artifacts:
 - raw prompt-injection datasets
 - training checkpoints
 - local model bundles
+- model adapters, sidecar runtime bundles, and MLflow/CatBoost run outputs
+- `.local/model_guard/`
+- `python/safebrowse_model_guard/artifacts/`
+- `python/safebrowse_model_guard/bundles/`
+- `python/safebrowse_model_guard/checkpoints/`
 - `knowledge_base/signing/private`
 
-Repo-generated internal assessment output is not an external audit deliverable and should not be labeled that way in release notes.
+The supported public model-guard surface is the daemon protocol, configuration, health metadata, and tightening semantics. Trained model bundles are private deploy artifacts referenced by path, URL, version, and digest outside the public SDK artifacts.
+
+Before promoting a private model bundle for use with a public release, validate its `bundleVersion`, `featureSchemaVersion`, component digests, and held-out metrics. The current default promotion floor is valid/test threat recall `>= 0.995` and macro F1 `>= 0.98`.
+
+Repo-generated internal assessment output and model-guard assessments are not external audit deliverables and should not be labeled that way in release notes.

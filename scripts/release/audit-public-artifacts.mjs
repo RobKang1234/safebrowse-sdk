@@ -55,11 +55,17 @@ const bannedFragments = [
   "rendered_sample_10000.jsonl",
   "mlruns/",
   ".local/model_guard",
+  ".local/mlflow",
   "runtime_bundle",
   "checkpoints/",
+  "bundles/",
+  "private_data",
   "artifacts/sentinel",
   "artifacts/expert",
-  "artifacts/stacker"
+  "artifacts/stacker",
+  "safebrowse_model_guard/artifacts",
+  "safebrowse_model_guard/bundles",
+  "safebrowse_model_guard/checkpoints"
 ];
 
 function normalizePath(value) {

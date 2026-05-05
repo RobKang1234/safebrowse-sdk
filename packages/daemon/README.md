@@ -23,6 +23,24 @@ When `secure_v6` is selected, the daemon forces:
 - approval broker mode `external_service`
 - parser isolation mode `node_permission_process`
 
+## Model Guard
+
+The daemon supports a model-guard sidecar protocol for compatible private runtimes. The SDK does not publish model weights or runtime bundles.
+
+```bash
+npx @safebrowse/daemon \
+  --model-guard-url http://127.0.0.1:8788 \
+  --model-guard-enforcement-mode shadow
+```
+
+Supported modes:
+
+- `off`: default; no scoring, even when a URL is configured
+- `shadow`: records `compiledObservation.modelAssessment` for deterministic `ALLOW` observations without changing verdicts or authorities
+- `tighten`: only applies stricter outcomes such as approval, read-only replan, or block
+
+`GET /health` reports model-guard readiness, bundle/schema metadata, and digest metadata when the sidecar provides it. `secure_v6` claim readiness does not require model availability.
+
 ## Routes
 
 - `GET /health`
@@ -59,7 +77,7 @@ Those raw inputs are materialized into secure typed captures before normal polic
 - `SAFEBROWSE_PARSER_ISOLATION_MODE`
 - `SAFEBROWSE_MODEL_GUARD_URL`
 - `SAFEBROWSE_MODEL_GUARD_TIMEOUT_MS`
-- `SAFEBROWSE_MODEL_GUARD_ENFORCEMENT_MODE`
+- `SAFEBROWSE_MODEL_GUARD_ENFORCEMENT_MODE` (`off`, `shadow`, or `tighten`)
 
 See the repository README for release and security guidance:
 

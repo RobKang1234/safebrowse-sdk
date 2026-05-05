@@ -69,7 +69,10 @@ class TrainingMonitorTest(unittest.TestCase):
             run_dir = Path(temporary_directory)
             self._write_json(run_dir / "status.json", {"currentStep": "train_recipe", "currentStage": "phase_1_ml_sentinel", "state": "running"})
             self._write_json(run_dir / "progress.json", {"currentStage": "phase_1_ml_sentinel", "recordsSeen": 10, "totalTargetRecords": 40, "progressFraction": 0.25, "state": "running"})
-            (run_dir / "train.log").write_text("hello monitor\n", encoding="utf-8")
+            (run_dir / "run.log.1").write_text("older retained line\n", encoding="utf-8")
+            (run_dir / "run.log").write_text("hello monitor\n", encoding="utf-8")
+            (run_dir / "events.jsonl.1").write_text('{"type":"older"}\n', encoding="utf-8")
+            (run_dir / "events.jsonl").write_text('{"type":"newer"}\n', encoding="utf-8")
 
             server = create_training_monitor_server(run_dir, host="127.0.0.1", port=0)
             port = server.server_address[1]
@@ -88,7 +91,52 @@ class TrainingMonitorTest(unittest.TestCase):
 
             self.assertEqual(state["progress"]["currentItems"], 10)
             self.assertEqual(state["progress"]["percent"], 25.0)
+            self.assertEqual([item["type"] for item in state["recentEvents"]], ["older", "newer"])
             self.assertIn("hello monitor", log_payload["text"])
+
+    def test_load_training_run_state_infers_hard_negative_replay_from_log(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            run_dir = Path(temporary_directory)
+            self._write_json(run_dir / "status.json", {"currentStep": "train_recipe", "currentStage": "mid_context", "state": "running"})
+            self._write_json(
+                run_dir / "progress.json",
+                {
+                    "currentStage": "mid_context",
+                    "recordsSeen": 600000,
+                    "totalTargetRecords": 600000,
+                    "progressFraction": 1.0,
+                    "state": "completed",
+                    "optimizerStep": 18750,
+                },
+            )
+            self._write_json(run_dir / "expert" / "plans" / "short_context_warmup" / "plan_summary.json", {"stage": "short_context_warmup", "maxLength": 1024})
+            self._write_json(run_dir / "expert" / "plans" / "mid_context" / "plan_summary.json", {"stage": "mid_context", "maxLength": 2048})
+            self._write_json(run_dir / "expert" / "short_context_warmup" / "summary.json", {"stage": "short_context_warmup"})
+            self._write_json(run_dir / "expert" / "mid_context" / "summary.json", {"stage": "mid_context"})
+            (run_dir / "run.log").write_text(
+                "\n".join(
+                    [
+                        "mid_context completed",
+                        "scored 158000/1000000 stage examples for hard-negative replay; found 0",
+                        "scored 160000/1000000 stage examples for hard-negative replay; found 3",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            state = load_training_run_state(run_dir)
+
+            self.assertEqual(state["progress"]["currentStage"], "long_context")
+            self.assertEqual(state["progress"]["phase"], "hard_negative_replay")
+            self.assertEqual(state["progress"]["currentItems"], 160000)
+            self.assertEqual(state["progress"]["totalItems"], 1000000)
+            self.assertEqual(state["progress"]["unit"], "examples")
+            self.assertEqual(state["progress"]["metrics"]["hardNegativeReplayCount"], 3)
+            self.assertEqual(state["dashboard"]["completedStageCount"], 2)
+            self.assertEqual(state["dashboard"]["stageCount"], 3)
+            self.assertIn("hard-negative replay", state["dashboard"]["displayProgressText"])
+            self.assertGreater(state["dashboard"]["overallProgressFraction"], 0.45)
 
 
 if __name__ == "__main__":

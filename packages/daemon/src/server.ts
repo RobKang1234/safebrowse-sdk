@@ -34,6 +34,7 @@ import {
   type MemoryRollbackRequest,
   type MemorySourceClassV6,
   type MemoryStageRequestV6,
+  type ModelGuardEnforcementMode,
   type ParserIsolationMode,
   type ParserWorkerProbe,
   type PolicyPack,
@@ -77,7 +78,7 @@ export interface SafeBrowseDaemonOptions {
   approvalBrokerMode?: "signature_verification" | "external_service";
   modelGuardBaseUrl?: string;
   modelGuardTimeoutMs?: number;
-  modelGuardEnforcementMode?: "off" | "tighten";
+  modelGuardEnforcementMode?: ModelGuardEnforcementMode;
 }
 
 interface SessionState {
@@ -229,7 +230,7 @@ async function buildRuntimeContext(
     approvalBrokerMode: "signature_verification" | "external_service";
     modelGuardBaseUrl?: string;
     modelGuardTimeoutMs: number;
-    modelGuardEnforcementMode: "off" | "tighten";
+    modelGuardEnforcementMode: ModelGuardEnforcementMode;
   }
 > {
   const rootDir = options.rootDir ?? (await resolveDefaultRootDir());
@@ -636,7 +637,10 @@ export async function createSafeBrowseServer(
             runtimeMode: modelGuardHealthSnapshot.runtimeMode,
             enforcementMode: modelGuardHealthSnapshot.enforcementMode,
             bundleVersion: modelGuardHealthSnapshot.bundleVersion,
-            featureSchemaVersion: modelGuardHealthSnapshot.featureSchemaVersion
+            featureSchemaVersion: modelGuardHealthSnapshot.featureSchemaVersion,
+            bundleDigest: modelGuardHealthSnapshot.bundleDigest,
+            componentDigests: modelGuardHealthSnapshot.componentDigests,
+            validationError: modelGuardHealthSnapshot.validationError
           }
         });
         return;
@@ -721,24 +725,35 @@ export async function createSafeBrowseServer(
               computeToolSchemaHash(capture.schemaDescriptions)
             : undefined;
 
-        if (modelGuardClient.configured && mediated.verdict.decision === "ALLOW") {
+        if (
+          modelGuardClient.configured &&
+          modelGuardClient.enforcementMode !== "off" &&
+          mediated.verdict.decision === "ALLOW"
+        ) {
           try {
             const scored = await modelGuardClient.scoreObservation(
               buildModelGuardObservationRequest(sessionState.session, compiledObservation, plannerView)
             );
-            const applied = applyModelGuardAssessment(
-              compiledObservation,
-              plannerView,
-              mediated.verdict,
-              scored.assessment
-            );
-            compiledObservation = applied.compiledObservation;
-            plannerView = applied.plannerView;
-            mediated = {
-              plannerView,
-              verdict: applied.verdict,
-              failClosed: false
-            };
+            if (modelGuardClient.enforcementMode === "shadow") {
+              compiledObservation = {
+                ...compiledObservation,
+                modelAssessment: scored.assessment
+              };
+            } else {
+              const applied = applyModelGuardAssessment(
+                compiledObservation,
+                plannerView,
+                mediated.verdict,
+                scored.assessment
+              );
+              compiledObservation = applied.compiledObservation;
+              plannerView = applied.plannerView;
+              mediated = {
+                plannerView,
+                verdict: applied.verdict,
+                failClosed: false
+              };
+            }
           } catch {
             if (modelGuardClient.enforcementMode === "tighten") {
               compiledObservation = {
@@ -798,7 +813,9 @@ export async function createSafeBrowseServer(
               );
         const tightenedAuthorities = tightenAuthoritiesWithModelGuard(
           authorities,
-          compiledObservation.modelAssessment
+          modelGuardClient.enforcementMode === "tighten"
+            ? compiledObservation.modelAssessment
+            : undefined
         );
 
         for (const authority of tightenedAuthorities) {

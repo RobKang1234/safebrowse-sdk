@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import time
 import uuid
@@ -41,7 +43,38 @@ class ModelGuardRuntime:
         self.bundle_version = self.manifest.get("bundleVersion", "unknown")
         self.feature_schema_version = self.manifest.get("featureSchemaVersion", "v1")
         self.pipeline = self.manifest.get("pipeline", {})
+        self.release_manifest = self._load_release_manifest()
+        self.bundle_digest = self._hash_file(self.bundle_dir / BUNDLE_MANIFEST)
+        self.component_digests = self._component_digests()
         self.components = self._load_components()
+
+    def _load_release_manifest(self) -> dict[str, Any]:
+        path = self.bundle_dir / "manifest.json"
+        if not path.is_file():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+
+    def _hash_file(self, path: Path) -> str | None:
+        if not path.is_file():
+            return None
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def _component_digests(self) -> dict[str, str]:
+        hashes = self.release_manifest.get("componentHashes")
+        if not isinstance(hashes, dict):
+            return {}
+        return {
+            str(name): str(value)
+            for name, value in hashes.items()
+            if isinstance(name, str) and isinstance(value, str)
+        }
 
     def _load_components(self) -> dict[str, LoadedComponent]:
         components: dict[str, LoadedComponent] = {}
@@ -65,6 +98,8 @@ class ModelGuardRuntime:
             "enforcementMode": self.pipeline.get("enforcementMode", "tighten"),
             "bundleVersion": self.bundle_version,
             "featureSchemaVersion": self.feature_schema_version,
+            "bundleDigest": self.bundle_digest,
+            "componentDigests": self.component_digests,
         }
 
     def _heuristic_sentinel_probability(self, text: str, example: Any) -> float:
@@ -119,8 +154,25 @@ class ModelGuardRuntime:
                 structured["text_vectorizer"].transform([example.text]),
             ],
             format="csr",
-        )
-        if structured["backend"] == "catboost_binary_cpu":
+        ).astype("float32")
+        if str(structured.get("backend", "")).startswith("xgboost_binary"):
+            try:
+                import xgboost as xgb
+            except ModuleNotFoundError as exc:  # pragma: no cover
+                raise RuntimeError(
+                    "Structured xgboost sentinel runtime requires xgboost to be installed."
+                ) from exc
+            booster = structured.get("_booster")
+            if booster is None:
+                classifier_payload = structured["classifier"]
+                if isinstance(classifier_payload, xgb.Booster):
+                    booster = classifier_payload
+                else:
+                    booster = xgb.Booster()
+                    booster.load_model(bytearray(classifier_payload))
+                structured["_booster"] = booster
+            structured_probability = float(booster.predict(xgb.DMatrix(structured_matrix))[0])
+        elif structured["backend"] == "catboost_binary_cpu":
             structured_probability = float(structured["classifier"].predict_proba(structured_matrix.toarray())[0][1])
         else:
             structured_probability = float(structured["classifier"].predict_proba(structured_matrix)[0][1])
@@ -327,6 +379,8 @@ class ModelGuardRuntime:
                 "assessmentId": f"mga_{uuid.uuid4().hex[:24]}",
                 "bundleVersion": self.bundle_version,
                 "featureSchemaVersion": self.feature_schema_version,
+                "bundleDigest": self.bundle_digest,
+                "componentDigests": self.component_digests,
                 "binaryThreatProbability": sentinel_scores["max"],
                 "decisionLabel": final_label,
                 "calibratedDecisionLabel": final_label,

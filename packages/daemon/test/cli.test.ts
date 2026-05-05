@@ -26,7 +26,7 @@ describe("safebrowse daemon cli", () => {
       SAFEBROWSE_DEPLOYMENT_PROFILE: "secure_v6",
       SAFEBROWSE_MODEL_GUARD_URL: "http://127.0.0.1:8788",
       SAFEBROWSE_MODEL_GUARD_TIMEOUT_MS: "1500",
-      SAFEBROWSE_MODEL_GUARD_ENFORCEMENT_MODE: "tighten"
+      SAFEBROWSE_MODEL_GUARD_ENFORCEMENT_MODE: "shadow"
     });
 
     expect(parsed.host).toBe("127.0.0.2");
@@ -35,7 +35,19 @@ describe("safebrowse daemon cli", () => {
     expect(parsed.deploymentProfile).toBe("secure_v6");
     expect(parsed.modelGuardBaseUrl).toBe("http://127.0.0.1:8788");
     expect(parsed.modelGuardTimeoutMs).toBe(1500);
-    expect(parsed.modelGuardEnforcementMode).toBe("tighten");
+    expect(parsed.modelGuardEnforcementMode).toBe("shadow");
+  });
+
+  it("parses model guard shadow mode from explicit flags", () => {
+    const parsed = parseDaemonOptions([
+      "--model-guard-url",
+      "http://127.0.0.1:8788",
+      "--model-guard-enforcement-mode",
+      "shadow"
+    ]);
+
+    expect(parsed.modelGuardBaseUrl).toBe("http://127.0.0.1:8788");
+    expect(parsed.modelGuardEnforcementMode).toBe("shadow");
   });
 
   it("formats help text for the public bin", () => {

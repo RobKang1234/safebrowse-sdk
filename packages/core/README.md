@@ -33,6 +33,15 @@ npm install @safebrowse/core
 - `extractAttachmentGraphV6`
 - `materializeBinarySurfaceCapture`
 - `buildReplayBundle`
+- `buildModelGuardObservationRequest`
+- `applyModelGuardAssessment`
+- `tightenAuthoritiesWithModelGuard`
+
+## Model-Guard Contract
+
+Core exports the supported V6 model-guard request/response types and tightening helpers. Model output is advisory unless the daemon is explicitly configured in `tighten` mode, and even then it can only restrict an already deterministic `ALLOW` result. It cannot create new authorities, widen an authority, or loosen a deterministic block.
+
+The trained bundle is not part of this npm package. Bundle versions, feature schema versions, and optional digest metadata are carried as protocol evidence for a compatible private sidecar.
 
 ## Capability Classes
 

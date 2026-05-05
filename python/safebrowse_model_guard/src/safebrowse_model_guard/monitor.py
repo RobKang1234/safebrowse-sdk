@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
+import re
+import subprocess
 from collections import deque
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -26,30 +29,69 @@ def _decode_json_file(path: Path) -> dict[str, Any] | None:
     return None
 
 
+def _decode_log_bytes(raw: bytes) -> str:
+    return raw.decode("utf-8", errors="replace").replace("\x00", "")
+
+
+def _rotated_path_family(path: Path) -> list[Path]:
+    backups: list[tuple[int, Path]] = []
+    for candidate in path.parent.glob(f"{path.name}.*"):
+        suffix = candidate.name[len(path.name) + 1 :]
+        if suffix.isdigit() and candidate.is_file():
+            backups.append((int(suffix), candidate))
+    backups.sort(key=lambda item: item[0], reverse=True)
+    family = [candidate for _, candidate in backups]
+    if path.is_file():
+        family.append(path)
+    return family
+
+
 def _tail_jsonl(path: Path, *, limit: int = 50) -> list[dict[str, Any]]:
-    if not path.is_file():
-        return []
     items: deque[dict[str, Any]] = deque(maxlen=limit)
-    raw = path.read_bytes()
-    for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "utf-8"):
-        try:
-            text = raw.decode(encoding)
-            break
-        except UnicodeDecodeError:
+    for candidate in _rotated_path_family(path) or [path]:
+        if not candidate.is_file():
             continue
-    else:
-        text = raw.decode("utf-8", errors="replace")
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict):
-            items.append(value)
+        raw = candidate.read_bytes()
+        for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "utf-8"):
+            try:
+                text = raw.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            text = _decode_log_bytes(raw)
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                items.append(value)
     return list(items)
+
+
+def _tail_text(path: Path, *, max_bytes: int = 64 * 1024) -> str:
+    if max_bytes <= 0:
+        return ""
+    family = _rotated_path_family(path)
+    if not family:
+        return ""
+    chunks: list[bytes] = []
+    remaining = max_bytes
+    for candidate in reversed(family):
+        raw = candidate.read_bytes()
+        if len(raw) > remaining:
+            raw = raw[-remaining:]
+        if raw:
+            chunks.append(raw)
+            remaining -= len(raw)
+        if remaining <= 0:
+            break
+    chunks.reverse()
+    return _decode_log_bytes(b"".join(chunks))
 
 
 def _read_log_chunk(path: Path, *, offset: int) -> dict[str, Any]:
@@ -58,13 +100,12 @@ def _read_log_chunk(path: Path, *, offset: int) -> dict[str, Any]:
     size = path.stat().st_size
     reset = False
     if offset > size:
-        offset = 0
-        reset = True
+        return {"text": _tail_text(path), "nextOffset": size, "reset": True, "size": size}
     with path.open("rb") as handle:
         handle.seek(offset)
         raw = handle.read()
         next_offset = handle.tell()
-    text = raw.decode("utf-8", errors="replace").replace("\x00", "")
+    text = _decode_log_bytes(raw)
     return {"text": text, "nextOffset": next_offset, "reset": reset, "size": size}
 
 
@@ -280,12 +321,9 @@ def _dashboard_summary(
     progress_fraction = progress.get("progressFraction")
     if progress_fraction is None and progress.get("percent") is not None:
         progress_fraction = float(progress["percent"]) / 100.0
-    return {
-        "state": progress.get("state") or (status or {}).get("state") or "unknown",
-        "currentStage": progress.get("currentStage") or (status or {}).get("currentStage") or (status or {}).get("currentStep"),
-        "progressFraction": progress_fraction,
-        "stageProgressFraction": progress_fraction,
-        "overallProgressFraction": _overall_progress_fraction(
+    overall_progress_fraction = progress.get("overallProgressFraction")
+    if overall_progress_fraction is None:
+        overall_progress_fraction = _overall_progress_fraction(
             progress,
             sentinel_summary=sentinel_summary,
             stage_summaries=stage_summaries,
@@ -293,9 +331,23 @@ def _dashboard_summary(
             stacker_summary=stacker_summary,
             recipe_summary=recipe_summary,
             bundle_manifest=bundle_manifest,
-        ),
-        "recordsSeen": progress.get("recordsSeen", progress.get("currentItems")),
-        "totalTargetRecords": progress.get("totalTargetRecords", progress.get("totalItems")),
+        )
+    completed_stage_count = progress.get("completedStageCount")
+    if completed_stage_count is None:
+        completed_stage_count = len(stage_summaries)
+    stage_count = progress.get("stageCount")
+    if stage_count is None:
+        stage_count = max(len(stage_plan_summaries), len(stage_summaries))
+    return {
+        "state": progress.get("state") or (status or {}).get("state") or "unknown",
+        "currentStage": progress.get("currentStage") or (status or {}).get("currentStage") or (status or {}).get("currentStep"),
+        "phase": progress.get("phase"),
+        "displayProgressText": progress.get("displayProgressText"),
+        "progressFraction": progress_fraction,
+        "stageProgressFraction": progress_fraction,
+        "overallProgressFraction": overall_progress_fraction,
+        "recordsSeen": progress.get("currentItems", progress.get("recordsSeen")),
+        "totalTargetRecords": progress.get("totalItems", progress.get("totalTargetRecords")),
         "optimizerStep": metrics.get("optimizerStep") if metrics else progress.get("optimizerStep"),
         "latestLoss": metrics.get("latestLoss") if metrics else progress.get("latestLoss"),
         "movingAverageLoss": metrics.get("movingAverageLoss") if metrics else progress.get("movingAverageLoss"),
@@ -326,8 +378,8 @@ def _dashboard_summary(
         "sentinelStructuredBackend": (sentinel_summary or {}).get("structuredBackend"),
         "expertBackend": (expert_summary or {}).get("backend"),
         "stackerBackend": (stacker_summary or {}).get("backend"),
-        "completedStageCount": len(stage_summaries),
-        "stageCount": max(len(stage_plan_summaries), len(stage_summaries)),
+        "completedStageCount": completed_stage_count,
+        "stageCount": stage_count,
     }
 
 
@@ -338,10 +390,126 @@ def _file_descriptor(path: Path) -> dict[str, Any]:
     return {"path": str(path), "size": stat.st_size, "updatedAt": stat.st_mtime}
 
 
+def _first_existing_path(*paths: Path) -> Path:
+    for path in paths:
+        if path.is_file():
+            return path
+    return paths[0]
+
+
+def _preferred_train_log_path(run_dir: Path) -> Path:
+    return _first_existing_path(run_dir / "run.log", run_dir / "train.log", run_dir / "train-process.out.log", run_dir / "stdout.log")
+
+
+_HARD_NEGATIVE_REPLAY_PATTERN = re.compile(
+    r"scored\s+(?P<count>\d+)\s*/\s*(?P<total>\d+)\s+stage examples for hard-negative replay;\s+found\s+(?P<found>\d+)",
+    re.IGNORECASE,
+)
+
+
+def _infer_hard_negative_replay_progress(
+    train_log_text: str,
+    *,
+    progress_view: dict[str, Any],
+    stage_plan_summaries: list[dict[str, Any]],
+    stage_summaries: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    lines = [line.strip() for line in train_log_text.splitlines() if line.strip()]
+    if not lines:
+        return None
+    last_line = lines[-1]
+    match = _HARD_NEGATIVE_REPLAY_PATTERN.search(last_line)
+    if match is None:
+        return None
+    final_stage_name = next((str(item.get("stage")) for item in reversed(stage_plan_summaries) if item.get("stage")), None)
+    current_stage_name = str(progress_view.get("currentStage") or "")
+    if final_stage_name is None:
+        final_stage_name = "long_context"
+    if final_stage_name == current_stage_name and str(progress_view.get("state") or "").lower() == "completed":
+        if current_stage_name == "mid_context":
+            final_stage_name = "long_context"
+        elif current_stage_name == "short_context_warmup":
+            final_stage_name = "mid_context"
+    count = int(match.group("count"))
+    total = max(1, int(match.group("total")))
+    found = int(match.group("found"))
+    progress_fraction = count / total
+    completed_stage_count = len(stage_summaries)
+    stage_count = max(len(stage_plan_summaries), completed_stage_count)
+    if final_stage_name not in {str(item.get("stage")) for item in stage_plan_summaries if item.get("stage")}:
+        stage_count = max(stage_count, completed_stage_count + 1)
+    total_phases = 1 + max(stage_count, completed_stage_count + 1) + 3
+    completed_before = 1 + completed_stage_count
+    overall_progress_fraction = min(1.0, max(0.0, (completed_before + progress_fraction) / max(1, total_phases)))
+    return {
+        **progress_view,
+        "stage": final_stage_name,
+        "currentStage": final_stage_name,
+        "state": "running",
+        "phase": "hard_negative_replay",
+        "currentItems": count,
+        "recordsSeen": count,
+        "totalItems": total,
+        "totalTargetRecords": total,
+        "percent": round(progress_fraction * 100.0, 4),
+        "progressFraction": progress_fraction,
+        "overallProgressFraction": overall_progress_fraction,
+        "unit": "examples",
+        "displayProgressText": f"hard-negative replay: {count:,} / {total:,} examples scored; found {found:,}",
+        "completedStageCount": completed_stage_count,
+        "stageCount": stage_count,
+        "metrics": {
+            **dict(progress_view.get("metrics") or {}),
+            "phase": "hard_negative_replay",
+            "hardNegativeReplayCount": found,
+        },
+    }
+
+
+def _gpu_snapshot() -> dict[str, Any] | None:
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,power.limit",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        )
+    except Exception:
+        return None
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if not lines:
+        return None
+    parts = [part.strip() for part in lines[0].split(",")]
+    if len(parts) < 6:
+        return None
+    keys = [
+        "gpuUtilizationPercent",
+        "gpuMemoryUsedMb",
+        "gpuMemoryTotalMb",
+        "gpuTemperatureC",
+        "gpuPowerDrawW",
+        "gpuPowerLimitW",
+    ]
+    snapshot: dict[str, Any] = {}
+    for key, raw in zip(keys, parts, strict=False):
+        try:
+            snapshot[key] = float(raw)
+        except ValueError:
+            snapshot[key] = raw
+    return snapshot
+
+
 def load_training_run_state(run_dir: str | Path) -> dict[str, Any]:
     root = Path(run_dir).resolve()
     status = _decode_json_file(root / "status.json")
     progress = _decode_json_file(root / "progress.json")
+    train_log_path = _preferred_train_log_path(root)
+    train_log_text = _tail_text(train_log_path)
     sentinel_summary = _decode_json_file(root / "sentinel" / "summary.json")
     recipe_summary = _decode_json_file(root / "recipe_summary.json")
     expert_summary = _decode_json_file(root / "expert" / "summary.json")
@@ -374,6 +542,14 @@ def load_training_run_state(run_dir: str | Path) -> dict[str, Any]:
         valid_metrics=valid_metrics,
         test_metrics=test_metrics,
     )
+    inferred_replay_progress = _infer_hard_negative_replay_progress(
+        train_log_text,
+        progress_view=progress_view,
+        stage_plan_summaries=stage_plan_summaries,
+        stage_summaries=stage_summaries,
+    )
+    if inferred_replay_progress is not None:
+        progress_view = inferred_replay_progress
     dashboard = _dashboard_summary(
         progress_view,
         status=status,
@@ -387,11 +563,14 @@ def load_training_run_state(run_dir: str | Path) -> dict[str, Any]:
         recipe_summary=recipe_summary,
         bundle_manifest=bundle_manifest,
     )
+    gpu_snapshot = _gpu_snapshot()
+    if gpu_snapshot is not None:
+        dashboard = {**dashboard, **gpu_snapshot}
     files = {
         "status": _file_descriptor(root / "status.json"),
         "progress": _file_descriptor(root / "progress.json"),
         "events": _file_descriptor(root / "events.jsonl"),
-        "trainLog": _file_descriptor(root / "train.log"),
+        "trainLog": _file_descriptor(train_log_path),
         "sentinelSummary": _file_descriptor(root / "sentinel" / "summary.json"),
         "recipeSummary": _file_descriptor(root / "recipe_summary.json"),
         "bundleManifest": _file_descriptor(root / "bundle" / "bundle.json") if (root / "bundle" / "bundle.json").is_file() else _file_descriptor(root / "bundle" / "bundle_manifest.json"),
@@ -419,12 +598,99 @@ def load_training_run_state(run_dir: str | Path) -> dict[str, Any]:
 
 def _html_page(initial_state: dict[str, Any] | None = None) -> bytes:
     initial_payload = json.dumps(initial_state or {})
-    initial_stage = ((initial_state or {}).get("dashboard") or {}).get("currentStage") or "Loading..."
-    html = """<!doctype html>
+    dashboard = ((initial_state or {}).get("dashboard") or {})
+    progress = ((initial_state or {}).get("progress") or {})
+    status = ((initial_state or {}).get("status") or {})
+    initial_stage = dashboard.get("currentStage") or progress.get("currentStage") or status.get("currentStage") or "Loading..."
+    current = dashboard.get("recordsSeen") if dashboard.get("recordsSeen") is not None else progress.get("currentItems", 0)
+    total = dashboard.get("totalTargetRecords") if dashboard.get("totalTargetRecords") is not None else progress.get("totalItems", 0)
+    unit = progress.get("unit") or "items"
+    stage_fraction = dashboard.get("progressFraction")
+    if stage_fraction is None and progress.get("percent") is not None:
+        stage_fraction = float(progress.get("percent")) / 100.0
+    stage_percent = (float(stage_fraction) * 100.0) if stage_fraction is not None else 0.0
+    overall_fraction = dashboard.get("overallProgressFraction")
+    overall_percent = (float(overall_fraction) * 100.0) if overall_fraction is not None else stage_percent
+    loss = dashboard.get("movingAverageLoss") if dashboard.get("movingAverageLoss") is not None else dashboard.get("latestLoss")
+    confidence = dashboard.get("meanConfidence")
+    if loss is not None:
+        loss_card = f"{float(loss):.4f}" + (f" / {float(confidence):.4f}" if confidence is not None else "")
+    else:
+        loss_card = "-"
+    throughput_parts: list[str] = []
+    throughput = dashboard.get("examplesPerSecond") if dashboard.get("examplesPerSecond") is not None else dashboard.get("batchesPerSecond")
+    if throughput is not None:
+        throughput_parts.append(f"{float(throughput):.2f} /s")
+    build_seconds = dashboard.get("movingAverageBatchBuildSeconds")
+    if build_seconds is not None:
+        throughput_parts.append(f"build {float(build_seconds):.3f}s")
+    optimizer_seconds = dashboard.get("movingAverageOptimizerStepSeconds")
+    if optimizer_seconds is not None:
+        throughput_parts.append(f"step {float(optimizer_seconds):.3f}s")
+    checkpoint_seconds = dashboard.get("lastCheckpointWriteSeconds")
+    if checkpoint_seconds is not None:
+        throughput_parts.append(f"ckpt {float(checkpoint_seconds):.3f}s")
+    throughput_text = " | ".join(throughput_parts) if throughput_parts else "-"
+    stability_parts: list[str] = []
+    if dashboard.get("gradientNorm") is not None:
+        stability_parts.append(f"grad {float(dashboard['gradientNorm']):.3f}")
+    if dashboard.get("labelEntropy") is not None:
+        stability_parts.append(f"entropy {float(dashboard['labelEntropy']):.3f}")
+    if dashboard.get("consecutiveNonfiniteGradients") is not None:
+        stability_parts.append(f"nonfinite {int(dashboard['consecutiveNonfiniteGradients'])}")
+    if dashboard.get("gpuMemoryAllocatedMb") is not None:
+        stability_parts.append(f"gpu {float(dashboard['gpuMemoryAllocatedMb']):.0f}MB")
+    if dashboard.get("gpuMemoryReservedMb") is not None:
+        stability_parts.append(f"reserved {float(dashboard['gpuMemoryReservedMb']):.0f}MB")
+    if dashboard.get("gpuUtilizationPercent") is not None:
+        stability_parts.append(f"util {float(dashboard['gpuUtilizationPercent']):.0f}%")
+    if dashboard.get("gpuMemoryUsedMb") is not None and dashboard.get("gpuMemoryTotalMb") is not None:
+        stability_parts.append(
+            f"vram {float(dashboard['gpuMemoryUsedMb']):.0f}/{float(dashboard['gpuMemoryTotalMb']):.0f}MB"
+        )
+    stability_text = " | ".join(stability_parts) if stability_parts else "-"
+    valid_recall = dashboard.get("validThreatRecall")
+    test_recall = dashboard.get("testThreatRecall")
+    recall_text = f"valid {valid_recall if valid_recall is not None else '-'} / test {test_recall if test_recall is not None else '-'}" if (valid_recall is not None or test_recall is not None) else "-"
+    initial_values = {
+        "__INITIAL_RUN_DIR__": html.escape(str((initial_state or {}).get("runDir") or "Loading...")),
+        "__INITIAL_STATE_TEXT__": html.escape(str(dashboard.get("state") or status.get("state") or progress.get("state") or "unknown")),
+        "__INITIAL_STAGE_BADGE__": html.escape(str(initial_stage or "idle")),
+        "__INITIAL_STAGE_COUNT__": html.escape(f"{dashboard.get('completedStageCount', 0)} / {dashboard.get('stageCount', 0)} complete"),
+        "__INITIAL_PROGRESS_TEXT__": html.escape(
+            str(
+                dashboard.get("displayProgressText")
+                or (
+                    f"{int(current):,} / {int(total):,} {unit}"
+                    if total
+                    else f"{int(current):,} {unit}"
+                )
+            )
+        ),
+        "__INITIAL_STAGE_PERCENT__": html.escape(f"{stage_percent:.2f}% stage"),
+        "__INITIAL_OVERALL_PERCENT__": html.escape(f"{overall_percent:.2f}% total"),
+        "__INITIAL_BAR_WIDTH__": f"{max(0.0, min(100.0, stage_percent)):.2f}%",
+        "__INITIAL_LOSS_CARD__": html.escape(loss_card),
+        "__INITIAL_THROUGHPUT__": html.escape(throughput_text),
+        "__INITIAL_STABILITY__": html.escape(stability_text),
+        "__INITIAL_RECALL__": html.escape(recall_text),
+        "__INITIAL_CHECKPOINT__": html.escape(str(dashboard.get("lastCheckpointPath") or progress.get("lastCheckpointPath") or "no checkpoint")),
+        "__INITIAL_BUNDLE__": html.escape(str(dashboard.get("bundleVersion") or ((initial_state or {}).get("bundleManifest") or {}).get("bundleVersion") or "bundle pending")),
+        "__INITIAL_PROGRESS_JSON__": html.escape(json.dumps(progress or {}, indent=2)),
+        "__INITIAL_SENTINEL_JSON__": html.escape(json.dumps((initial_state or {}).get("sentinelSummary") or {}, indent=2)),
+        "__INITIAL_EXPERT_JSON__": html.escape(json.dumps((initial_state or {}).get("expertSummary") or {}, indent=2)),
+        "__INITIAL_METRICS_JSON__": html.escape(json.dumps({"stacker": (initial_state or {}).get("stackerSummary"), "valid": (initial_state or {}).get("validMetrics"), "test": (initial_state or {}).get("testMetrics")}, indent=2)),
+        "__INITIAL_EVENTS_JSON__": html.escape(json.dumps((initial_state or {}).get("recentEvents") or [], indent=2)),
+        "__INITIAL_FILES_JSON__": html.escape(json.dumps((initial_state or {}).get("files") or {}, indent=2)),
+    }
+    page_html = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>SafeBrowse Model Guard Monitor</title>
   <style>
     :root {
@@ -459,23 +725,23 @@ def _html_page(initial_state: dict[str, Any] | None = None) -> bytes:
 <body>
   <div class="wrap">
     <h1>SafeBrowse Model Guard Monitor</h1>
-    <div class="sub" id="runDir">Loading...</div>
+    <div class="sub" id="runDir">__INITIAL_RUN_DIR__</div>
     <div class="sub" id="initialStage">Current stage: __INITIAL_STAGE__</div>
     <div class="grid">
-      <div class="panel"><div class="label">State</div><div class="value" id="state">unknown</div><div class="badges"><div class="badge" id="stage">idle</div><div class="badge" id="stageCount">0 / 0 complete</div></div></div>
-      <div class="panel"><div class="label">Progress</div><div class="value" id="progressText">0 processed</div><div class="progress"><div class="bar" id="bar"></div></div><div class="badges"><div class="badge" id="percent">0%</div><div class="badge" id="overallPercent">0% total</div></div></div>
-      <div class="panel"><div class="label">Loss / Confidence</div><div class="value" id="lossCard">-</div><div class="badges"><div class="badge" id="throughput">-</div><div class="badge" id="stabilityCard">-</div></div></div>
-      <div class="panel"><div class="label">Threat Recall</div><div class="value" id="recallCard">-</div><div class="badges"><div class="badge" id="checkpointCard">-</div><div class="badge" id="bundleCard">-</div></div></div>
+      <div class="panel"><div class="label">State</div><div class="value" id="state">__INITIAL_STATE_TEXT__</div><div class="badges"><div class="badge" id="stage">__INITIAL_STAGE_BADGE__</div><div class="badge" id="stageCount">__INITIAL_STAGE_COUNT__</div></div></div>
+      <div class="panel"><div class="label">Progress</div><div class="value" id="progressText">__INITIAL_PROGRESS_TEXT__</div><div class="progress"><div class="bar" id="bar" style="width: __INITIAL_BAR_WIDTH__"></div></div><div class="badges"><div class="badge" id="percent">__INITIAL_STAGE_PERCENT__</div><div class="badge" id="overallPercent">__INITIAL_OVERALL_PERCENT__</div></div></div>
+      <div class="panel"><div class="label">Loss / Confidence</div><div class="value" id="lossCard">__INITIAL_LOSS_CARD__</div><div class="badges"><div class="badge" id="throughput">__INITIAL_THROUGHPUT__</div><div class="badge" id="stabilityCard">__INITIAL_STABILITY__</div></div></div>
+      <div class="panel"><div class="label">Threat Recall</div><div class="value" id="recallCard">__INITIAL_RECALL__</div><div class="badges"><div class="badge" id="checkpointCard">__INITIAL_CHECKPOINT__</div><div class="badge" id="bundleCard">__INITIAL_BUNDLE__</div></div></div>
     </div>
     <div class="grid">
-      <div class="panel"><div class="label">Progress Details</div><pre id="progressJson">{}</pre></div>
-      <div class="panel"><div class="label">Sentinel</div><pre id="sentinel">{}</pre></div>
-      <div class="panel"><div class="label">Expert</div><pre id="expert">{}</pre></div>
-      <div class="panel"><div class="label">Stacker / Eval</div><pre id="metrics">{}</pre></div>
+      <div class="panel"><div class="label">Progress Details</div><pre id="progressJson">__INITIAL_PROGRESS_JSON__</pre></div>
+      <div class="panel"><div class="label">Sentinel</div><pre id="sentinel">__INITIAL_SENTINEL_JSON__</pre></div>
+      <div class="panel"><div class="label">Expert</div><pre id="expert">__INITIAL_EXPERT_JSON__</pre></div>
+      <div class="panel"><div class="label">Stacker / Eval</div><pre id="metrics">__INITIAL_METRICS_JSON__</pre></div>
     </div>
     <div class="grid">
-      <div class="panel"><div class="label">Recent Events</div><pre id="events">[]</pre></div>
-      <div class="panel"><div class="label">Files</div><pre id="files">{}</pre></div>
+      <div class="panel"><div class="label">Recent Events</div><pre id="events">__INITIAL_EVENTS_JSON__</pre></div>
+      <div class="panel"><div class="label">Files</div><pre id="files">__INITIAL_FILES_JSON__</pre></div>
     </div>
     <div class="panel">
       <div class="label">Live Log</div>
@@ -485,23 +751,23 @@ def _html_page(initial_state: dict[str, Any] | None = None) -> bytes:
   <script>
     let offset = 0;
     let initialized = false;
-    window.__INITIAL_STATE__ = __INITIAL_STATE__;
+    window.__SB_INITIAL_STATE__ = __INITIAL_STATE_JSON__;
     const pretty = (value) => JSON.stringify(value ?? {}, null, 2);
-    async function refreshState() {
-      const response = await fetch('/api/state', { cache: 'no-store' });
-      const payload = await response.json();
+    function renderState(payload) {
       const status = payload.status ?? {};
       const progress = payload.progress ?? {};
       const dashboard = payload.dashboard ?? {};
       const metrics = progress.metrics ?? {};
       document.getElementById('runDir').textContent = payload.runDir;
-      document.getElementById('initialStage').textContent = `Current stage: ${dashboard.currentStage ?? progress.currentStage ?? status.currentStage ?? status.currentStep ?? 'idle'}`;
+      const stageName = dashboard.currentStage ?? progress.currentStage ?? status.currentStage ?? status.currentStep ?? 'idle';
+      const phaseName = dashboard.phase ?? progress.phase;
+      document.getElementById('initialStage').textContent = phaseName ? `Current stage: ${stageName} / ${phaseName}` : `Current stage: ${stageName}`;
       document.getElementById('state').textContent = dashboard.state ?? status.state ?? progress.state ?? 'unknown';
-      document.getElementById('stage').textContent = dashboard.currentStage ?? progress.currentStage ?? status.currentStage ?? status.currentStep ?? 'idle';
+      document.getElementById('stage').textContent = stageName;
       const current = dashboard.recordsSeen ?? progress.currentItems ?? 0;
       const total = dashboard.totalTargetRecords ?? progress.totalItems ?? 0;
       const unit = progress.unit ?? 'items';
-      document.getElementById('progressText').textContent = total ? `${current.toLocaleString()} / ${total.toLocaleString()} ${unit}` : `${current.toLocaleString()} ${unit}`;
+      document.getElementById('progressText').textContent = dashboard.displayProgressText ?? progress.displayProgressText ?? (total ? `${current.toLocaleString()} / ${total.toLocaleString()} ${unit}` : `${current.toLocaleString()} ${unit}`);
       const stagePercent = dashboard.progressFraction != null ? (Number(dashboard.progressFraction) * 100) : (progress.percent ?? 0);
       const overallPercent = dashboard.overallProgressFraction != null ? (Number(dashboard.overallProgressFraction) * 100) : stagePercent;
       document.getElementById('percent').textContent = `${stagePercent.toFixed(2)}% stage`;
@@ -528,12 +794,17 @@ def _html_page(initial_state: dict[str, Any] | None = None) -> bytes:
       const nonfinite = dashboard.consecutiveNonfiniteGradients ?? metrics.consecutiveNonfiniteGradients;
       const gpuAllocated = dashboard.gpuMemoryAllocatedMb ?? metrics.gpuMemoryAllocatedMb;
       const gpuReserved = dashboard.gpuMemoryReservedMb ?? metrics.gpuMemoryReservedMb;
+      const gpuUtil = dashboard.gpuUtilizationPercent;
+      const gpuMemoryUsed = dashboard.gpuMemoryUsedMb;
+      const gpuMemoryTotal = dashboard.gpuMemoryTotalMb;
       const stabilityParts = [];
       if (gradientNorm != null) stabilityParts.push(`grad ${Number(gradientNorm).toFixed(3)}`);
       if (labelEntropy != null) stabilityParts.push(`entropy ${Number(labelEntropy).toFixed(3)}`);
       if (nonfinite != null) stabilityParts.push(`nonfinite ${Number(nonfinite)}`);
       if (gpuAllocated != null) stabilityParts.push(`gpu ${Number(gpuAllocated).toFixed(0)}MB`);
       if (gpuReserved != null) stabilityParts.push(`reserved ${Number(gpuReserved).toFixed(0)}MB`);
+      if (gpuUtil != null) stabilityParts.push(`util ${Number(gpuUtil).toFixed(0)}%`);
+      if (gpuMemoryUsed != null && gpuMemoryTotal != null) stabilityParts.push(`vram ${Number(gpuMemoryUsed).toFixed(0)}/${Number(gpuMemoryTotal).toFixed(0)}MB`);
       document.getElementById('stabilityCard').textContent = stabilityParts.length ? stabilityParts.join(' | ') : '-';
       const validRecall = dashboard.validThreatRecall ?? payload.validMetrics?.threatRecall ?? metrics.validThreatRecall;
       const testRecall = dashboard.testThreatRecall ?? payload.testMetrics?.threatRecall ?? metrics.testThreatRecall;
@@ -551,6 +822,11 @@ def _html_page(initial_state: dict[str, Any] | None = None) -> bytes:
         offset = Math.max(0, (trainLog.size ?? 0) - 65536);
         initialized = true;
       }
+    }
+    async function refreshState() {
+      const response = await fetch('/api/state', { cache: 'no-store' });
+      const payload = await response.json();
+      renderState(payload);
     }
     async function refreshLog() {
       const response = await fetch(`/api/log?offset=${offset}`, { cache: 'no-store' });
@@ -574,13 +850,22 @@ def _html_page(initial_state: dict[str, Any] | None = None) -> bytes:
         document.getElementById('stage').textContent = String(error);
       }
     }
+    if (window.__SB_INITIAL_STATE__ && window.__SB_INITIAL_STATE__.runDir) {
+      renderState(window.__SB_INITIAL_STATE__);
+    }
     tick();
     setInterval(tick, 2000);
   </script>
 </body>
 </html>
 """
-    return html.replace("__INITIAL_STATE__", initial_payload).replace("__INITIAL_STAGE__", initial_stage).encode("utf-8")
+    for token, value in initial_values.items():
+        page_html = page_html.replace(token, value)
+    return (
+        page_html.replace("__INITIAL_STATE_JSON__", initial_payload)
+        .replace("__INITIAL_STAGE__", html.escape(initial_stage))
+        .encode("utf-8")
+    )
 
 
 class _TrainingMonitorHandler(BaseHTTPRequestHandler):
@@ -590,6 +875,9 @@ class _TrainingMonitorHandler(BaseHTTPRequestHandler):
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -603,6 +891,9 @@ class _TrainingMonitorHandler(BaseHTTPRequestHandler):
             body = _html_page(load_training_run_state(self.run_dir))
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -613,7 +904,8 @@ class _TrainingMonitorHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/log":
             query = parse_qs(parsed.query)
             offset = max(0, int(query.get("offset", ["0"])[0]))
-            self._json_response(_read_log_chunk(self.run_dir / "train.log", offset=offset))
+            train_log_path = _preferred_train_log_path(self.run_dir)
+            self._json_response(_read_log_chunk(train_log_path, offset=offset))
             return
         self._json_response({"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
 

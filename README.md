@@ -16,7 +16,7 @@ As of April 5, 2026:
 - `@safebrowse/playwright-adapter`: reference payload builder for Playwright hosts
 - KB tooling, release gates, parity tests, and internal assessment tooling
 
-`@safebrowse/kb-tools`, the approval broker, and the private model-guard sidecar are repo components, but they are not all public publish surfaces.
+`@safebrowse/kb-tools`, the approval broker, and model-guard training/runtime code are repo components, but they are not all public publish surfaces.
 
 ## Secure V6 Contract
 
@@ -44,6 +44,22 @@ The daemon exposes:
 - `POST /v6/memory/rollback`
 - `POST /v6/replay/bundle`
 - `GET /health`
+
+## Model-Guard Protocol
+
+The next release supports the model guard as a public daemon protocol and safety contract, not as public model weights. Compatible private sidecars can be connected through:
+
+- `--model-guard-url`
+- `--model-guard-timeout-ms`
+- `--model-guard-enforcement-mode off|shadow|tighten`
+
+Modes are intentionally conservative:
+
+- `off`: no observation scoring, even if a model URL is configured
+- `shadow`: score deterministic `ALLOW` observations and return `compiledObservation.modelAssessment` without changing verdicts or authorities
+- `tighten`: score deterministic `ALLOW` observations and only apply stricter outcomes
+
+The model cannot mint authorities, widen origins, lower approval requirements, or override deterministic V6 blocks. Trained runtime bundles, checkpoints, adapters, and raw datasets remain private deploy artifacts and must not be published in npm, PyPI, or GHCR SDK artifacts.
 
 ## Supported Secure Surfaces
 
@@ -155,7 +171,7 @@ This branch contains newer V6 functionality than `v0.1.4`. Do not assume every f
 
 ## Internal Assessment vs External Audit
 
-Repo-generated review output is labeled as an internal assessment, not an external audit opinion. The latest saved internal bundle lives under:
+Repo-generated review output and model-guard assessments are labeled as internal assessment, not external audit opinion. The latest saved internal bundle lives under:
 
 - [demo-output/latest/report.md](demo-output/latest/report.md)
 - [demo-output/latest/internal-assessment.md](demo-output/latest/internal-assessment.md)

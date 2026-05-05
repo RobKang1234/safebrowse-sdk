@@ -1280,9 +1280,11 @@ export type ModelGuardDecisionLabel =
   | "require_user_approval"
   | "deny";
 
+export type ModelGuardEnforcementMode = "off" | "shadow" | "tighten";
+
 export interface ModelGuardPipelineMetadata {
   runtimeMode: "python_sidecar";
-  enforcementMode: "tighten";
+  enforcementMode: ModelGuardEnforcementMode;
   scoredAt: string;
   latencyMs?: number;
   sentinelVersion?: string;
@@ -1294,6 +1296,8 @@ export interface ModelGuardAssessment {
   assessmentId: string;
   bundleVersion: string;
   featureSchemaVersion: string;
+  bundleDigest?: string;
+  componentDigests?: Record<string, string>;
   binaryThreatProbability: number;
   decisionLabel: ModelGuardDecisionLabel;
   calibratedDecisionLabel: ModelGuardDecisionLabel;
@@ -1374,9 +1378,11 @@ export interface ModelGuardHealthResponse {
   status: "ok" | "error";
   ready: boolean;
   runtimeMode: "python_sidecar";
-  enforcementMode: "tighten";
+  enforcementMode: ModelGuardEnforcementMode;
   bundleVersion?: string;
   featureSchemaVersion?: string;
+  bundleDigest?: string;
+  componentDigests?: Record<string, string>;
 }
 
 export interface CompiledObservationV6 extends CompiledObservationV5 {

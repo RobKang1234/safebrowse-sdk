@@ -13,7 +13,7 @@ Usage:
   safebrowse-daemon [--host 127.0.0.1] [--port 8787] [--root-dir <path>] [--deployment-profile development|secure_v6]
                     [--approval-broker-mode signature_verification|external_service]
                     [--parser-isolation-mode scrubbed_process|node_permission_process]
-                    [--model-guard-url <url>] [--model-guard-timeout-ms <ms>] [--model-guard-enforcement-mode off|tighten]
+                    [--model-guard-url <url>] [--model-guard-timeout-ms <ms>] [--model-guard-enforcement-mode off|shadow|tighten]
 
 Environment:
   SAFEBROWSE_HOST
@@ -42,6 +42,10 @@ function parsePositiveInt(value: string, field: string): number {
     throw new Error(`Invalid ${field}: ${value}`);
   }
   return parsed;
+}
+
+function isModelGuardEnforcementMode(value: string): value is "off" | "shadow" | "tighten" {
+  return value === "off" || value === "shadow" || value === "tighten";
 }
 
 export function formatDaemonHelp(): string {
@@ -99,7 +103,7 @@ export function parseDaemonOptions(
   if (envModelGuardTimeoutMs) {
     options.modelGuardTimeoutMs = parsePositiveInt(envModelGuardTimeoutMs, "model guard timeout");
   }
-  if (envModelGuardEnforcementMode === "off" || envModelGuardEnforcementMode === "tighten") {
+  if (envModelGuardEnforcementMode && isModelGuardEnforcementMode(envModelGuardEnforcementMode)) {
     options.modelGuardEnforcementMode = envModelGuardEnforcementMode;
   }
 
@@ -197,10 +201,10 @@ export function parseDaemonOptions(
 
     if (arg === "--model-guard-enforcement-mode") {
       const value = queue.shift();
-      if (!value || !["off", "tighten"].includes(value)) {
+      if (!value || !isModelGuardEnforcementMode(value)) {
         throw new Error("Invalid value for --model-guard-enforcement-mode");
       }
-      options.modelGuardEnforcementMode = value as "off" | "tighten";
+      options.modelGuardEnforcementMode = value;
       continue;
     }
 

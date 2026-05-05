@@ -43,9 +43,10 @@ In-scope components include:
 - attachment extraction
 - email and external-API authority binding
 - replay and redaction logic
+- model-guard daemon protocol, health metadata, and tighten/shadow enforcement semantics
 - public release artifacts on npm, PyPI, and GHCR
 
-The live threat lab and demo output are research surfaces, not production isolation boundaries, but vulnerabilities that weaken the real daemon or runtime through those paths are still in scope.
+The trained model bundle, raw training data, checkpoints, and local sidecar deployment artifacts are private deploy material, not public SDK artifacts. The live threat lab and demo output are research surfaces, not production isolation boundaries, but vulnerabilities that weaken the real daemon or runtime through those paths are still in scope.
 
 ## Response Goals
 
@@ -65,4 +66,4 @@ Public releases are expected to use:
 
 ## Disclosure Notes
 
-Repo-generated internal assessment files are not external auditor opinions. If a vulnerability affects a release claim, update the public docs, release notes, and version manifest together so users can tell which published versions are impacted.
+Repo-generated internal assessment files and model-guard assessments are not external auditor opinions. If a vulnerability affects a release claim, update the public docs, release notes, and version manifest together so users can tell which published versions are impacted.

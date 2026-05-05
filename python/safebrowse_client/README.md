@@ -4,6 +4,8 @@ Thin Python client for the SafeBrowse localhost daemon.
 
 The client is intentionally narrow: policy enforcement lives in the daemon, while this package provides convenient request helpers for the current `/v6/*` API surface.
 
+Model-guard support is exposed through daemon responses such as `GET /health` and `compiledObservation.modelAssessment`. The Python client does not package or download trained model bundles; compatible sidecars and bundles are private deployment material.
+
 ## Install
 
 ```bash
