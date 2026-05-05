@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   cut_release:
-    if: ${{ github.actor != 'github-actions[bot]' && startsWith(github.event.head_commit.message, 'chore: release v') == false }}
+    if: "${{ github.actor != 'github-actions[bot]' && startsWith(github.event.head_commit.message, 'chore: release v') == false }}"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
